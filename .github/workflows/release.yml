@@ -1,0 +1,83 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build Release Binary (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: horama-windows-x64.zip
+            binary_name: horama.exe
+            target_path: target/release/horama.exe
+          - os: ubuntu-latest
+            artifact_name: horama-ubuntu-x64.tar.gz
+            binary_name: horama
+            target_path: target/release/horama
+          - os: macos-latest
+            artifact_name: horama-macos.tar.gz
+            binary_name: horama
+            target_path: target/release/horama
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libx11-dev libxkbcommon-dev libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev libgl1-mesa-dev
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Optimized Release Binary
+        run: cargo build --release
+
+      - name: Package Windows Artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          mkdir staging
+          Copy-Item target/release/horama.exe staging/
+          Copy-Item LICENSE staging/
+          Copy-Item README.md staging/
+          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.artifact_name }}
+
+      - name: Package Ubuntu Artifact
+        if: runner.os == 'Linux'
+        run: |
+          mkdir staging
+          cp target/release/horama staging/
+          cp LICENSE staging/
+          cp README.md staging/
+          tar -czvf ${{ matrix.artifact_name }} -C staging .
+
+      - name: Package macOS Artifact
+        if: runner.os == 'macOS'
+        run: |
+          mkdir staging
+          cp target/release/horama staging/
+          cp LICENSE staging/
+          cp README.md staging/
+          tar -czvf ${{ matrix.artifact_name }} -C staging .
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

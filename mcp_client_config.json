@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "horama": {
+      "command": "C:\\path\\to\\horama.exe",
+      "args": ["--mcp"]
+    }
+  }
+}

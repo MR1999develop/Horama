@@ -1,0 +1,25 @@
+# Build artifacts
+/target/
+/staging/
+*.exe
+*.pdb
+*.ilk
+*.zip
+*.tar.gz
+
+# Operating system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor and IDE configurations
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~

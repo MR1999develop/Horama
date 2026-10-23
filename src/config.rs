@@ -1,0 +1,435 @@
+//! Configuration, supported file extensions, folder scanning, and persistent settings.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
+
+pub const APP_NAME: &str = "Horama";
+pub const MAX_RECENT_FOLDERS: usize = 10;
+pub const THUMBNAIL_WIDTH: u32 = 140;
+pub const THUMBNAIL_HEIGHT: u32 = 100;
+pub const CACHE_FREE_RAM_RATIO: f64 = 0.65;
+
+pub const PROFILE_EMBEDDED: &str = "Embedded Profile";
+pub const PROFILE_SRGB: &str = "sRGB IEC61966-2.1";
+pub const PROFILE_ADOBE_RGB: &str = "Adobe RGB (1998)";
+pub const PROFILE_PROPHOTO: &str = "ProPhoto RGB (ROMM RGB)";
+pub const PROFILE_DISPLAY_P3: &str = "Display P3";
+pub const PROFILE_REC2020: &str = "Rec.2020";
+pub const PROFILE_REC709: &str = "Rec.709";
+pub const PROFILE_WIDE_GAMUT: &str = "Wide Gamut RGB";
+pub const PROFILE_CIE_RGB: &str = "CIE RGB";
+pub const PROFILE_APPLE_RGB: &str = "Apple RGB";
+pub const PROFILE_LOAD_CUSTOM: &str = "Load Custom ICC/ICM Profile...";
+
+pub const DEFAULT_FALLBACK_PROFILE: &str = PROFILE_SRGB;
+
+pub const BUILTIN_PROFILES: &[&str] = &[
+    PROFILE_EMBEDDED,
+    PROFILE_SRGB,
+    PROFILE_ADOBE_RGB,
+    PROFILE_PROPHOTO,
+    PROFILE_DISPLAY_P3,
+    PROFILE_REC2020,
+    PROFILE_REC709,
+    PROFILE_WIDE_GAMUT,
+    PROFILE_CIE_RGB,
+    PROFILE_APPLE_RGB,
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSettings {
+    pub last_folder: String,
+    #[serde(default)]
+    pub last_subfolder: String,
+    pub recent_folders: Vec<String>,
+    pub custom_profiles: Vec<String>,
+    #[serde(default)]
+    pub image_ratings: std::collections::HashMap<String, u8>,
+    #[serde(default = "default_window_width")]
+    pub window_width: u32,
+    #[serde(default = "default_window_height")]
+    pub window_height: u32,
+    #[serde(default)]
+    pub window_maximized: bool,
+    #[serde(default = "default_shortcuts")]
+    pub shortcuts: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub saved_aspect_ratios: Vec<String>,
+}
+
+pub fn default_shortcuts() -> std::collections::HashMap<String, String> {
+    let mut m = std::collections::HashMap::new();
+    m.insert("undo".to_string(), "Ctrl+Z".to_string());
+    m.insert("redo".to_string(), "Ctrl+Y".to_string());
+    m.insert("zoom_in".to_string(), "+".to_string());
+    m.insert("zoom_out".to_string(), "-".to_string());
+    m.insert("zoom_fit".to_string(), "Ctrl+0".to_string());
+    m.insert("zoom_100".to_string(), "Ctrl+1".to_string());
+    m.insert("rotate_cw".to_string(), "R".to_string());
+    m.insert("rotate_ccw".to_string(), "L".to_string());
+    m.insert("toggle_crop".to_string(), "C".to_string());
+    m.insert("next_image".to_string(), "Right".to_string());
+    m.insert("prev_image".to_string(), "Left".to_string());
+    m.insert("jump_forward_10".to_string(), "Up".to_string());
+    m.insert("jump_backward_10".to_string(), "Down".to_string());
+    m.insert("cycle_profile".to_string(), "P".to_string());
+    m.insert("open_shortcuts".to_string(), "S".to_string());
+    m.insert("rename".to_string(), "F2".to_string());
+    m.insert("delete".to_string(), "Delete".to_string());
+    m.insert("refresh".to_string(), "F5".to_string());
+    m.insert("open_file".to_string(), "Ctrl+O".to_string());
+    m.insert("open_folder".to_string(), "Ctrl+Shift+O".to_string());
+    m.insert("save".to_string(), "Ctrl+S".to_string());
+    m
+}
+
+fn default_window_width() -> u32 {
+    1440
+}
+
+fn default_window_height() -> u32 {
+    900
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            last_folder: String::new(),
+            last_subfolder: String::new(),
+            recent_folders: Vec::new(),
+            custom_profiles: Vec::new(),
+            image_ratings: std::collections::HashMap::new(),
+            window_width: 1440,
+            window_height: 900,
+            window_maximized: false,
+            shortcuts: default_shortcuts(),
+            saved_aspect_ratios: Vec::new(),
+        }
+    }
+}
+
+impl AppSettings {
+    pub fn config_file_path() -> PathBuf {
+        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        let dir = base.join(APP_NAME);
+        let _ = fs::create_dir_all(&dir);
+        dir.join("settings.json")
+    }
+
+    pub fn load() -> Self {
+        let path = Self::config_file_path();
+        if let Ok(data) = fs::read_to_string(path) {
+            if let Ok(mut parsed) = serde_json::from_str::<AppSettings>(&data) {
+                let defaults = default_shortcuts();
+                for (k, v) in defaults {
+                    parsed.shortcuts.entry(k).or_insert(v);
+                }
+                return parsed;
+            }
+        }
+        Self::default()
+    }
+
+    pub fn save(&self) {
+        let path = Self::config_file_path();
+        if let Ok(json) = serde_json::to_string_pretty(self) {
+            let _ = fs::write(path, json);
+        }
+    }
+
+    pub fn add_recent_folder(&mut self, folder: &str) {
+        let norm = normalize_path(folder);
+        self.last_folder = norm.clone();
+        self.recent_folders
+            .retain(|f| f.to_lowercase() != norm.to_lowercase());
+        self.recent_folders.insert(0, norm);
+        if self.recent_folders.len() > MAX_RECENT_FOLDERS {
+            self.recent_folders.truncate(MAX_RECENT_FOLDERS);
+        }
+        self.save();
+    }
+
+    pub fn remove_recent_folder(&mut self, folder: &str) {
+        let norm = normalize_path(folder);
+        self.recent_folders
+            .retain(|f| f.to_lowercase() != norm.to_lowercase());
+        self.save();
+    }
+
+    pub fn get_rating(&self, path: &str) -> u8 {
+        let norm = normalize_path(path).to_lowercase();
+        self.image_ratings.get(&norm).copied().unwrap_or(0)
+    }
+
+    pub fn set_rating(&mut self, path: &str, rating: u8) {
+        let norm = normalize_path(path).to_lowercase();
+        if rating == 0 {
+            self.image_ratings.remove(&norm);
+        } else {
+            self.image_ratings.insert(norm, rating.min(5));
+        }
+        self.save();
+    }
+
+    pub fn clear_recent_folders(&mut self) {
+        self.recent_folders.clear();
+        self.save();
+    }
+}
+
+pub fn normalize_path(p: &str) -> String {
+    Path::new(p)
+        .components()
+        .collect::<PathBuf>()
+        .to_string_lossy()
+        .to_string()
+}
+
+pub fn is_raw_extension(ext: &str) -> bool {
+    matches!(
+        ext.to_lowercase().as_str(),
+        "cr2"
+            | "cr3"
+            | "crw"
+            | "nef"
+            | "nrw"
+            | "arw"
+            | "srf"
+            | "sr2"
+            | "dng"
+            | "orf"
+            | "rw2"
+            | "raw"
+            | "pef"
+            | "raf"
+            | "erf"
+            | "3fr"
+            | "fff"
+            | "iiq"
+            | "mrw"
+            | "mos"
+            | "x3f"
+            | "srw"
+    )
+}
+
+pub fn is_standard_extension(ext: &str) -> bool {
+    matches!(
+        ext.to_lowercase().as_str(),
+        "jpg"
+            | "jpeg"
+            | "jpe"
+            | "jfif"
+            | "tif"
+            | "tiff"
+            | "png"
+            | "webp"
+            | "bmp"
+            | "dib"
+            | "gif"
+            | "ppm"
+            | "pgm"
+            | "pbm"
+            | "pnm"
+            | "ico"
+            | "tga"
+    )
+}
+
+pub fn is_supported_file(path: &Path) -> bool {
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        is_standard_extension(ext) || is_raw_extension(ext)
+    } else {
+        false
+    }
+}
+
+pub fn is_raw_file(path: &Path) -> bool {
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        is_raw_extension(ext)
+    } else {
+        false
+    }
+}
+
+#[allow(dead_code)]
+pub fn scan_folder_recursive(folder: &str) -> Vec<String> {
+    let root = Path::new(folder);
+    if !root.is_dir() {
+        return Vec::new();
+    }
+    let mut files = Vec::new();
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            e.file_name()
+                .to_str()
+                .map(|s| !s.starts_with('.'))
+                .unwrap_or(true)
+        })
+        .flatten()
+    {
+        if entry.file_type().is_file() && is_supported_file(entry.path()) {
+            files.push(normalize_path(&entry.path().to_string_lossy()));
+        }
+    }
+    files.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    files
+}
+
+/// Hierarchical depth-first path comparator.
+/// Compares two subdirectory paths component-by-component so that children stay directly under their parent.
+pub fn compare_paths_hierarchical(root: &str, a: &str, b: &str) -> std::cmp::Ordering {
+    let p_root = Path::new(root);
+    let p_a = Path::new(a);
+    let p_b = Path::new(b);
+
+    let root_comps: Vec<String> = p_root
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .collect();
+    let a_comps: Vec<String> = p_a
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .collect();
+    let b_comps: Vec<String> = p_b
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .collect();
+
+    let rel_a: &[String] = if a_comps.len() >= root_comps.len()
+        && root_comps.iter().zip(a_comps.iter()).all(|(r, a)| r == a)
+    {
+        &a_comps[root_comps.len()..]
+    } else {
+        &a_comps[..]
+    };
+
+    let rel_b: &[String] = if b_comps.len() >= root_comps.len()
+        && root_comps.iter().zip(b_comps.iter()).all(|(r, b)| r == b)
+    {
+        &b_comps[root_comps.len()..]
+    } else {
+        &b_comps[..]
+    };
+
+    for (ca, cb) in rel_a.iter().zip(rel_b.iter()) {
+        let ord = ca.cmp(cb);
+        if ord != std::cmp::Ordering::Equal {
+            return ord;
+        }
+    }
+    rel_a.len().cmp(&rel_b.len())
+}
+
+/// Discover all subdirectories under root_folder for the Folder Tree view.
+#[allow(dead_code)]
+pub fn discover_subfolders(root_folder: &str, all_files: &[String]) -> Vec<String> {
+    let root = Path::new(root_folder);
+    let norm_root = normalize_path(root_folder);
+    let mut subdirs: HashSet<String> = HashSet::new();
+
+    for f in all_files {
+        let mut curr = Path::new(f).parent();
+        while let Some(p) = curr {
+            let norm_p = normalize_path(&p.to_string_lossy());
+            if norm_p.to_lowercase() == norm_root.to_lowercase()
+                || norm_p.len() <= norm_root.len()
+            {
+                break;
+            }
+            subdirs.insert(norm_p);
+            curr = p.parent();
+        }
+    }
+
+    for entry in WalkDir::new(root)
+        .min_depth(1)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            e.file_name()
+                .to_str()
+                .map(|s| !s.starts_with('.'))
+                .unwrap_or(true)
+        })
+        .flatten()
+    {
+        if entry.file_type().is_dir() {
+            subdirs.insert(normalize_path(&entry.path().to_string_lossy()));
+        }
+    }
+
+    let mut sorted: Vec<String> = subdirs.into_iter().collect();
+    sorted.sort_by(|a, b| compare_paths_hierarchical(&norm_root, a, b));
+    sorted
+}
+
+/// Single-pass high-speed scanner that collects all supported image files and subdirectories simultaneously.
+pub fn scan_folder_and_subfolders(folder: &str) -> (Vec<String>, Vec<String>) {
+    let root = Path::new(folder);
+    if !root.is_dir() {
+        return (Vec::new(), Vec::new());
+    }
+    let norm_root = normalize_path(folder);
+    let mut files = Vec::new();
+    let mut subdirs: HashSet<String> = HashSet::new();
+
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            e.file_name()
+                .to_str()
+                .map(|s| !s.starts_with('.'))
+                .unwrap_or(true)
+        })
+        .flatten()
+    {
+        let p = entry.path();
+        if entry.file_type().is_dir() {
+            let norm_p = normalize_path(&p.to_string_lossy());
+            if norm_p.to_lowercase() != norm_root.to_lowercase() && norm_p.len() > norm_root.len() {
+                subdirs.insert(norm_p);
+            }
+        } else if entry.file_type().is_file() && is_supported_file(p) {
+            files.push(normalize_path(&p.to_string_lossy()));
+        }
+    }
+
+    files.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+
+    let mut sorted_subdirs: Vec<String> = subdirs.into_iter().collect();
+    sorted_subdirs.sort_by(|a, b| compare_paths_hierarchical(&norm_root, a, b));
+
+    (files, sorted_subdirs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hierarchical_path_sorting() {
+        let root = "C:\\Photos";
+        let mut paths = vec![
+            "C:\\Photos\\2025\\Trip".to_string(),
+            "C:\\Photos\\2024".to_string(),
+            "C:\\Photos\\2024\\Vacation\\Beach".to_string(),
+            "C:\\Photos\\2024\\Vacation".to_string(),
+            "C:\\Photos\\2025".to_string(),
+        ];
+        paths.sort_by(|a, b| compare_paths_hierarchical(root, a, b));
+        assert_eq!(paths, vec![
+            "C:\\Photos\\2024",
+            "C:\\Photos\\2024\\Vacation",
+            "C:\\Photos\\2024\\Vacation\\Beach",
+            "C:\\Photos\\2025",
+            "C:\\Photos\\2025\\Trip",
+        ]);
+    }
+}

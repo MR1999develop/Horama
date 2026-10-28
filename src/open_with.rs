@@ -85,7 +85,9 @@ mod win_impl {
     #[link(name = "user32")]
     #[link(name = "gdi32")]
     extern "system" {
-        fn CoInitialize(pvReserved: *mut c_void) -> i32;
+        fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> i32;
+        fn CoUninitialize();
+        fn GetObjectW(h: *mut c_void, c: i32, pv: *mut c_void) -> i32;
         fn CoTaskMemFree(pv: *mut c_void);
 
         fn SHAssocEnumHandlers(
@@ -134,6 +136,34 @@ mod win_impl {
         ) -> i32;
     }
 
+    #[repr(C)]
+    struct BITMAP {
+        bm_type: i32,
+        bm_width: i32,
+        bm_height: i32,
+        bm_width_bytes: i32,
+        bm_planes: u16,
+        bm_bits_pixel: u16,
+        bm_bits: *mut c_void,
+    }
+
+    /// Balanced COM initialization for the current thread.
+    struct ComGuard(bool);
+    impl ComGuard {
+        fn new() -> Self {
+            // COINIT_APARTMENTTHREADED = 2. S_OK (0) and S_FALSE (1) both require CoUninitialize.
+            let hr = unsafe { CoInitializeEx(ptr::null_mut(), 2) };
+            ComGuard(hr >= 0)
+        }
+    }
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe { CoUninitialize() };
+            }
+        }
+    }
+
     type VTable = *const *const usize;
 
     unsafe fn call_release(p: *mut c_void) {
@@ -163,8 +193,15 @@ mod win_impl {
             return None;
         }
 
-        let width = 16i32;
-        let height = 16i32;
+        let target_bitmap = if !ii.hbm_color.is_null() { ii.hbm_color } else { ii.hbm_mask };
+        let mut bm: BITMAP = std::mem::zeroed();
+        let got = GetObjectW(target_bitmap, std::mem::size_of::<BITMAP>() as i32, &mut bm as *mut BITMAP as *mut c_void);
+        let width = if got != 0 && bm.bm_width > 0 { bm.bm_width.min(256) } else { 16 };
+        let mut height = if got != 0 && bm.bm_height > 0 { bm.bm_height.min(256) } else { 16 };
+        if ii.hbm_color.is_null() {
+            // Monochrome icons store AND and XOR masks stacked vertically.
+            height = (height / 2).max(1);
+        }
         let mut bmi = std::mem::zeroed::<BITMAPINFOHEADER>();
         bmi.bi_size = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
         bmi.bi_width = width;
@@ -174,11 +211,6 @@ mod win_impl {
         bmi.bi_compression = 0; // BI_RGB
 
         let mut buf = vec![0u8; (width * height * 4) as usize];
-        let target_bitmap = if !ii.hbm_color.is_null() {
-            ii.hbm_color
-        } else {
-            ii.hbm_mask
-        };
 
         let lines = GetDIBits(
             hdc,
@@ -198,13 +230,11 @@ mod win_impl {
             return None;
         }
 
-        // Convert BGRA to RGBA and ensure visible alpha
+        // Convert BGRA to RGBA. Icons without an alpha channel (all alpha = 0) are opaque.
+        let has_alpha = buf.chunks_exact(4).any(|c| c[3] != 0);
         for chunk in buf.chunks_exact_mut(4) {
-            let b = chunk[0];
-            let r = chunk[2];
-            chunk[0] = r;
-            chunk[2] = b;
-            if chunk[3] == 0 && (chunk[0] != 0 || chunk[1] != 0 || chunk[2] != 0) {
+            chunk.swap(0, 2);
+            if !has_alpha {
                 chunk[3] = 255;
             }
         }
@@ -213,12 +243,12 @@ mod win_impl {
     }
 
     /// Extract icon for a given file path or application name.
-    unsafe fn extract_app_icon(app_path: &str) -> Option<(u32, u32, Vec<u8>)> {
+    unsafe fn extract_app_icon(app_path: &str, icon_index: i32) -> Option<(u32, u32, Vec<u8>)> {
         let wide: Vec<u16> = app_path.encode_utf16().chain(std::iter::once(0)).collect();
 
         // 1. Try ExtractIconExW
         let mut h_small: *mut c_void = ptr::null_mut();
-        if ExtractIconExW(wide.as_ptr(), 0, ptr::null_mut(), &mut h_small, 1) > 0 && !h_small.is_null() {
+        if ExtractIconExW(wide.as_ptr(), icon_index, ptr::null_mut(), &mut h_small, 1) > 0 && !h_small.is_null() {
             let res = hicon_to_rgba(h_small);
             DestroyIcon(h_small);
             if res.is_some() {
@@ -255,9 +285,8 @@ mod win_impl {
 
         let ext_wide: Vec<u16> = ext.encode_utf16().chain(std::iter::once(0)).collect();
 
+        let _com = ComGuard::new();
         unsafe {
-            let _ = CoInitialize(ptr::null_mut());
-
             let mut enum_handlers: *mut c_void = ptr::null_mut();
             // ASSOC_FILTER_RECOMMENDED = 1
             let hr = SHAssocEnumHandlers(ext_wide.as_ptr(), 1, &mut enum_handlers);
@@ -270,7 +299,9 @@ mod win_impl {
                     *mut u32,
                 ) -> i32 = std::mem::transmute(*vt.add(3));
 
-                let mut idx = 0;
+                // `enum_idx` counts every handler returned by the enumerator, so the id stored
+                // in each item matches the position used by `launch_handler`.
+                let mut enum_idx: i32 = -1;
                 loop {
                     let mut handler: *mut c_void = ptr::null_mut();
                     let mut fetched = 0u32;
@@ -278,6 +309,7 @@ mod win_impl {
                     if r != 0 || fetched == 0 || handler.is_null() {
                         break;
                     }
+                    enum_idx += 1;
 
                     let h_vt = *(handler as VTable);
                     let get_ui_name: extern "system" fn(*mut c_void, *mut *mut u16) -> i32 =
@@ -307,7 +339,7 @@ mod win_impl {
                         while *icon_loc_ptr.add(len) != 0 { len += 1; }
                         let s = String::from_utf16_lossy(std::slice::from_raw_parts(icon_loc_ptr, len));
                         CoTaskMemFree(icon_loc_ptr as *mut c_void);
-                        if !s.starts_with('@') && s.ends_with(".exe") {
+                        if !s.starts_with('@') && !s.is_empty() {
                             path_for_icon = s;
                         }
                     }
@@ -317,15 +349,16 @@ mod win_impl {
                         while *name_ptr.add(len) != 0 { len += 1; }
                         let s = String::from_utf16_lossy(std::slice::from_raw_parts(name_ptr, len));
                         CoTaskMemFree(name_ptr as *mut c_void);
-                        if s.ends_with(".exe") {
+                        if s.to_lowercase().ends_with(".exe") {
                             path_for_icon = s;
+                            icon_idx = 0;
                         }
                     }
 
                     let trimmed = ui_name_str.trim().to_string();
                     if !trimmed.is_empty() && trimmed != "None" && !results.iter().any(|item: &OpenWithItem| item.name == trimmed) {
                         let icon_data = if !path_for_icon.is_empty() {
-                            extract_app_icon(&path_for_icon)
+                            extract_app_icon(&path_for_icon, icon_idx)
                         } else {
                             None
                         };
@@ -336,13 +369,12 @@ mod win_impl {
                         };
 
                         results.push(OpenWithItem {
-                            id: idx,
+                            id: enum_idx,
                             name: trimmed,
                             icon_rgba,
                             icon_width,
                             icon_height,
                         });
-                        idx += 1;
                     }
 
                     call_release(handler);
@@ -369,9 +401,8 @@ mod win_impl {
         let ext_wide: Vec<u16> = ext.encode_utf16().chain(std::iter::once(0)).collect();
         let file_wide: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
 
+        let _com = ComGuard::new();
         unsafe {
-            let _ = CoInitialize(ptr::null_mut());
-
             // 1. Create ShellItem and DataObject for the file
             let mut shell_item: *mut c_void = ptr::null_mut();
             let hr_item = SHCreateItemFromParsingName(
@@ -577,6 +608,7 @@ mod tests {
     #[test]
     fn test_get_handlers_for_image_file() {
         let handlers = get_handlers_for_file("test.jpg");
+        let _ = &handlers;
         #[cfg(target_os = "windows")]
         {
             println!("Found handlers for .jpg: {:?}", handlers);

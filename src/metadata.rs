@@ -48,7 +48,7 @@ fn extract_exif_tags_into(exif_data: &exif::Exif, rows: &mut Vec<(String, String
             continue;
         }
         for field in exif_data.fields() {
-            if field.tag == *tag {
+            if field.tag.number() == tag.number() && field.ifd_num == exif::In::PRIMARY {
                 let val = field
                     .display_value()
                     .with_unit(exif_data)
@@ -106,7 +106,15 @@ pub fn extract_metadata(decoded: &DecodedImage) -> Vec<(String, String)> {
 
     rows.push((
         "Bit Depth".to_string(),
-        format!("{}-bit per channel", decoded.bit_depth),
+        if decoded.is_raw && decoded.format_name.contains("preview") {
+            "8-bit per channel (embedded JPEG preview)".to_string()
+        } else if decoded.is_raw {
+            format!("{}-bit sensor data (shown at 8-bit)", decoded.bit_depth)
+        } else if decoded.bit_depth > 8 {
+            format!("{}-bit per channel (shown at 8-bit)", decoded.bit_depth)
+        } else {
+            format!("{}-bit per channel", decoded.bit_depth)
+        },
     ));
     rows.push(("File Size".to_string(), format_file_size(decoded.file_size)));
     rows.push((
@@ -117,48 +125,35 @@ pub fn extract_metadata(decoded: &DecodedImage) -> Vec<(String, String)> {
             .unwrap_or_else(|| "None (Untagged)".to_string()),
     ));
 
-    // 1. Direct container EXIF read (for JPEG/TIFF/DNG/RAW)
+    if let Some(note) = &decoded.ignored_icc_note {
+        rows.push(("ICC (ignored)".to_string(), note.clone()));
+    }
+
+    // 1. Direct container EXIF read (JPEG/TIFF/PNG/WebP and TIFF-based RAW: CR2, NEF, ARW, DNG...)
     if let Ok(file) = File::open(path) {
         let mut reader = BufReader::new(file);
         if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut reader) {
             extract_exif_tags_into(&exif_data, &mut rows);
-        } else {
-            use std::io::{Read, Seek};
-            if reader.seek(std::io::SeekFrom::Start(0)).is_ok() {
-                let mut raw_buf = Vec::new();
-                if reader.read_to_end(&mut raw_buf).is_ok() {
-                    if let Ok(exif_data) = exif::Reader::new().read_raw(raw_buf) {
-                        extract_exif_tags_into(&exif_data, &mut rows);
-                    }
-                }
-            }
         }
     }
 
-    // 2. Comprehensive RAW EXIF Fallback: Extract from embedded preview JPEG
-    // Many camera RAW containers (CR3, CR2, NEF, ARW, RAF, ORF) store complete shooting
-    // metadata (ISO, Shutter, Aperture, Lens, Focal Length) in the embedded JPEG APP1 EXIF segment.
-    if decoded.is_raw {
-        if let Some(jpeg_bytes) = crate::cr3_parser::extract_largest_embedded_jpeg(path) {
-            let mut cur = std::io::Cursor::new(jpeg_bytes);
-            if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cur) {
+    // 2. Canon CR3: EXIF lives in the CMT1/CMT2/CMT4 boxes of the ISOBMFF container.
+    if decoded.is_raw && crate::cr3_parser::is_cr3_file(path) {
+        for blob in crate::cr3_parser::extract_cr3_exif_blocks(path) {
+            if let Ok(exif_data) = exif::Reader::new().read_raw(blob) {
                 extract_exif_tags_into(&exif_data, &mut rows);
             }
         }
     }
 
-    // 3. Fallback: rawloader clean_make and clean_model if still missing
-    if decoded.is_raw {
-        let has_make = rows.iter().any(|(k, _)| k == "Camera Make");
-        let has_model = rows.iter().any(|(k, _)| k == "Camera Model");
-        if !has_make || !has_model {
-            if let Ok(raw_img) = rawloader::decode_file(path) {
-                if !has_make && !raw_img.clean_make.is_empty() {
-                    rows.push(("Camera Make".to_string(), raw_img.clean_make));
-                }
-                if !has_model && !raw_img.clean_model.is_empty() {
-                    rows.push(("Camera Model".to_string(), raw_img.clean_model));
-                }
+    // 3. RAW fallback: shooting data stored in the EXIF of the embedded preview JPEG.
+    //    Only read when key fields are still missing (it means reading the file again).
+    let has = |rows: &Vec<(String, String)>, k: &str| rows.iter().any(|(key, _)| key == k);
+    if decoded.is_raw && !(has(&rows, "Camera Model") && has(&rows, "ISO") && has(&rows, "Shutter Speed")) {
+        if let Some(jpeg_bytes) = crate::cr3_parser::extract_largest_embedded_jpeg(path) {
+            let mut cur = std::io::Cursor::new(jpeg_bytes);
+            if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cur) {
+                extract_exif_tags_into(&exif_data, &mut rows);
             }
         }
     }

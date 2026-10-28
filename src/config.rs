@@ -114,9 +114,7 @@ impl Default for AppSettings {
 impl AppSettings {
     pub fn config_file_path() -> PathBuf {
         let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let dir = base.join(APP_NAME);
-        let _ = fs::create_dir_all(&dir);
-        dir.join("settings.json")
+        base.join(APP_NAME).join("settings.json")
     }
 
     pub fn load() -> Self {
@@ -133,10 +131,18 @@ impl AppSettings {
         Self::default()
     }
 
+    /// Writes the settings atomically (temp file + rename) so a crash can never leave a
+    /// truncated settings.json behind.
     pub fn save(&self) {
         let path = Self::config_file_path();
+        if let Some(dir) = path.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(path, json);
+            let tmp = path.with_extension("json.tmp");
+            if fs::write(&tmp, json).is_ok() && fs::rename(&tmp, &path).is_err() {
+                let _ = fs::remove_file(&tmp);
+            }
         }
     }
 
@@ -160,24 +166,68 @@ impl AppSettings {
     }
 
     pub fn get_rating(&self, path: &str) -> u8 {
-        let norm = normalize_path(path).to_lowercase();
-        self.image_ratings.get(&norm).copied().unwrap_or(0)
+        if let Some(r) = self.image_ratings.get(&path_key(path)) {
+            return *r;
+        }
+        // Ratings saved by older versions used lower-case keys on every platform.
+        self.image_ratings
+            .get(&normalize_path(path).to_lowercase())
+            .copied()
+            .unwrap_or(0)
     }
 
+    /// Sets a rating in memory; call [`AppSettings::save`] once after a batch of changes.
     pub fn set_rating(&mut self, path: &str, rating: u8) {
-        let norm = normalize_path(path).to_lowercase();
-        if rating == 0 {
-            self.image_ratings.remove(&norm);
-        } else {
-            self.image_ratings.insert(norm, rating.min(5));
+        let key = path_key(path);
+        if !cfg!(windows) {
+            self.image_ratings.remove(&normalize_path(path).to_lowercase());
         }
-        self.save();
+        if rating == 0 {
+            self.image_ratings.remove(&key);
+        } else {
+            self.image_ratings.insert(key, rating.min(5));
+        }
+    }
+
+    /// Moves the rating of a renamed file to its new path.
+    pub fn rename_rating(&mut self, old: &str, new: &str) {
+        let r = self.get_rating(old);
+        self.set_rating(old, 0);
+        if r > 0 {
+            self.set_rating(new, r);
+        }
     }
 
     pub fn clear_recent_folders(&mut self) {
         self.recent_folders.clear();
         self.save();
     }
+}
+
+/// Key used to identify a file in persistent maps: case-insensitive on Windows only,
+/// because Linux/macOS file names are case-sensitive.
+pub fn path_key(p: &str) -> String {
+    let n = normalize_path(p);
+    if cfg!(windows) { n.to_lowercase() } else { n }
+}
+
+/// True if two paths refer to the same file name (case-insensitive on Windows only).
+pub fn same_path(a: &str, b: &str) -> bool {
+    path_key(a) == path_key(b)
+}
+
+pub const STANDARD_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "jpe", "jfif", "tif", "tiff", "png", "webp", "bmp", "dib", "gif", "ppm", "pgm",
+    "pbm", "pnm", "ico", "tga",
+];
+pub const RAW_EXTENSIONS: &[&str] = &[
+    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raw", "pef", "raf",
+    "erf", "3fr", "fff", "iiq", "mrw", "mos", "x3f", "srw",
+];
+
+/// All extensions accepted by the "Open" dialog (exactly the supported ones).
+pub fn dialog_extensions() -> Vec<&'static str> {
+    STANDARD_EXTENSIONS.iter().chain(RAW_EXTENSIONS.iter()).copied().collect()
 }
 
 pub fn normalize_path(p: &str) -> String {
@@ -189,54 +239,13 @@ pub fn normalize_path(p: &str) -> String {
 }
 
 pub fn is_raw_extension(ext: &str) -> bool {
-    matches!(
-        ext.to_lowercase().as_str(),
-        "cr2"
-            | "cr3"
-            | "crw"
-            | "nef"
-            | "nrw"
-            | "arw"
-            | "srf"
-            | "sr2"
-            | "dng"
-            | "orf"
-            | "rw2"
-            | "raw"
-            | "pef"
-            | "raf"
-            | "erf"
-            | "3fr"
-            | "fff"
-            | "iiq"
-            | "mrw"
-            | "mos"
-            | "x3f"
-            | "srw"
-    )
+    let e = ext.to_lowercase();
+    RAW_EXTENSIONS.contains(&e.as_str())
 }
 
 pub fn is_standard_extension(ext: &str) -> bool {
-    matches!(
-        ext.to_lowercase().as_str(),
-        "jpg"
-            | "jpeg"
-            | "jpe"
-            | "jfif"
-            | "tif"
-            | "tiff"
-            | "png"
-            | "webp"
-            | "bmp"
-            | "dib"
-            | "gif"
-            | "ppm"
-            | "pgm"
-            | "pbm"
-            | "pnm"
-            | "ico"
-            | "tga"
-    )
+    let e = ext.to_lowercase();
+    STANDARD_EXTENSIONS.contains(&e.as_str())
 }
 
 pub fn is_supported_file(path: &Path) -> bool {
@@ -266,10 +275,11 @@ pub fn scan_folder_recursive(folder: &str) -> Vec<String> {
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
-            e.file_name()
-                .to_str()
-                .map(|s| !s.starts_with('.'))
-                .unwrap_or(true)
+            e.depth() == 0
+                || e.file_name()
+                    .to_str()
+                    .map(|s| !s.starts_with('.'))
+                    .unwrap_or(true)
         })
         .flatten()
     {
@@ -352,10 +362,11 @@ pub fn discover_subfolders(root_folder: &str, all_files: &[String]) -> Vec<Strin
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
-            e.file_name()
-                .to_str()
-                .map(|s| !s.starts_with('.'))
-                .unwrap_or(true)
+            e.depth() == 0
+                || e.file_name()
+                    .to_str()
+                    .map(|s| !s.starts_with('.'))
+                    .unwrap_or(true)
         })
         .flatten()
     {
@@ -383,10 +394,11 @@ pub fn scan_folder_and_subfolders(folder: &str) -> (Vec<String>, Vec<String>) {
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
-            e.file_name()
-                .to_str()
-                .map(|s| !s.starts_with('.'))
-                .unwrap_or(true)
+            e.depth() == 0
+                || e.file_name()
+                    .to_str()
+                    .map(|s| !s.starts_with('.'))
+                    .unwrap_or(true)
         })
         .flatten()
     {
@@ -431,5 +443,45 @@ mod tests {
             "C:\\Photos\\2025",
             "C:\\Photos\\2025\\Trip",
         ]);
+    }
+
+    #[test]
+    fn scan_works_inside_hidden_root_but_skips_hidden_children() {
+        let root = std::env::temp_dir().join(format!(".mriv-hidden-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join(".cache")).unwrap();
+        for f in ["a.jpg", "sub/b.png", ".cache/c.jpg", "notes.txt", ".a.jpg.mrtmp-1"] {
+            std::fs::write(root.join(f), b"x").unwrap();
+        }
+        let (files, subs) = scan_folder_and_subfolders(&root.to_string_lossy());
+        let names: Vec<String> = files.iter().map(|f| Path::new(f).file_name().unwrap().to_string_lossy().to_string()).collect();
+        assert_eq!(names, vec!["a.jpg".to_string(), "b.png".to_string()]);
+        assert_eq!(subs.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn path_keys_follow_platform_case_rules() {
+        assert!(same_path("C:/Photos/A.JPG", "C:/Photos/A.JPG"));
+        assert_eq!(same_path("/photos/A.jpg", "/photos/a.jpg"), cfg!(windows));
+        assert!(is_supported_file(Path::new("x.CR3")));
+        assert!(is_raw_file(Path::new("x.nef")));
+        assert!(!is_supported_file(Path::new("x.jpg.mrtmp-12")));
+        assert!(dialog_extensions().contains(&"jpg") && dialog_extensions().contains(&"cr3"));
+    }
+
+    #[test]
+    fn ratings_are_set_in_memory_and_renamed() {
+        let mut s = AppSettings::default();
+        s.set_rating("/p/a.jpg", 4);
+        assert_eq!(s.get_rating("/p/a.jpg"), 4);
+        s.rename_rating("/p/a.jpg", "/p/b.jpg");
+        assert_eq!(s.get_rating("/p/a.jpg"), 0);
+        assert_eq!(s.get_rating("/p/b.jpg"), 4);
+        s.set_rating("/p/b.jpg", 9);
+        assert_eq!(s.get_rating("/p/b.jpg"), 5);
+        s.set_rating("/p/b.jpg", 0);
+        assert!(s.image_ratings.is_empty());
     }
 }

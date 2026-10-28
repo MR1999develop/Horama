@@ -30,6 +30,16 @@ pub enum FileSyncAction {
     FolderStructureChanged,
 }
 
+/// Temporary files created by atomic writes (see `disk_ops::atomic_write`) or settings saves.
+fn is_temp_file(p: &std::path::Path) -> bool {
+    p.file_name()
+        .map(|n| {
+            let n = n.to_string_lossy();
+            n.contains(".mrtmp-") || n.ends_with(".json.tmp")
+        })
+        .unwrap_or(false)
+}
+
 pub struct FolderWatcher {
     _watcher: RecommendedWatcher,
     active: Arc<AtomicBool>,
@@ -92,7 +102,21 @@ impl FolderWatcher {
                 };
 
                 match raw_rx.recv_timeout(timeout) {
-                    Ok(event) => {
+                    Ok(mut event) => {
+                        // Ignore temporary files written by this application, except as the
+                        // source of a rename (atomic save), which is handled below.
+                        let is_rename_both = matches!(
+                            event.kind,
+                            EventKind::Modify(notify::event::ModifyKind::Name(
+                                notify::event::RenameMode::Both | notify::event::RenameMode::From
+                            ))
+                        );
+                        if !is_rename_both {
+                            event.paths.retain(|p| !is_temp_file(p));
+                            if event.paths.is_empty() {
+                                continue;
+                            }
+                        }
                         last_event_time = Some(Instant::now());
 
                         match event.kind {
@@ -169,7 +193,12 @@ impl FolderWatcher {
                                     pending_modifies.remove(&new_p);
                                     let old_norm = normalize_path(&old_p.to_string_lossy());
                                     let new_norm = normalize_path(&new_p.to_string_lossy());
-                                    if new_p.is_dir() || (old_p.extension().is_none() && new_p.extension().is_none()) {
+                                    if is_temp_file(&old_p) {
+                                        // Atomic save (temp file renamed over the target).
+                                        if is_supported_file(&new_p) {
+                                            actions.push(FileSyncAction::Modified(new_norm));
+                                        }
+                                    } else if new_p.is_dir() {
                                         actions.push(FileSyncAction::FolderStructureChanged);
                                     } else if is_supported_file(&new_p) {
                                         actions.push(FileSyncAction::Renamed {
@@ -187,12 +216,25 @@ impl FolderWatcher {
                                 let mut removes_list: Vec<PathBuf> = pending_removes.drain().collect();
                                 let mut creates_list: Vec<PathBuf> = pending_creates.drain().collect();
 
+                                // Only pair when the folder has exactly one removal and one creation
+                                // with the same extension in this batch; otherwise a deletion plus an
+                                // unrelated new file would be misreported as a rename.
+                                let same_dir_count = |list: &Vec<PathBuf>, dir: Option<&std::path::Path>| {
+                                    list.iter().filter(|p| p.parent() == dir).count()
+                                };
+                                let removes_snapshot = removes_list.clone();
+                                let creates_snapshot = creates_list.clone();
                                 removes_list.retain(|old_p| {
-                                    if !old_p.exists() {
+                                    if !old_p.exists()
+                                        && same_dir_count(&removes_snapshot, old_p.parent()) == 1
+                                        && same_dir_count(&creates_snapshot, old_p.parent()) == 1
+                                    {
+                                        let old_ext = old_p.extension().map(|e| e.to_string_lossy().to_lowercase());
                                         if let Some(idx) = creates_list.iter().position(|new_p| {
                                             new_p.exists()
                                                 && is_supported_file(new_p)
                                                 && new_p.parent() == old_p.parent()
+                                                && new_p.extension().map(|e| e.to_string_lossy().to_lowercase()) == old_ext
                                         }) {
                                             let new_p = creates_list.remove(idx);
                                             pending_modifies.remove(old_p);
@@ -210,13 +252,13 @@ impl FolderWatcher {
                                 // 3. Remaining genuine removes
                                 for old_p in removes_list {
                                     pending_modifies.remove(&old_p);
+                                    if is_temp_file(&old_p) {
+                                        continue;
+                                    }
                                     let norm = normalize_path(&old_p.to_string_lossy());
+                                    // The UI decides whether this was a file or a known subfolder.
                                     if !old_p.exists() {
-                                        if old_p.extension().is_none() {
-                                            actions.push(FileSyncAction::FolderStructureChanged);
-                                        } else {
-                                            actions.push(FileSyncAction::Removed(norm));
-                                        }
+                                        actions.push(FileSyncAction::Removed(norm));
                                     }
                                 }
 

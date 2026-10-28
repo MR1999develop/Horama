@@ -20,15 +20,25 @@
   - Albero cartelle gerarchico espandibile/comprimibile con ripristino dell'ultima sottocartella all'avvio.
   - Rullino orizzontale scorrevole con miniature sincronizzate in tempo reale.
 - **Editing & Precisione**:
-  - Rotazione immagini (90° oraria, antioraria, 180°) salvata automaticamente su disco e sincronizzata nel rullino.
+  - Rotazione immagini (90° oraria, antioraria, 180°) salvata automaticamente su disco **senza perdita di qualità**:
+    - **JPEG / TIFF**: viene aggiornato solo il tag di orientamento EXIF/TIFF (e XMP `tiff:Orientation`); i dati compressi e tutti i metadati restano identici byte per byte.
+    - **PNG / WebP / BMP**: i pixel vengono ricodificati con encoder lossless (PNG mantiene 16 bit e trasparenza; profilo ICC, EXIF e testi vengono conservati).
+    - **RAW**: la rotazione è solo a schermo, i file RAW non vengono mai modificati.
+    - Le scritture sono atomiche (file temporaneo + rinomina) e serializzate; all'uscita l'app attende il completamento delle scritture in corso.
+  - Ritaglio non distruttivo in memoria: salvataggio esplicito con *Salva / Esporta* (o "salva tutto" all'uscita, con nomi sequenziali `nome_1.jpg`).
   - Zoom al 100% centrato sul cursore del mouse con doppio click sinistro e modalità Adatta (*Fit*).
   - Lente d'ingrandimento 4× (pressione tasto centrale del mouse) e Contagocce colore RGB/HSL (pressione tasto destro).
-  - Ridenominazione file singola e multipla (F2) conforme agli standard di sistema.
+  - Ridenominazione file singola e multipla (F2) conforme agli standard di sistema: l'estensione originale viene sempre mantenuta, nessun file esistente viene mai sovrascritto e in caso di errore tutte le rinomine vengono annullate.
+  - Eliminazione nel **Cestino** (Windows: Cestino di sistema; macOS: Finder; Linux: cestino freedesktop), con conferma.
   - Menu contestuale nativo *"Apri con"* con le applicazioni registrate nel sistema operativo.
   - Istogramma in tempo reale (RGB e Luminanza) e metadati fotografici completi EXIF.
   - Filtri istantanei per testo/nome parziale e valutazione a stelle (★).
 - **Gestione Colore ICC**:
   - Motore `qcms` con supporto a profili incorporati, sRGB, Adobe RGB, ProPhoto RGB, Display P3, Rec.2020 e profili ICC/ICM personalizzati.
+  - Immagini **con profilo incorporato**: scegliere un altro profilo esegue una *conversione* (incorporato → scelto → monitor), come "Converti in profilo" di Photoshop. L'aspetto a schermo resta lo stesso (cambia solo se lo spazio scelto è più piccolo e alcuni colori vanno tagliati), mentre cambiano i valori dei pixel, l'istogramma, il contagocce e il file esportato. Immagini **senza profilo**: il profilo scelto viene *assegnato* e l'aspetto cambia.
+  - Profilo del monitor: Windows (per monitor, aggiornato quando la finestra cambia schermo), Linux tramite `colord` (`colormgr`), macOS trattato come sRGB.
+  - Pipeline di visualizzazione a 8 bit per canale (i file a 16 bit vengono letti e mostrati a 8 bit; la rotazione lossless dei PNG a 16 bit conserva invece la profondità originale).
+  - Esportazione in JPEG, PNG, TIFF 8 bit, WebP lossless e BMP con profilo ICC ed EXIF originale (orientamento azzerato, dimensioni aggiornate). L'esportazione DNG non è supportata.
 - **Integrazione MCP (Model Context Protocol)**:
   - Server MCP nativo su `stdio` per consentire a **Claude** o **Gemini** di controllare direttamente l'applicazione (apertura cartelle, selezione immagini, rotazione, zoom, filtri e lettura metadati).
 
@@ -55,7 +65,9 @@ Aggiungere il flag `--mcp`:
 ```powershell
 horama.exe --mcp
 ```
-*(Vedi [`mcp_client_config.json`](mcp_client_config.json) per la configurazione con Claude Desktop).*
+*(Vedi [`mcp_client_config.json`](mcp_client_config.json) per la configurazione con Claude Desktop: sostituire `C:\\path\\to\\horama.exe` con il percorso reale dell'eseguibile, ad es. `...\\target\\release\\horama.exe`).*
+
+Strumenti MCP disponibili: `open_folder`, `select_image`, `rotate_image` (rotazione lossless come sopra), `set_zoom`, `set_rating` (0–5), `filter_images` (testo, valutazione minima, formato `JPG`/`PNG`/`TIFF`/`WEBP`/`RAW`), `get_current_image_info`, `list_images`.
 
 ---
 
@@ -68,8 +80,8 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 | **Immagine Successiva** | `Freccia Destra` |
 | **Immagine Precedente** | `Freccia Sinistra` |
 | **Zoom In / Zoom Out** | `+` (o `=`) / `-` (o `_`) |
-| **Adatta alla Finestra** | `Ctrl+0` |
-| **Zoom 100% (1:1)** | `Ctrl+1` (o *Doppio Click Sinistro*) |
+| **Adatta alla Finestra** | `Ctrl+0` (o `Spazio`) |
+| **Zoom 100% (1 pixel immagine = 1 pixel schermo)** | `Ctrl+1` (o *Doppio Click Sinistro*) |
 | **Ruota Oraria (90°)** | `R` |
 | **Ruota Antioraria (90°)** | `L` |
 | **Rinomina File** | `F2` |

@@ -353,6 +353,10 @@ export component AppWindow inherits Window {
 
     in-out property <string> zoom-text: "100%";
     in-out property <float> zoom-factor: 1.0;
+    // Physical-to-logical pixel ratio of the window (Windows display scaling). zoom-factor is
+    // expressed in physical pixels so that 100% really means one image pixel per screen pixel.
+    in property <float> display-scale: 1.0;
+    property <float> view-zoom: root.zoom-factor / max(0.25, root.display-scale);
     in-out property <float> pan-x: 0.0;
     in-out property <float> pan-y: 0.0;
     out property <float> canvas-width: canvas-area.width / 1px;
@@ -1962,8 +1966,8 @@ export component AppWindow inherits Window {
                         }
 
                         if root.has-image && !root.is-multi-selection : Image {
-                            width: (root.image-pixel-width * root.zoom-factor) * 1px;
-                            height: (root.image-pixel-height * root.zoom-factor) * 1px;
+                            width: (root.image-pixel-width * root.view-zoom) * 1px;
+                            height: (root.image-pixel-height * root.view-zoom) * 1px;
                             x: ((parent.width - self.width) / 2.0) + (root.pan-x * 1px);
                             y: ((parent.height - self.height) / 2.0) + (root.pan-y * 1px);
                             source: root.current-image;
@@ -2259,8 +2263,8 @@ export component AppWindow inherits Window {
                             height: 100%;
 
                             // Calculated geometry of the image on canvas
-                            property <length> img-w: (root.image-pixel-width * root.zoom-factor) * 1px;
-                            property <length> img-h: (root.image-pixel-height * root.zoom-factor) * 1px;
+                            property <length> img-w: (root.image-pixel-width * root.view-zoom) * 1px;
+                            property <length> img-h: (root.image-pixel-height * root.view-zoom) * 1px;
                             property <length> img-x: ((parent.width - self.img-w) / 2.0) + (root.pan-x * 1px);
                             property <length> img-y: ((parent.height - self.img-h) / 2.0) + (root.pan-y * 1px);
 

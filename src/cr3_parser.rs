@@ -120,61 +120,214 @@ fn find_preview_in_boxes(
     None
 }
 
-/// Fast scanner for embedded full-size JPEG previews inside NEF/ARW/RAF/ORF/CR2 RAW files.
-pub fn extract_largest_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
-    if is_cr3_file(path) {
-        if let Some(cr3) = extract_cr3_preview(path) {
-            return Some(cr3);
-        }
+/// Collects the EXIF TIFF structures stored by Canon in the CMT1 (IFD0), CMT2 (Exif IFD)
+/// and CMT4 (GPS) boxes of a CR3 file.
+pub fn extract_cr3_exif_blocks(path: &Path) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let Ok(mut f) = File::open(path) else { return out };
+    let Ok(meta) = f.metadata() else { return out };
+    collect_cmt_boxes(&mut f, 0, meta.len(), 0, &mut out);
+    out
+}
+
+fn collect_cmt_boxes(f: &mut File, start: u64, end: u64, depth: usize, out: &mut Vec<Vec<u8>>) {
+    if depth > 6 || out.len() >= 3 {
+        return;
     }
-
-    let mut f = File::open(path).ok()?;
-    let len = f.metadata().ok()?.len() as usize;
-    // Read up to 64 MB to find embedded preview JPEG streams
-    let read_limit = len.min(64 * 1024 * 1024);
-    let mut buf = vec![0u8; read_limit];
-    f.read_exact(&mut buf).ok()?;
-
-    let mut best_jpeg: Option<&[u8]> = None;
-    let mut search_idx = 0;
-
-    while search_idx + 4 < buf.len() {
-        // Look for JPEG SOI + APP1/APP0/DQT marker: FF D8 FF (E0 | E1 | E2 | DB)
-        if let Some(rel) = buf[search_idx..]
-            .windows(3)
-            .position(|w| w[0] == 0xFF && w[1] == 0xD8 && w[2] == 0xFF)
-        {
-            let start = search_idx + rel;
-            let next_byte = buf.get(start + 3).copied().unwrap_or(0);
-            if matches!(next_byte, 0xE0 | 0xE1 | 0xE2 | 0xDB | 0xEE) {
-                // Search for matching EOI (FF D9) after at least 32 KB for a high-res preview
-                let min_end = (start + 32_768).min(buf.len());
-                if let Some(end_rel) = buf[min_end..]
-                    .windows(2)
-                    .position(|w| w[0] == 0xFF && w[1] == 0xD9)
-                {
-                    let end = min_end + end_rel + 2;
-                    let candidate = &buf[start..end];
-                    if best_jpeg.map_or(true, |b| candidate.len() > b.len()) {
-                        // Quick check that image crate can parse header
-                        if image::ImageReader::new(std::io::Cursor::new(candidate))
-                            .with_guessed_format()
-                            .ok()
-                            .and_then(|r| r.into_dimensions().ok())
-                            .map_or(false, |(w, h)| w >= 640 && h >= 480)
-                        {
-                            best_jpeg = Some(candidate);
-                        }
-                    }
-                    search_idx = end;
-                    continue;
+    let mut pos = start;
+    while pos + 8 <= end {
+        if f.seek(SeekFrom::Start(pos)).is_err() {
+            return;
+        }
+        let mut header = [0u8; 8];
+        if f.read_exact(&mut header).is_err() {
+            return;
+        }
+        let mut size = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as u64;
+        let kind = [header[4], header[5], header[6], header[7]];
+        let mut hdr_len = 8u64;
+        if size == 1 {
+            let mut large = [0u8; 8];
+            if f.read_exact(&mut large).is_err() {
+                return;
+            }
+            size = u64::from_be_bytes(large);
+            hdr_len = 16;
+        } else if size == 0 {
+            size = end - pos;
+        }
+        if size < hdr_len || pos + size > end {
+            return;
+        }
+        let data_start = pos + hdr_len;
+        let data_len = size - hdr_len;
+        match &kind {
+            b"CMT1" | b"CMT2" | b"CMT4" if data_len < 16 * 1024 * 1024 => {
+                let mut blob = vec![0u8; data_len as usize];
+                if f.read_exact(&mut blob).is_ok() && (blob.starts_with(b"II*\0") || blob.starts_with(b"MM\0*")) {
+                    out.push(blob);
                 }
             }
-            search_idx = start + 3;
-        } else {
-            break;
+            b"moov" => collect_cmt_boxes(f, data_start, data_start + data_len, depth + 1, out),
+            b"uuid" if data_len > 16 => collect_cmt_boxes(f, data_start + 16, data_start + data_len, depth + 1, out),
+            _ => {}
+        }
+        pos += size;
+    }
+}
+
+/// Returns the end offset (one past EOI) of the JPEG stream starting at `start` (which must
+/// point at an SOI marker), by walking the marker structure. Embedded thumbnails inside APP
+/// segments are skipped by segment length, so their EOI markers are never mistaken for the end.
+pub fn jpeg_stream_end(buf: &[u8], start: usize) -> Option<usize> {
+    if buf.get(start..start + 2)? != [0xFF, 0xD8] {
+        return None;
+    }
+    let mut pos = start + 2;
+    loop {
+        // Expect a marker.
+        if *buf.get(pos)? != 0xFF {
+            return None;
+        }
+        while *buf.get(pos + 1)? == 0xFF {
+            pos += 1;
+        }
+        let marker = *buf.get(pos + 1)?;
+        match marker {
+            0xD9 => return Some(pos + 2),
+            0x01 | 0xD0..=0xD7 => pos += 2,
+            0xDA => {
+                let len = u16::from_be_bytes([*buf.get(pos + 2)?, *buf.get(pos + 3)?]) as usize;
+                pos += 2 + len;
+                // Entropy-coded data: 0xFF is followed by 0x00 (stuffing) or RSTn inside the scan.
+                loop {
+                    let rel = buf.get(pos..)?.iter().position(|&b| b == 0xFF)?;
+                    pos += rel;
+                    let next = *buf.get(pos + 1)?;
+                    if next == 0x00 || (0xD0..=0xD7).contains(&next) || next == 0xFF {
+                        pos += if next == 0xFF { 1 } else { 2 };
+                        continue;
+                    }
+                    break; // a real marker: continue the outer loop (next scan, DHT, EOI...)
+                }
+            }
+            _ => {
+                let len = u16::from_be_bytes([*buf.get(pos + 2)?, *buf.get(pos + 3)?]) as usize;
+                if len < 2 {
+                    return None;
+                }
+                pos += 2 + len;
+            }
+        }
+    }
+}
+
+/// Finds embedded JPEG previews (at least 640×480) in a RAW file, largest first.
+/// At most `max` candidates are returned. For CR3 files the PRVW box is tried first.
+pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    if is_cr3_file(path) {
+        if let Some(cr3) = extract_cr3_preview(path) {
+            out.push(cr3);
         }
     }
 
-    best_jpeg.map(|s| s.to_vec())
+    let Ok(mut f) = File::open(path) else { return out };
+    let Ok(meta) = f.metadata() else { return out };
+    // Previews live near the start of RAW files; cap the read at 64 MB.
+    let read_limit = (meta.len() as usize).min(64 * 1024 * 1024);
+    let mut buf = vec![0u8; read_limit];
+    if f.read_exact(&mut buf).is_err() {
+        return out;
+    }
+
+    let mut found: Vec<(u64, usize, usize)> = Vec::new();
+    let mut search_idx = 0;
+    while search_idx + 4 < buf.len() {
+        let Some(rel) = buf[search_idx..]
+            .windows(3)
+            .position(|w| w[0] == 0xFF && w[1] == 0xD8 && w[2] == 0xFF)
+        else {
+            break;
+        };
+        let start = search_idx + rel;
+        let next_byte = buf.get(start + 3).copied().unwrap_or(0);
+        if matches!(next_byte, 0xE0 | 0xE1 | 0xE2 | 0xDB | 0xEE | 0xC0 | 0xC4) {
+            if let Some(end) = jpeg_stream_end(&buf, start) {
+                let candidate = &buf[start..end];
+                if let Some((w, h)) = image::ImageReader::new(std::io::Cursor::new(candidate))
+                    .with_guessed_format()
+                    .ok()
+                    .and_then(|r| r.into_dimensions().ok())
+                {
+                    if w >= 640 && h >= 480 {
+                        found.push((w as u64 * h as u64, start, end));
+                    }
+                }
+                search_idx = end;
+                continue;
+            }
+        }
+        search_idx = start + 3;
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, s, e) in found {
+        if out.len() >= max {
+            break;
+        }
+        out.push(buf[s..e].to_vec());
+    }
+    out
+}
+
+/// Largest embedded JPEG preview of a RAW file (see [`extract_embedded_jpegs`]).
+pub fn extract_largest_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
+    extract_embedded_jpegs(path, 1).into_iter().next()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jpeg_bytes(w: u32, h: u32) -> Vec<u8> {
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(w, h, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 77])
+        }));
+        let mut v = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut v), image::ImageFormat::Jpeg).unwrap();
+        v
+    }
+
+    #[test]
+    fn stream_end_skips_embedded_thumbnail() {
+        // Large JPEG whose APP1 contains a complete small JPEG (fake EXIF thumbnail).
+        let big = jpeg_bytes(700, 500);
+        let thumb = jpeg_bytes(16, 16);
+        let mut app1 = b"Exif\0\0".to_vec();
+        app1.extend_from_slice(&thumb);
+        let mut composed = big[..2].to_vec();
+        composed.extend_from_slice(&[0xFF, 0xE1]);
+        composed.extend_from_slice(&((app1.len() + 2) as u16).to_be_bytes());
+        composed.extend_from_slice(&app1);
+        composed.extend_from_slice(&big[2..]);
+        assert_eq!(jpeg_stream_end(&composed, 0), Some(composed.len()));
+    }
+
+    #[test]
+    fn scanner_finds_largest_preview_in_container() {
+        let dir = std::env::temp_dir().join(format!("mriv-cr3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("fake.nef");
+        let mut data = vec![0x11u8; 5000];
+        data.extend_from_slice(&jpeg_bytes(800, 600));
+        data.extend_from_slice(&[0x22u8; 3000]);
+        let big = jpeg_bytes(1200, 800);
+        data.extend_from_slice(&big);
+        data.extend_from_slice(&[0x33u8; 100]);
+        std::fs::write(&p, &data).unwrap();
+        let found = extract_embedded_jpegs(&p, 3);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0], big);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

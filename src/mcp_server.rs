@@ -93,7 +93,7 @@ pub fn get_tools_definition() -> Value {
             },
             {
                 "name": "rotate_image",
-                "description": "Rotate the currently displayed image by degrees/direction and automatically persist to disk",
+                "description": "Rotate the currently displayed image. The rotation is saved to the file losslessly (JPEG/TIFF: EXIF orientation tag; PNG/WebP/BMP: lossless re-encode). RAW files are rotated on screen only.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -157,8 +157,8 @@ pub fn get_tools_definition() -> Value {
                         },
                         "format": {
                             "type": "string",
-                            "enum": ["ALL", "RAW", "JPG", "PNG"],
-                            "description": "Format filter ('ALL', 'RAW', 'JPG', 'PNG')"
+                            "enum": ["ALL", "RAW", "JPG", "PNG", "TIFF", "WEBP"],
+                            "description": "Format filter ('ALL', 'RAW', 'JPG', 'PNG', 'TIFF', 'WEBP')"
                         }
                     }
                 }
@@ -183,6 +183,16 @@ pub fn get_tools_definition() -> Value {
     })
 }
 
+fn tool_error_response(id: Value, msg: &str) -> String {
+    let resp = JsonRpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: Some(json!({ "content": [{ "type": "text", "text": msg }], "isError": true })),
+        error: None,
+    };
+    serde_json::to_string(&resp).unwrap_or_default()
+}
+
 pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<String> {
     let req: JsonRpcRequest = match serde_json::from_str(req_str) {
         Ok(r) => r,
@@ -197,7 +207,11 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
         }
     };
 
-    let id = req.id.clone().unwrap_or(Value::Null);
+    // JSON-RPC notifications (no "id") must never receive a response.
+    let Some(id) = req.id.clone() else {
+        return None;
+    };
+    let wait = |secs: u64| std::time::Duration::from_secs(secs);
 
     match req.method.as_str() {
         "initialize" => {
@@ -217,10 +231,6 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                 error: None,
             };
             Some(serde_json::to_string(&resp).unwrap())
-        }
-        "notifications/initialized" => {
-            // Notification: No response according to JSON-RPC 2.0 / MCP spec
-            None
         }
         "ping" => {
             let resp = JsonRpcResponse {
@@ -255,7 +265,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                             path: path.to_string(),
                             resp: resp_tx,
                         });
-                        resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                        resp_rx.recv_timeout(wait(120))
                             .map_err(|e| format!("Timeout or error: {}", e))
                             .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
                     }
@@ -270,7 +280,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                             filename: filename.to_string(),
                             resp: resp_tx,
                         });
-                        resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                        resp_rx.recv_timeout(wait(30))
                             .map_err(|e| format!("Timeout or error: {}", e))
                             .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
                     }
@@ -282,7 +292,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                         direction: dir.to_string(),
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                    resp_rx.recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
                         .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
                 }
@@ -295,18 +305,22 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                         factor,
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                    resp_rx.recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
                         .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
                 }
                 "set_rating" => {
-                    let rating = arguments.get("rating").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                    let rating = arguments.get("rating").and_then(|v| v.as_i64()).unwrap_or(-1);
+                    if !(0..=5).contains(&rating) {
+                        return Some(tool_error_response(id, "'rating' must be an integer between 0 and 5"));
+                    }
+                    let rating = rating as i32;
                     let (resp_tx, resp_rx) = bounded(1);
                     let _ = tx.send(McpCommand::SetRating {
                         rating,
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                    resp_rx.recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
                         .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
                 }
@@ -321,7 +335,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                         format,
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                    resp_rx.recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
                         .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
                 }
@@ -330,7 +344,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                     let _ = tx.send(McpCommand::GetCurrentImageInfo {
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                    resp_rx.recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
                         .and_then(|res| res)
                 }
@@ -339,7 +353,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                     let _ = tx.send(McpCommand::ListImages {
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(std::time::Duration::from_secs(5))
+                    resp_rx.recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
                         .and_then(|res| res.map(|files| json!({ "count": files.len(), "files": files })))
                 }
@@ -428,6 +442,24 @@ mod tests {
         assert_eq!(val["id"], 1);
         assert_eq!(val["result"]["protocolVersion"], "2024-11-05");
         assert_eq!(val["result"]["serverInfo"]["name"], "horama");
+    }
+
+    #[test]
+    fn notifications_get_no_response() {
+        let (tx, _rx) = bounded(1);
+        for m in ["notifications/initialized", "notifications/cancelled", "anything"] {
+            let req = format!(r#"{{"jsonrpc":"2.0","method":"{}","params":{{}}}}"#, m);
+            assert!(handle_jsonrpc_request(&req, &tx).is_none(), "{}", m);
+        }
+    }
+
+    #[test]
+    fn invalid_rating_is_rejected_without_touching_the_app() {
+        let (tx, rx) = bounded(1);
+        let req = r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"set_rating","arguments":{"rating":-1}}}"#;
+        let v: Value = serde_json::from_str(&handle_jsonrpc_request(req, &tx).unwrap()).unwrap();
+        assert_eq!(v["result"]["isError"], true);
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

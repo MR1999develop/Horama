@@ -36,6 +36,8 @@ winres = "0.1"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-panic = "abort"
+# "unwind" lets a corrupt or exotic file that crashes a decoder be reported as an error
+# instead of terminating the whole application (decoders run inside catch_unwind).
+panic = "unwind"
 strip = true
 

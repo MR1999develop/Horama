@@ -121,19 +121,38 @@ impl AppSettings {
 
     pub fn load() -> Self {
         if let Some(src) = migrate_legacy_settings(&config_base_dir()) {
-            eprintln!("Settings copied from {}", src.display());
+            log::info!("Settings copied from {}", src.display());
         }
         let path = Self::config_file_path();
-        if let Ok(data) = fs::read_to_string(path) {
-            if let Ok(mut parsed) = serde_json::from_str::<AppSettings>(&data) {
+        let data = match fs::read_to_string(&path) {
+            Ok(data) => data,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Self::default(),
+            Err(e) => {
+                log::error!("Settings not read from {}: {}", path.display(), e);
+                return Self::default();
+            }
+        };
+        match serde_json::from_str::<AppSettings>(&data) {
+            Ok(mut parsed) => {
                 let defaults = default_shortcuts();
                 for (k, v) in defaults {
                     parsed.shortcuts.entry(k).or_insert(v);
                 }
-                return parsed;
+                parsed
+            }
+            Err(e) => {
+                // Keep the unreadable file: the next save would otherwise overwrite it.
+                let backup = path.with_extension("json.bad");
+                let _ = fs::copy(&path, &backup);
+                log::error!(
+                    "Settings in {} are not valid ({}); defaults used, copy kept in {}",
+                    path.display(),
+                    e,
+                    backup.display()
+                );
+                Self::default()
             }
         }
-        Self::default()
     }
 
     /// Writes the settings atomically (temp file + rename) so a crash can never leave a
@@ -143,11 +162,17 @@ impl AppSettings {
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
         }
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let tmp = path.with_extension("json.tmp");
-            if fs::write(&tmp, json).is_ok() && fs::rename(&tmp, &path).is_err() {
-                let _ = fs::remove_file(&tmp);
+        let json = match serde_json::to_string_pretty(self) {
+            Ok(json) => json,
+            Err(e) => {
+                log::error!("Settings not saved: {}", e);
+                return;
             }
+        };
+        let tmp = path.with_extension("json.tmp");
+        if let Err(e) = fs::write(&tmp, json).and_then(|_| fs::rename(&tmp, &path)) {
+            log::error!("Settings not saved to {}: {}", path.display(), e);
+            let _ = fs::remove_file(&tmp);
         }
     }
 

@@ -9,6 +9,7 @@ mod exif_orient;
 mod file_watcher;
 mod image_loader;
 mod image_saver;
+mod logging;
 mod mcp_server;
 mod metadata;
 mod open_with;
@@ -25,7 +26,7 @@ use crate::config::{
     normalize_path, path_key, same_path, scan_folder_and_subfolders, AppSettings, APP_NAME,
     BUILTIN_PROFILES, DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED, PROFILE_LOAD_CUSTOM,
 };
-use crate::disk_ops::DiskQueue;
+use crate::disk_ops::{DiskQueue, RotationOutcome};
 use crate::image_loader::{load_thumbnail_rgba, DecodedImage};
 use crate::image_saver::{build_export_exif, generate_next_sequential_path, save_image_with_icc};
 use crate::metadata::{extract_metadata, render_histogram_rgba};
@@ -314,6 +315,8 @@ const MAX_HISTORY: usize = 60;
 struct ViewerState {
     settings: AppSettings,
     color_manager: ColorManager,
+    /// A monitor-profile query is running (see the window tracking timer).
+    display_probe_running: bool,
     preloader: PreloadController,
     disk: DiskQueue,
     thumbnail_generation: Arc<AtomicU64>,
@@ -346,6 +349,8 @@ struct ViewerState {
     display_scale: f32,
     aspect_cache: Arc<Mutex<HashMap<String, f32>>>,
     aspect_job_running: bool,
+    /// Bumped when the file list is replaced, so a running aspect-ratio job stops early.
+    aspect_job_generation: Arc<AtomicU64>,
     /// Rotations queued for writing, per file.
     pending_rotations: HashMap<String, usize>,
 
@@ -457,6 +462,7 @@ impl ViewerState {
             current_index: None,
             selected_indices: std::collections::BTreeSet::new(),
             selection_anchor: None,
+            display_probe_running: false,
             current_decoded: None,
             rendered: None,
             document_rgb: None,
@@ -465,6 +471,7 @@ impl ViewerState {
             display_scale: 1.0,
             aspect_cache: Arc::new(Mutex::new(HashMap::new())),
             aspect_job_running: false,
+            aspect_job_generation: Arc::new(AtomicU64::new(0)),
             pending_rotations: HashMap::new(),
             selected_profile: DEFAULT_FALLBACK_PROFILE.to_string(),
             lock_profile: false,
@@ -1043,6 +1050,8 @@ fn render_loupe_patch_rgba(
 }
 
 fn show_fatal_error_dialog(title: &str, details: &str) {
+    log::error!("{}: {}", title, details);
+    log::logger().flush();
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;
@@ -1083,12 +1092,9 @@ fn show_fatal_error_dialog(title: &str, details: &str) {
                 esc_t, esc_m
             ))
             .output();
-        eprintln!("{}: {}", title, details);
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    {
-        eprintln!("{}: {}", title, details);
-    }
+    #[cfg(not(target_os = "windows"))]
+    eprintln!("{}: {}", title, details);
 }
 
 fn refresh_multi_selection_overview(ui: &AppWindow, state: &ViewerState) {
@@ -1769,12 +1775,9 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
     }
 
     // 2. Persist losslessly (serial queue: rotations of the same file never interleave).
+    // Checks needing the disk (file still there, animation) run in the queue, not here.
     let p = PathBuf::from(path);
-    if !p.exists() {
-        ui.set_status_file_text("Rotation shown only: the file is no longer on disk.".into());
-        return;
-    }
-    if !crate::disk_ops::rotation_persist_supported(&p) {
+    if !crate::disk_ops::rotation_format_supported(&p) {
         ui.set_status_file_text(
             format!(
                 "Rotation shown only: '{}' files are never modified (RAW/unsupported format).",
@@ -1808,11 +1811,21 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
                 st.pending_rotations.remove(&path_owned);
             }
             let failed = result.is_err();
+            // A file left untouched on purpose must not be reloaded, or the rotation shown
+            // on screen would disappear.
+            let mut file_changed = true;
             match result {
-                Ok(method) => {
+                Ok(RotationOutcome::Saved(method)) => {
                     ui.set_status_file_text(format!("Rotation saved: {} — {}", name, method).into())
                 }
+                Ok(RotationOutcome::ShownOnly(reason)) => {
+                    file_changed = false;
+                    ui.set_status_file_text(
+                        format!("Rotation shown only for {}: {}.", name, reason).into(),
+                    );
+                }
                 Err(e) => {
+                    log::warn!("Rotation not saved for {}: {}", path_owned, e);
                     ui.set_status_file_text(
                         format!("Rotation NOT saved for {}: {}", name, e).into(),
                     );
@@ -1833,7 +1846,7 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
             // Once every queued rotation of this file is done (or one failed), show exactly
             // what is on disk: this also corrects anything a preload or thumbnail job decoded
             // while the file was being rewritten.
-            if left == 0 || failed {
+            if file_changed && (left == 0 || failed) {
                 reconcile_with_disk(ui, st, &path_owned);
             }
         });
@@ -2254,8 +2267,9 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
 // Filters
 // ----------------------------------------------------------------------------
 
-/// Orientation-independent aspect ratio (long side / short side) of a file, if known without
-/// heavy work. RAW files that are not cached yet return `None` (computed in the background).
+/// Orientation-independent aspect ratio (long side / short side) of a file, if already known
+/// (cache or decoded image in memory). Never touches the disk: unknown files return `None` and
+/// are measured by [`start_aspect_ratio_job`] in the background.
 fn get_image_aspect_ratio_norm(state: &ViewerState, path: &str) -> Option<f32> {
     let key = path_key(path);
     if let Some(r) = state
@@ -2270,18 +2284,13 @@ fn get_image_aspect_ratio_norm(state: &ViewerState, path: &str) -> Option<f32> {
     if let Some(dec) = state.edited_images.get(path) {
         return ratio_of(dec.width, dec.height);
     }
-    if let Some(dec) = state.preloader.cache.lock().ok().and_then(|g| g.peek(path)) {
-        return ratio_of(dec.width, dec.height);
-    }
-    if crate::config::is_raw_file(Path::new(path)) {
-        return None;
-    }
-    let r =
-        crate::image_loader::probe_dimensions(Path::new(path)).and_then(|(w, h)| ratio_of(w, h))?;
-    if let Ok(mut c) = state.aspect_cache.lock() {
-        c.insert(key, r);
-    }
-    Some(r)
+    let dec = state
+        .preloader
+        .cache
+        .lock()
+        .ok()
+        .and_then(|g| g.peek(path))?;
+    ratio_of(dec.width, dec.height)
 }
 
 fn get_file_color_profile_info(state: &ViewerState, path: &str) -> (String, bool) {
@@ -2320,9 +2329,13 @@ fn matches_format_filter(path: &str, filter: &str) -> bool {
     }
 }
 
-/// Computes aspect ratios of RAW files (from their embedded preview) in the background, then
-/// re-applies the filter.
-fn start_aspect_ratio_job(state: &mut ViewerState, pending: Vec<String>) {
+/// Worker threads that read image headers for the aspect-ratio filter: the work is disk-bound,
+/// so a few threads hide latency without competing with decoding (which uses rayon).
+const ASPECT_JOB_THREADS: usize = 4;
+
+/// Measures the aspect ratio of `pending` files in the background (header only; embedded
+/// preview for RAW files), shows progress in the status bar, then re-applies the filter.
+fn start_aspect_ratio_job(ui: &AppWindow, state: &mut ViewerState, pending: Vec<String>) {
     if state.aspect_job_running || pending.is_empty() {
         return;
     }
@@ -2330,24 +2343,79 @@ fn start_aspect_ratio_job(state: &mut ViewerState, pending: Vec<String>) {
         return;
     };
     state.aspect_job_running = true;
+    let total = pending.len();
+    ui.set_status_task_text(aspect_job_progress_text(0, total).into());
     let cache = state.aspect_cache.clone();
-    std::thread::spawn(move || {
-        for p in pending {
-            let r = crate::image_loader::probe_dimensions(Path::new(&p))
-                .filter(|(w, h)| *w > 0 && *h > 0)
-                .map(|(w, h)| w.max(h) as f32 / w.min(h) as f32)
-                .unwrap_or(f32::NAN); // NaN = unknown: excluded from ratio filters
-            if let Ok(mut c) = cache.lock() {
-                c.insert(path_key(&p), r);
-            }
-        }
-        post_to_ui(ui_w, st_w, |ui, st| {
-            st.aspect_job_running = false;
-            if st.filter_aspect_ratio != "ALL" && !st.filter_aspect_ratio.is_empty() {
-                apply_tree_filter_and_populate(ui, st);
-            }
+    let generation = state.aspect_job_generation.clone();
+    let my_gen = generation.load(Ordering::SeqCst);
+    let spawned = std::thread::Builder::new()
+        .name("aspect-ratios".into())
+        .spawn(move || {
+            let started = std::time::Instant::now();
+            let next = AtomicUsize::new(0);
+            let done = AtomicUsize::new(0);
+            let cancelled = || generation.load(Ordering::SeqCst) != my_gen;
+            std::thread::scope(|scope| {
+                for _ in 0..ASPECT_JOB_THREADS.min(total) {
+                    scope.spawn(|| loop {
+                        let i = next.fetch_add(1, Ordering::SeqCst);
+                        if i >= total || cancelled() {
+                            break;
+                        }
+                        let p = &pending[i];
+                        let r = crate::image_loader::probe_dimensions(Path::new(p))
+                            .filter(|(w, h)| *w > 0 && *h > 0)
+                            .map(|(w, h)| w.max(h) as f32 / w.min(h) as f32)
+                            .unwrap_or(f32::NAN); // NaN = unknown: excluded from ratio filters
+                        if let Ok(mut c) = cache.lock() {
+                            c.insert(path_key(p), r);
+                        }
+                        done.fetch_add(1, Ordering::SeqCst);
+                    });
+                }
+                // Progress, at most four times a second.
+                loop {
+                    std::thread::sleep(Duration::from_millis(250));
+                    let n = done.load(Ordering::SeqCst);
+                    if n >= total || cancelled() {
+                        break;
+                    }
+                    let (ui_w, st_w) = (ui_w.clone(), st_w.clone());
+                    post_to_ui(ui_w, st_w, move |ui, st| {
+                        if st.aspect_job_running {
+                            ui.set_status_task_text(aspect_job_progress_text(n, total).into());
+                        }
+                    });
+                }
+            });
+            let measured = done.load(Ordering::SeqCst);
+            log::debug!(
+                "Aspect ratios: {} of {} file(s) read in {} ms{}",
+                measured,
+                total,
+                started.elapsed().as_millis(),
+                if cancelled() { " (cancelled)" } else { "" }
+            );
+            post_to_ui(ui_w, st_w, |ui, st| {
+                st.aspect_job_running = false;
+                ui.set_status_task_text("".into());
+                if st.filter_aspect_ratio != "ALL" && !st.filter_aspect_ratio.is_empty() {
+                    apply_tree_filter_and_populate(ui, st);
+                }
+            });
         });
-    });
+    if let Err(e) = spawned {
+        log::error!("Aspect-ratio worker not started: {}", e);
+        state.aspect_job_running = false;
+        ui.set_status_task_text("".into());
+    }
+}
+
+fn aspect_job_progress_text(done: usize, total: usize) -> String {
+    format!(
+        "Reading image sizes for the aspect-ratio filter: {} / {}",
+        done, total
+    )
 }
 
 fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
@@ -2454,7 +2522,7 @@ fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
     }
     state.visible_files = visible;
     let pending_count = pending_ratios.len();
-    start_aspect_ratio_job(state, pending_ratios);
+    start_aspect_ratio_job(ui, state, pending_ratios);
 
     refresh_folder_tree_ui(ui, state);
 
@@ -2502,7 +2570,10 @@ fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
         ui.set_has_image(false);
         ui.set_status_file_text(
             if pending_count > 0 {
-                format!("Computing aspect ratios of {} RAW file(s)…", pending_count)
+                format!(
+                    "No matching images yet — reading the size of {} file(s)…",
+                    pending_count
+                )
             } else {
                 "No supported images found in the selected folder filter.".to_string()
             }
@@ -2641,6 +2712,7 @@ fn start_folder_scan(
         return;
     };
     state.scan_generation += 1;
+    state.aspect_job_generation.fetch_add(1, Ordering::SeqCst);
     let gen = state.scan_generation;
     let folder = normalize_path(&state.current_folder);
     ui.set_status_file_text(format!("Scanning {}…", folder).into());
@@ -3063,7 +3135,7 @@ fn start_folder_watcher(state: &mut ViewerState, folder: &str) {
         });
     }) {
         Ok(watcher) => state.folder_watcher = Some(watcher),
-        Err(err) => eprintln!("Warning: Failed to start folder watcher: {}", err),
+        Err(err) => log::warn!("Failed to start folder watcher: {}", err),
     }
 }
 
@@ -3078,6 +3150,7 @@ fn open_specific_files(ui: &AppWindow, state: &mut ViewerState, files: Vec<Strin
 
     state.is_files_mode = true;
     state.scan_generation += 1; // cancel any running folder scan
+    state.aspect_job_generation.fetch_add(1, Ordering::SeqCst);
     state.current_folder = parent_dir.clone();
     if !parent_dir.is_empty() {
         state.settings.add_recent_folder(&parent_dir);
@@ -3462,7 +3535,7 @@ fn install_panic_hook() {
         // Worker threads catch their panics (corrupt files, decoder bugs) and report them as
         // normal errors; only a panic on the UI thread is fatal.
         if std::thread::current().name() != Some("main") {
-            eprintln!(
+            log::error!(
                 "Worker thread panic: {} ({})",
                 payload,
                 location.replace('\n', " ")
@@ -3581,8 +3654,8 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                 }
                 _ => rotate_current_image(ui, st, false),
             }
-            let how = if crate::disk_ops::rotation_persist_supported(Path::new(&dec.path)) {
-                "the file is being updated losslessly (JPEG/TIFF orientation tag, lossless re-encode for PNG/WebP/BMP)"
+            let how = if crate::disk_ops::rotation_format_supported(Path::new(&dec.path)) {
+                "the file is being updated losslessly (JPEG/TIFF orientation tag, lossless re-encode for PNG/WebP/BMP; animated files are left untouched)"
             } else {
                 "shown on screen only (RAW/unsupported formats are never modified)"
             };
@@ -3670,33 +3743,37 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                 .current_index
                 .and_then(|idx| st.visible_files.get(idx))
                 .cloned();
-            if let Some(ref path) = current_path {
-                let (w, h) = st
-                    .current_decoded
-                    .as_ref()
-                    .map(|d| (d.width, d.height))
-                    .unwrap_or((0, 0));
-                let mut meta_map = serde_json::Map::new();
-                if let Some(ref dec) = st.current_decoded {
-                    for (k, v) in extract_metadata(dec) {
-                        meta_map.insert(k, Value::String(v));
-                    }
-                }
-                let info = json!({
-                    "path": path,
-                    "filename": file_name_of(path),
-                    "width": w,
-                    "height": h,
-                    "loading": st.current_decoded.is_none(),
-                    "rating": st.settings.get_rating(path),
-                    "profile": st.selected_profile,
-                    "unsaved_crop": st.is_cropped(path),
-                    "metadata": meta_map,
-                });
-                let _ = resp.send(Ok(info));
-            } else {
+            let Some(path) = current_path else {
                 let _ = resp.send(Err("No image currently loaded".to_string()));
-            }
+                return;
+            };
+            let decoded = st.current_decoded.clone();
+            let (w, h) = decoded
+                .as_ref()
+                .map(|d| (d.width, d.height))
+                .unwrap_or((0, 0));
+            let mut info = json!({
+                "path": path,
+                "filename": file_name_of(&path),
+                "width": w,
+                "height": h,
+                "loading": decoded.is_none(),
+                "rating": st.settings.get_rating(&path),
+                "profile": st.selected_profile,
+                "unsaved_crop": st.is_cropped(&path),
+                "metadata": {},
+            });
+            // Reading the metadata parses the file: do it off the UI thread.
+            std::thread::spawn(move || {
+                if let Some(dec) = decoded {
+                    let meta: serde_json::Map<String, Value> = extract_metadata(&dec)
+                        .into_iter()
+                        .map(|(k, v)| (k, Value::String(v)))
+                        .collect();
+                    info["metadata"] = Value::Object(meta);
+                }
+                let _ = resp.send(Ok(info));
+            });
         }
         McpCommand::ListImages { resp } => {
             let _ = resp.send(Ok(st.visible_files.clone()));
@@ -3709,6 +3786,17 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
 // ----------------------------------------------------------------------------
 
 fn main() -> Result<(), slint::PlatformError> {
+    let log_path = logging::init(APP_NAME);
+    log::info!(
+        "{} {} (commit {}, {}) started",
+        APP_NAME,
+        env!("CARGO_PKG_VERSION"),
+        env!("HORAMA_GIT_COMMIT"),
+        platform_label()
+    );
+    if let Some(p) = &log_path {
+        log::debug!("Log file: {}", p.display());
+    }
     enable_windows_dpi_awareness();
     install_panic_hook();
 
@@ -5058,21 +5146,33 @@ fn main() -> Result<(), slint::PlatformError> {
                     pos.x + size.width as i32 / 2,
                     pos.y + size.height as i32 / 2,
                 );
+                // The query and the profile file read run on a worker thread; one at a time,
+                // and a move during a query is picked up by the next tick.
                 if cfg!(target_os = "windows")
                     && last_center != Some(center)
-                    && st.color_manager.refresh_display_profile(Some(center))
+                    && !st.display_probe_running
                 {
-                    ui.set_status_file_text(
-                        format!(
-                            "Display profile: {}",
-                            st.color_manager.display_profile_name()
-                        )
-                        .into(),
-                    );
-                    request_render(&mut st, true, false);
-                    spawn_filmstrip_thumbnail_loader(&ui, &mut st);
+                    if let Some((ui_w, st_w)) = weak_handles(&st) {
+                        st.display_probe_running = true;
+                        last_center = Some(center);
+                        std::thread::spawn(move || {
+                            let profile =
+                                crate::color_manager::detect_display_profile(Some(center));
+                            post_to_ui(ui_w, st_w, move |ui, st| {
+                                st.display_probe_running = false;
+                                if st.color_manager.set_display_profile(profile) {
+                                    let name = st.color_manager.display_profile_name().to_string();
+                                    log::info!("Display profile changed: {}", name);
+                                    ui.set_status_file_text(
+                                        format!("Display profile: {}", name).into(),
+                                    );
+                                    request_render(st, true, false);
+                                    spawn_filmstrip_thumbnail_loader(ui, st);
+                                }
+                            });
+                        });
+                    }
                 }
-                last_center = Some(center);
 
                 // Window geometry is saved every 2 seconds at most.
                 if ticks_since_save >= 4 {
@@ -5123,7 +5223,7 @@ fn main() -> Result<(), slint::PlatformError> {
         st.folder_watcher = None;
         // Never quit in the middle of a lossless rotation write.
         if !st.disk.flush(Duration::from_secs(10)) {
-            eprintln!("Warning: some file operations did not finish before exit.");
+            log::warn!("Some file operations did not finish before exit");
         }
     }
     if let Err(ref e) = res {

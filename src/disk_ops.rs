@@ -113,28 +113,24 @@ pub fn atomic_write(dest: &Path, bytes: &[u8]) -> Result<(), String> {
 // Lossless rotation
 // ---------------------------------------------------------------------------
 
-/// Which formats can store a rotation without any loss of image quality.
-pub fn rotation_persist_supported(path: &Path) -> bool {
-    match ext_lower(path).as_str() {
-        "jpg" | "jpeg" | "jpe" | "jfif" | "tif" | "tiff" | "bmp" => true,
-        // Animated PNG/WebP would lose their animation: rotate on screen only.
-        "png" | "webp" => !is_animated_file(path),
-        _ => false,
-    }
+/// Which formats can store a rotation without any loss of image quality, judged from the
+/// extension only (no disk access, so it can run on the UI thread). Animated PNG/WebP files are
+/// recognised later by [`persist_rotation`], which leaves them untouched.
+pub fn rotation_format_supported(path: &Path) -> bool {
+    matches!(
+        ext_lower(path).as_str(),
+        "jpg" | "jpeg" | "jpe" | "jfif" | "tif" | "tiff" | "bmp" | "png" | "webp"
+    )
 }
 
-/// Checks the beginning of a PNG/WebP file for animation (APNG `acTL`, WebP ANIM).
-fn is_animated_file(path: &Path) -> bool {
-    use std::io::Read;
-    let mut head = Vec::new();
-    if let Ok(f) = fs::File::open(path) {
-        let _ = f.take(1 << 20).read_to_end(&mut head);
-    }
-    match ext_lower(path).as_str() {
-        "png" => exif_orient::png_is_animated(&head),
-        "webp" => head.len() >= 21 && &head[12..16] == b"VP8X" && head[20] & 0x02 != 0,
-        _ => false,
-    }
+/// Result of [`persist_rotation`] when no error occurred.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RotationOutcome {
+    /// The file now stores the rotation; the text names the lossless method used.
+    Saved(String),
+    /// The file was deliberately left untouched (the text says why): the rotation exists on
+    /// screen only.
+    ShownOnly(String),
 }
 
 fn ext_lower(path: &Path) -> String {
@@ -173,20 +169,35 @@ fn exif_orientation_of(bytes: &[u8]) -> u16 {
 /// * PNG / WebP / BMP: pixels are re-encoded with a lossless encoder at the original bit depth
 ///   (PNG keeps 16-bit and alpha); ICC profile, EXIF and text metadata are carried over.
 ///
-/// Returns a short human-readable description of the method used.
-pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<String, String> {
+/// Files that cannot store a rotation without losing something (missing file, animated PNG or
+/// WebP, other formats) are left untouched and reported as [`RotationOutcome::ShownOnly`].
+/// Runs on the disk queue, never on the UI thread.
+pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<RotationOutcome, String> {
+    use RotationOutcome::{Saved, ShownOnly};
     let turns = quarter_turns_cw % 4;
     if turns == 0 {
-        return Ok("no change".into());
+        return Ok(Saved("no change".into()));
     }
-    let bytes = fs::read(path).map_err(|e| format!("Cannot read '{}': {}", path.display(), e))?;
+    if !rotation_format_supported(path) {
+        return Ok(ShownOnly(format!(
+            "'{}' files are never modified",
+            ext_lower(path).to_uppercase()
+        )));
+    }
+    let bytes = match fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ShownOnly("the file is no longer on disk".into()))
+        }
+        Err(e) => return Err(format!("Cannot read '{}': {}", path.display(), e)),
+    };
     match ext_lower(path).as_str() {
         "jpg" | "jpeg" | "jpe" | "jfif" => {
             let o = exif_orient::get_jpeg_orientation(&bytes);
             let new_o = exif_orient::compose_rotation(o, turns);
             let out = exif_orient::set_jpeg_orientation(&bytes, new_o)?;
             atomic_write(path, &out)?;
-            Ok("EXIF orientation updated (lossless)".into())
+            Ok(Saved("EXIF orientation updated (lossless)".into()))
         }
         "tif" | "tiff" => {
             let mut buf = bytes;
@@ -195,23 +206,27 @@ pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<String, Str
             exif_orient::set_tiff_orientation(&mut buf, 0, new_o)?;
             exif_orient::patch_all_xmp_packets(&mut buf, new_o);
             atomic_write(path, &buf)?;
-            Ok("TIFF orientation tag updated (lossless)".into())
+            Ok(Saved("TIFF orientation tag updated (lossless)".into()))
         }
         "png" => {
             if exif_orient::png_is_animated(&bytes) {
-                return Err(
-                    "animated PNG: the rotation cannot be saved without losing the animation"
-                        .into(),
-                );
+                return Ok(ShownOnly(
+                    "animated PNG: saving the rotation would lose the animation".into(),
+                ));
             }
             let out = reencode_png_rotated(&bytes, turns)?;
             atomic_write(path, &out)?;
-            Ok("PNG re-encoded losslessly".into())
+            Ok(Saved("PNG re-encoded losslessly".into()))
         }
         "webp" => {
+            if exif_orient::webp_meta(&bytes).animated {
+                return Ok(ShownOnly(
+                    "animated WebP: saving the rotation would lose the animation".into(),
+                ));
+            }
             let out = reencode_webp_rotated(&bytes, turns)?;
             atomic_write(path, &out)?;
-            Ok("WebP re-encoded losslessly".into())
+            Ok(Saved("WebP re-encoded losslessly".into()))
         }
         "bmp" => {
             let img = decode(&bytes)?;
@@ -225,12 +240,12 @@ pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<String, Str
             img.write_with_encoder(image::codecs::bmp::BmpEncoder::new(&mut out))
                 .map_err(|e| format!("BMP encode error: {}", e))?;
             atomic_write(path, &out)?;
-            Ok("BMP re-encoded losslessly".into())
+            Ok(Saved("BMP re-encoded losslessly".into()))
         }
-        other => Err(format!(
-            "Rotation cannot be saved losslessly for '{}' files",
-            other
-        )),
+        other => Ok(ShownOnly(format!(
+            "'{}' files are never modified",
+            other.to_uppercase()
+        ))),
     }
 }
 
@@ -720,7 +735,10 @@ mod tests {
         let p = d.join("a.jpg");
         DynamicImage::ImageRgb8(pattern_rgb(6, 4)).save(&p).unwrap();
         let before = image::open(&p).unwrap().to_rgb8();
-        persist_rotation(&p, 1).unwrap();
+        assert!(matches!(
+            persist_rotation(&p, 1),
+            Ok(RotationOutcome::Saved(_))
+        ));
         let bytes = fs::read(&p).unwrap();
         assert_eq!(exif_orient::get_jpeg_orientation(&bytes), 6);
         // Raw pixels identical (no recompression), orientation applied on load.
@@ -734,7 +752,10 @@ mod tests {
         let shown = crate::image_loader::load_image(&p).unwrap();
         assert_eq!((shown.width, shown.height), (4, 6));
         // Undo returns to orientation 1.
-        persist_rotation(&p, 3).unwrap();
+        assert!(matches!(
+            persist_rotation(&p, 3),
+            Ok(RotationOutcome::Saved(_))
+        ));
         assert_eq!(exif_orient::get_jpeg_orientation(&fs::read(&p).unwrap()), 1);
         let _ = fs::remove_dir_all(&d);
     }
@@ -752,7 +773,10 @@ mod tests {
             ])
         });
         DynamicImage::ImageRgba16(img.clone()).save(&p).unwrap();
-        persist_rotation(&p, 1).unwrap();
+        assert!(matches!(
+            persist_rotation(&p, 1),
+            Ok(RotationOutcome::Saved(_))
+        ));
         let back = image::open(&p).unwrap();
         assert_eq!(back.color(), image::ColorType::Rgba16);
         let expected = DynamicImage::ImageRgba16(img).rotate90();
@@ -767,7 +791,10 @@ mod tests {
 
         let t = d.join("a.tif");
         DynamicImage::ImageRgb8(src.clone()).save(&t).unwrap();
-        persist_rotation(&t, 2).unwrap();
+        assert!(matches!(
+            persist_rotation(&t, 2),
+            Ok(RotationOutcome::Saved(_))
+        ));
         assert_eq!(
             exif_orient::get_tiff_orientation(&fs::read(&t).unwrap(), 0),
             Some(3)
@@ -810,7 +837,10 @@ mod tests {
             fs::write(&w, out).unwrap();
         }
         let before = image::open(&w).unwrap().to_rgba8();
-        persist_rotation(&w, 3).unwrap();
+        assert!(matches!(
+            persist_rotation(&w, 3),
+            Ok(RotationOutcome::Saved(_))
+        ));
         let after = image::open(&w).unwrap().to_rgba8();
         assert_eq!(
             after.into_raw(),
@@ -834,7 +864,10 @@ mod tests {
 
         let b = d.join("a.bmp");
         DynamicImage::ImageRgb8(src.clone()).save(&b).unwrap();
-        persist_rotation(&b, 1).unwrap();
+        assert!(matches!(
+            persist_rotation(&b, 1),
+            Ok(RotationOutcome::Saved(_))
+        ));
         assert_eq!(
             image::open(&b).unwrap().to_rgb8().into_raw(),
             DynamicImage::ImageRgb8(src).rotate90().to_rgb8().into_raw()
@@ -843,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn animated_png_rotation_is_refused() {
+    fn animated_png_rotation_is_shown_only() {
         let d = tmpdir("apng");
         let p = d.join("a.png");
         DynamicImage::ImageRgb8(pattern_rgb(3, 2)).save(&p).unwrap();
@@ -855,9 +888,30 @@ mod tests {
         actl.extend_from_slice(&[0, 0, 0, 0]); // CRC (not checked by the detector)
         bytes.splice(33..33, actl);
         fs::write(&p, &bytes).unwrap();
-        assert!(!rotation_persist_supported(&p));
-        assert!(persist_rotation(&p, 1).is_err());
+        assert!(rotation_format_supported(&p), "decided by extension only");
+        assert!(matches!(
+            persist_rotation(&p, 1),
+            Ok(RotationOutcome::ShownOnly(_))
+        ));
         assert_eq!(fs::read(&p).unwrap(), bytes, "file untouched");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn unsupported_or_missing_files_are_left_alone() {
+        let d = tmpdir("shownonly");
+        let raw = d.join("a.cr3");
+        fs::write(&raw, b"not really a raw file").unwrap();
+        assert!(!rotation_format_supported(&raw));
+        assert!(matches!(
+            persist_rotation(&raw, 1),
+            Ok(RotationOutcome::ShownOnly(_))
+        ));
+        assert_eq!(fs::read(&raw).unwrap(), b"not really a raw file");
+        assert!(matches!(
+            persist_rotation(&d.join("gone.jpg"), 1),
+            Ok(RotationOutcome::ShownOnly(_))
+        ));
         let _ = fs::remove_dir_all(&d);
     }
 

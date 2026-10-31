@@ -96,6 +96,16 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 
 ---
 
+## File di log
+
+Horama scrive un file di log, utile per capire un problema anche nella versione release (che non ha console):
+
+- **Windows:** `%APPDATA%\Horama\logs\horama.log`
+- **Linux:** `~/.config/Horama/logs/horama.log`
+- **macOS:** `~/Library/Application Support/Horama/logs/horama.log`
+
+La prima riga di ogni avvio riporta versione, commit e sistema operativo. Oltre 1 MB il file viene ruotato (`horama.1.log`, `horama.2.log`, `horama.3.log`; i più vecchi vengono cancellati). Il livello predefinito è `info`; la variabile d'ambiente `HORAMA_LOG` (`error`, `warn`, `info`, `debug`, `trace`) lo cambia. Il log contiene percorsi di file e cause degli errori, mai il contenuto delle immagini.
+
 ## Aggiornamento da Horama
 
 Al primo avvio Horama copia le impostazioni della versione precedente (valutazioni, cartelle recenti, scorciatoie, dimensioni della finestra) dalla cartella `Horama` alla cartella `Horama` nelle impostazioni dell'utente (`%APPDATA%` su Windows, `~/.config` su Linux). I file vecchi restano dove sono. Nella configurazione MCP di Claude Desktop vanno aggiornati il nome del server (`horama`) e il percorso dell'eseguibile.

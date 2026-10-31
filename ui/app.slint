@@ -424,6 +424,8 @@ export component AppWindow inherits Window {
 
     // Status Bar
     in-out property <string> status-file-text: "Ready — Open a folder to view images";
+    // Background work in progress (e.g. reading image sizes); empty when idle.
+    in property <string> status-task-text: "";
     in-out property <string> status-eyedropper-text: "Eyedropper: R-Click | Loupe: M-Click";
     in-out property <string> status-cache-text: "RAM Cache: 0 / 0 (0.0 MB)";
 
@@ -3550,6 +3552,13 @@ export component AppWindow inherits Window {
                         font-size: 11px;
                         vertical-alignment: center;
                         overflow: elide;
+                    }
+
+                    if root.status-task-text != "" : Text {
+                        text: root.status-task-text;
+                        color: #4FA3E0;
+                        font-size: 11px;
+                        vertical-alignment: center;
                     }
 
                     Text {

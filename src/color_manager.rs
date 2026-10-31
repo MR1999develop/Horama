@@ -55,6 +55,50 @@ pub fn get_system_display_icc_path(screen_point: Option<(i32, i32)>) -> Option<P
     }
 }
 
+/// Monitor profile as detected from the system; sRGB when none is assigned or readable.
+pub struct DisplayProfile {
+    bytes: Option<Vec<u8>>,
+    name: String,
+    /// Identity of the profile content, to tell whether it changed.
+    key: String,
+}
+
+/// Reads the profile of the monitor containing `screen_point` (system query and file read):
+/// call it off the UI thread, then pass the result to [`ColorManager::set_display_profile`].
+pub fn detect_display_profile(screen_point: Option<(i32, i32)>) -> DisplayProfile {
+    let detected = get_system_display_icc_path(screen_point).and_then(|p| {
+        let bytes = match fs::read(&p) {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!("Display profile {} not read: {}", p.display(), e);
+                return None;
+            }
+        };
+        if Profile::new_from_slice(&bytes, false).is_none() {
+            log::warn!("Display profile {} is not a valid ICC profile", p.display());
+            return None;
+        }
+        let name = extract_icc_description(&bytes).unwrap_or_else(|| {
+            p.file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| "System Display Profile".to_string())
+        });
+        Some((bytes, name))
+    });
+    match detected {
+        Some((bytes, name)) => DisplayProfile {
+            key: format!("display:{:016x}", hash_bytes(&bytes)),
+            bytes: Some(bytes),
+            name,
+        },
+        None => DisplayProfile {
+            bytes: None,
+            name: "sRGB (Standard)".to_string(),
+            key: "display:srgb".to_string(),
+        },
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod win_display {
     // Win32 structures keep their SDK names so they can be checked against the documentation.
@@ -511,36 +555,21 @@ impl ColorManager {
         cm
     }
 
-    /// Re-detects the monitor profile for the monitor containing `screen_point`.
-    /// Returns true when the display profile changed.
+    /// Re-detects the monitor profile for the monitor containing `screen_point`, on the
+    /// calling thread. Returns true when the display profile changed.
     pub fn refresh_display_profile(&mut self, screen_point: Option<(i32, i32)>) -> bool {
-        let detected = get_system_display_icc_path(screen_point).and_then(|p| {
-            let bytes = fs::read(&p).ok()?;
-            Profile::new_from_slice(&bytes, false)?;
-            let name = extract_icc_description(&bytes).unwrap_or_else(|| {
-                p.file_name()
-                    .map(|f| f.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "System Display Profile".to_string())
-            });
-            Some((bytes, name))
-        });
-        let (bytes, name, key) = match detected {
-            Some((b, n)) => {
-                let k = format!("display:{:016x}", hash_bytes(&b));
-                (Some(b), n, k)
-            }
-            None => (
-                None,
-                "sRGB (Standard)".to_string(),
-                "display:srgb".to_string(),
-            ),
-        };
-        if key == self.display_key {
+        self.set_display_profile(detect_display_profile(screen_point))
+    }
+
+    /// Uses a profile found by [`detect_display_profile`]. Returns true when it differs from
+    /// the current one.
+    pub fn set_display_profile(&mut self, profile: DisplayProfile) -> bool {
+        if profile.key == self.display_key {
             return false;
         }
-        self.display_icc_bytes = bytes;
-        self.display_profile_name = name;
-        self.display_key = key;
+        self.display_icc_bytes = profile.bytes;
+        self.display_profile_name = profile.name;
+        self.display_key = profile.key;
         true
     }
 

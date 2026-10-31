@@ -384,6 +384,13 @@ export component AppWindow inherits Window {
     in-out property <[FilmstripItemData]> filmstrip-items: [];
 
     in-out property <image> current-image;
+    // Notice in the canvas (see notice-row): text, error style, optional action button.
+    in property <bool> notice-visible: false;
+    in property <bool> notice-is-error: false;
+    in property <string> notice-text: "";
+    in property <string> notice-action-text: "";
+    callback notice-action();
+    callback notice-dismiss();
     in-out property <bool> has-image: false;
     in-out property <int> image-pixel-width: 1;
     in-out property <int> image-pixel-height: 1;
@@ -3107,6 +3114,64 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                        // Notice shown where the user is looking: outcome of an action (with
+                        // Undo when it can be undone) or an error that needs to be read.
+                        if root.notice-visible : Rectangle {
+                            width: min(parent.width - 32px, 680px);
+                            height: notice-row.preferred-height;
+                            x: (parent.width - self.width) / 2;
+                            y: parent.height - self.height - 16px;
+                            background: root.notice-is-error ? #3A2020 : #2A2A2A;
+                            border-width: 1px;
+                            border-color: root.notice-is-error ? #D9534F : #4A4A4A;
+                            border-radius: 6px;
+                            drop-shadow-blur: 12px;
+                            drop-shadow-color: #00000080;
+                            accessible-role: text;
+                            accessible-label: root.notice-text;
+
+                            notice-row := HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 8px;
+                                padding-top: 8px;
+                                padding-bottom: 8px;
+                                spacing: 10px;
+
+                                Text {
+                                    text: root.notice-is-error ? "⚠" : "✓";
+                                    color: root.notice-is-error ? #FF8A80 : #7CC47C;
+                                    font-size: 14px;
+                                    vertical-alignment: center;
+                                }
+                                // Read-only TextInput: the text can be selected and copied.
+                                TextInput {
+                                    text: root.notice-text;
+                                    read-only: true;
+                                    single-line: false;
+                                    wrap: word-wrap;
+                                    color: #F2F2F2;
+                                    font-size: 12px;
+                                    horizontal-stretch: 1;
+                                    vertical-alignment: center;
+                                }
+                                if root.notice-action-text != "" : Win10Button {
+                                    text: root.notice-action-text;
+                                    primary: true;
+                                    y: (parent.height - self.height) / 2;
+                                    accessible-role: button;
+                                    accessible-label: root.notice-action-text;
+                                    clicked => { root.notice-action(); }
+                                }
+                                Win10Button {
+                                    icon-text: "✕";
+                                    width: 30px;
+                                    y: (parent.height - self.height) / 2;
+                                    accessible-role: button;
+                                    accessible-label: "Close";
+                                    clicked => { root.notice-dismiss(); }
                                 }
                             }
                         }

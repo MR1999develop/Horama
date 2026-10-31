@@ -29,7 +29,7 @@
   - Zoom al 100% centrato sul cursore del mouse con doppio click sinistro e modalità Adatta (*Fit*).
   - Lente d'ingrandimento 4× (pressione tasto centrale del mouse) e Contagocce colore RGB/HSL (pressione tasto destro).
   - Ridenominazione file singola e multipla (F2) conforme agli standard di sistema: l'estensione originale viene sempre mantenuta, nessun file esistente viene mai sovrascritto e in caso di errore tutte le rinomine vengono annullate.
-  - Eliminazione nel **Cestino** (Windows: Cestino di sistema; macOS: Finder; Linux: cestino freedesktop), con conferma.
+  - Eliminazione nel **Cestino** (Windows: Cestino di sistema; macOS: Finder; Linux: cestino freedesktop), senza conferma: un avviso nella vista offre "Undo" per qualche secondo; i dischi senza Cestino chiedono conferma prima di eliminare definitivamente.
   - Menu contestuale nativo *"Apri con"* con le applicazioni registrate nel sistema operativo.
   - Istogramma in tempo reale (RGB e Luminanza) e metadati fotografici completi EXIF.
   - Filtri istantanei per testo/nome parziale e valutazione a stelle (★).

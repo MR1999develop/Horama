@@ -318,6 +318,13 @@ struct ViewerState {
     color_manager: ColorManager,
     /// A monitor-profile query is running (see the window tracking timer).
     display_probe_running: bool,
+    /// Identity of the notice on screen; bumped by every new or hidden notice.
+    notice_id: u64,
+    notice_action: NoticeAction,
+    /// Files removed from the view and waiting to go to the Recycle Bin (Undo still possible).
+    pending_trash: Option<PendingTrash>,
+    /// `path_key`s hidden for the Recycle Bin (pending or being moved): folder scans skip them.
+    trash_hidden: HashSet<String>,
     preloader: PreloadController,
     disk: DiskQueue,
     thumbnail_generation: Arc<AtomicU64>,
@@ -468,6 +475,10 @@ impl ViewerState {
             selected_indices: std::collections::BTreeSet::new(),
             selection_anchor: None,
             display_probe_running: false,
+            notice_id: 0,
+            notice_action: NoticeAction::None,
+            pending_trash: None,
+            trash_hidden: HashSet::new(),
             current_decoded: None,
             rendered: None,
             pyramid: None,
@@ -1860,10 +1871,15 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
                     st.history_redo.retain(
                         |a| !matches!(a, HistoryAction::Rotate { path, .. } if *path == path_owned),
                     );
-                    show_message_later(
-                        "Rotation not saved",
-                        &format!("The rotation of '{}' could not be saved:\n{}", name, e),
-                        rfd::MessageLevel::Error,
+                    show_notice(
+                        ui,
+                        st,
+                        &format!(
+                            "The rotation of '{}' could not be saved: {}. The file is unchanged.",
+                            name, e
+                        ),
+                        true,
+                        NoticeAction::None,
                     );
                 }
             }
@@ -1998,6 +2014,10 @@ fn restore_edit_state(
 }
 
 fn undo_last_operation(ui: &AppWindow, state: &mut ViewerState) {
+    // The most recent action is a move to the Recycle Bin that has not happened yet.
+    if undo_pending_trash(ui, state) {
+        return;
+    }
     let Some(action) = state.history_undo.pop() else {
         ui.set_status_file_text("Nothing to undo".into());
         return;
@@ -2738,6 +2758,8 @@ fn start_folder_scan(
     let Some((ui_w, st_w)) = weak_handles(state) else {
         return;
     };
+    // Another folder (or a rescan): the deletion can no longer be undone from the view.
+    commit_pending_trash(ui, state);
     state.scan_generation += 1;
     state.aspect_job_generation.fetch_add(1, Ordering::SeqCst);
     let gen = state.scan_generation;
@@ -2750,6 +2772,11 @@ fn start_folder_scan(
                 return;
             }
             st.all_folder_files = files;
+            if !st.trash_hidden.is_empty() {
+                let hidden = st.trash_hidden.clone();
+                st.all_folder_files
+                    .retain(|f| !hidden.contains(&path_key(f)));
+            }
             st.subfolders = subdirs;
             if let Some(sub) = restore_sub {
                 let valid = sub == "__ALL__"
@@ -3176,6 +3203,7 @@ fn open_specific_files(ui: &AppWindow, state: &mut ViewerState, files: Vec<Strin
         .unwrap_or_default();
 
     state.is_files_mode = true;
+    commit_pending_trash(ui, state);
     state.scan_generation += 1; // cancel any running folder scan
     state.aspect_job_generation.fetch_add(1, Ordering::SeqCst);
     state.current_folder = parent_dir.clone();
@@ -3292,17 +3320,195 @@ fn current_rendered_bytes(state: &ViewerState) -> Option<&[u8]> {
 // Helpers used by the UI callbacks
 // ----------------------------------------------------------------------------
 
-/// Shows a message box from a fresh event-loop turn, so it never runs while the state lock is
-/// held (native dialogs spin a nested event loop).
-fn show_message_later(title: &str, text: &str, level: rfd::MessageLevel) {
-    let (title, text) = (title.to_string(), text.to_string());
-    let _ = slint::invoke_from_event_loop(move || {
-        rfd::MessageDialog::new()
-            .set_level(level)
-            .set_title(&title)
-            .set_description(&text)
-            .set_buttons(rfd::MessageButtons::Ok)
-            .show();
+// ----------------------------------------------------------------------------
+// Notices and the Recycle Bin with Undo
+// ----------------------------------------------------------------------------
+
+/// How long an outcome notice stays (errors stay until closed).
+const NOTICE_SECONDS: u64 = 8;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum NoticeAction {
+    None,
+    UndoTrash,
+}
+
+/// Files taken out of the view; they go to the Recycle Bin when the notice closes.
+struct PendingTrash {
+    notice_id: u64,
+    files: Vec<String>,
+}
+
+/// Shows a notice in the canvas. Outcomes close by themselves after [`NOTICE_SECONDS`];
+/// errors stay until the user closes them. A new notice replaces the previous one.
+fn show_notice(
+    ui: &AppWindow,
+    st: &mut ViewerState,
+    text: &str,
+    is_error: bool,
+    action: NoticeAction,
+) {
+    commit_pending_trash(ui, st); // the old notice and its Undo disappear
+    st.notice_id += 1;
+    st.notice_action = action;
+    ui.set_notice_text(text.into());
+    ui.set_notice_is_error(is_error);
+    ui.set_notice_action_text(
+        match action {
+            NoticeAction::UndoTrash => "Undo",
+            NoticeAction::None => "",
+        }
+        .into(),
+    );
+    ui.set_notice_visible(true);
+    if is_error {
+        log::warn!("{}", text);
+        return;
+    }
+    let id = st.notice_id;
+    if let Some((ui_w, st_w)) = weak_handles(st) {
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(NOTICE_SECONDS));
+            post_to_ui(ui_w, st_w, move |ui, st| {
+                if st.notice_id == id {
+                    hide_notice(ui, st);
+                }
+            });
+        });
+    }
+}
+
+/// Closes the notice; a pending move to the Recycle Bin is carried out.
+fn hide_notice(ui: &AppWindow, st: &mut ViewerState) {
+    st.notice_id += 1;
+    st.notice_action = NoticeAction::None;
+    ui.set_notice_visible(false);
+    commit_pending_trash(ui, st);
+}
+
+/// Removes `files` from the view at once and offers Undo; the files reach the Recycle Bin
+/// when the notice closes (or another notice, folder or the exit replaces it). No
+/// confirmation: the step is undoable here and again from the Recycle Bin. Drives without a
+/// Recycle Bin still get the system warning before a permanent deletion.
+fn trash_files_with_undo(ui: &AppWindow, st: &mut ViewerState, files: Vec<String>) {
+    if files.is_empty() {
+        return;
+    }
+    let text = if files.len() == 1 {
+        format!("'{}' moved to the Recycle Bin.", file_name_of(&files[0]))
+    } else {
+        format!("{} files moved to the Recycle Bin.", files.len())
+    };
+    show_notice(ui, st, &text, false, NoticeAction::UndoTrash);
+    for f in &files {
+        st.trash_hidden.insert(path_key(f));
+    }
+    remove_files_from_view(ui, st, &files);
+    st.pending_trash = Some(PendingTrash {
+        notice_id: st.notice_id,
+        files,
+    });
+    ui.set_status_file_text(text.into());
+}
+
+/// Puts back the files of the pending Recycle Bin move. Returns false if there is none.
+fn undo_pending_trash(ui: &AppWindow, st: &mut ViewerState) -> bool {
+    let Some(pending) = st.pending_trash.take() else {
+        return false;
+    };
+    for f in &pending.files {
+        st.trash_hidden.remove(&path_key(f));
+    }
+    restore_files_to_view(ui, st, &pending.files);
+    if st.notice_id == pending.notice_id {
+        st.notice_id += 1;
+        st.notice_action = NoticeAction::None;
+        ui.set_notice_visible(false);
+    }
+    ui.set_status_file_text(format!("Restored {} file(s).", pending.files.len()).into());
+    true
+}
+
+/// Adds files back to the list (sorted like a folder scan) and selects the first one.
+fn restore_files_to_view(ui: &AppWindow, st: &mut ViewerState, files: &[String]) {
+    for f in files {
+        if !st.all_folder_files.iter().any(|g| same_path(g, f)) {
+            st.all_folder_files.push(f.clone());
+        }
+    }
+    st.all_folder_files.sort_by_key(|a| a.to_lowercase());
+    apply_tree_filter_and_populate(ui, st);
+    if let Some(i) = files
+        .first()
+        .and_then(|f| st.visible_files.iter().position(|g| same_path(g, f)))
+    {
+        st.selected_indices.clear();
+        st.selected_indices.insert(i);
+        st.selection_anchor = Some(i);
+        select_image_by_index(ui, st, i);
+        sync_filmstrip_selection_ui(ui, st);
+    }
+}
+
+/// Carries out the pending move to the Recycle Bin, in the disk queue (after any pending
+/// rotation of the same files, so nothing writes them back).
+fn commit_pending_trash(ui: &AppWindow, st: &mut ViewerState) {
+    let Some(pending) = st.pending_trash.take() else {
+        return;
+    };
+    if st.notice_id == pending.notice_id && st.notice_action == NoticeAction::UndoTrash {
+        // The notice stays, but its Undo no longer applies.
+        st.notice_action = NoticeAction::None;
+        ui.set_notice_action_text("".into());
+    }
+    let files = pending.files;
+    let weak = weak_handles(st);
+    st.disk.submit(move || {
+        let mut removed = Vec::new();
+        let mut failed = Vec::new();
+        for f in files {
+            match crate::disk_ops::move_to_trash(Path::new(&f)) {
+                Ok(()) => removed.push(f),
+                Err(e) => {
+                    log::warn!("Not moved to the Recycle Bin: {}: {}", f, e);
+                    failed.push((f, e));
+                }
+            }
+        }
+        if !removed.is_empty() {
+            log::info!("Moved {} file(s) to the Recycle Bin", removed.len());
+        }
+        let Some((ui_w, st_w)) = weak else { return };
+        post_to_ui(ui_w, st_w, move |ui, st| {
+            for f in removed.iter().chain(failed.iter().map(|(f, _)| f)) {
+                st.trash_hidden.remove(&path_key(f));
+            }
+            forget_removed_files(st, &removed);
+            if failed.is_empty() {
+                return;
+            }
+            let back: Vec<String> = failed
+                .iter()
+                .map(|(f, _)| f.clone())
+                .filter(|f| Path::new(f).exists())
+                .collect();
+            let details: Vec<String> = failed
+                .iter()
+                .map(|(f, e)| format!("{}: {}", file_name_of(f), e))
+                .collect();
+            restore_files_to_view(ui, st, &back);
+            show_notice(
+                ui,
+                st,
+                &format!(
+                    "{} file(s) could not be moved to the Recycle Bin and are back in the list. {}",
+                    failed.len(),
+                    details.join("; ")
+                ),
+                true,
+                NoticeAction::None,
+            );
+        });
     });
 }
 
@@ -3388,18 +3594,12 @@ fn store_window_geometry(ui: &AppWindow, st: &mut ViewerState) {
 
 /// Removes deleted files from every list and from the filmstrip (rows are removed in place,
 /// so the other thumbnails stay loaded).
-fn remove_files_from_view(ui: &AppWindow, st: &mut ViewerState, removed: &[String]) {
+/// Drops everything kept in memory about files that are gone for good (caches, unsaved edits,
+/// ratings, undo history). Not called while their removal can still be undone.
+fn forget_removed_files(st: &mut ViewerState, removed: &[String]) {
     if removed.is_empty() {
         return;
     }
-    let first_idx = st
-        .visible_files
-        .iter()
-        .position(|f| removed.iter().any(|r| same_path(r, f)))
-        .unwrap_or(0);
-    let is_removed = |f: &String| removed.iter().any(|r| same_path(r, f));
-    st.all_folder_files.retain(|f| !is_removed(f));
-    st.visible_files.retain(|f| !is_removed(f));
     if let Ok(mut guard) = st.preloader.cache.lock() {
         for f in removed {
             guard.remove(f);
@@ -3420,6 +3620,26 @@ fn remove_files_from_view(ui: &AppWindow, st: &mut ViewerState, removed: &[Strin
     };
     st.history_undo.retain(keep);
     st.history_redo.retain(keep);
+}
+
+/// Takes files out of the file list and the filmstrip (nothing on disk changes).
+fn remove_files_from_view(ui: &AppWindow, st: &mut ViewerState, removed: &[String]) {
+    if removed.is_empty() {
+        return;
+    }
+    let first_idx = st
+        .visible_files
+        .iter()
+        .position(|f| removed.iter().any(|r| same_path(r, f)))
+        .unwrap_or(0);
+    let is_removed = |f: &String| removed.iter().any(|r| same_path(r, f));
+    st.all_folder_files.retain(|f| !is_removed(f));
+    st.visible_files.retain(|f| !is_removed(f));
+    // Selection history indices no longer match the list.
+    st.history_undo
+        .retain(|a| !matches!(a, HistoryAction::ImageSelection { .. }));
+    st.history_redo
+        .retain(|a| !matches!(a, HistoryAction::ImageSelection { .. }));
 
     let model = ui.get_filmstrip_items();
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
@@ -3994,16 +4214,17 @@ fn main() -> Result<(), slint::PlatformError> {
             if ext.is_empty() {
                 dest.set_extension("jpg");
             } else if !crate::image_saver::EXPORT_EXTENSIONS.contains(&ext.as_str()) {
-                rfd::MessageDialog::new()
-                    .set_level(rfd::MessageLevel::Error)
-                    .set_title("Save Error")
-                    .set_description(format!(
-                        "'.{}' is not a supported export format.\nSupported: {}",
+                show_notice(
+                    &ui,
+                    &mut lock_state(&state),
+                    &format!(
+                        "Not saved: '.{}' is not a supported export format. Use one of: {}.",
                         ext,
                         crate::image_saver::EXPORT_EXTENSIONS.join(", ")
-                    ))
-                    .set_buttons(rfd::MessageButtons::Ok)
-                    .show();
+                    ),
+                    true,
+                    NoticeAction::None,
+                );
                 return;
             }
             // The native save dialog already asks before overwriting, except when the
@@ -4047,7 +4268,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     }
                     Err(e) => {
                         ui.set_status_file_text(format!("Save failed: {}", e).into());
-                        show_message_later("Save Error", &format!("Failed to save image:\n{}", e), rfd::MessageLevel::Error);
+                        show_notice(ui, st, &format!("The image could not be saved: {}.", e), true, NoticeAction::None);
                     }
                 });
             });
@@ -4346,65 +4567,37 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         ui.on_delete_selected_images(move || {
             let Some(ui) = ui_weak.upgrade() else { return };
-            let (files, disk, weak) = {
-                let st = lock_state(&state);
-                let files: Vec<String> = selected_or_current(&st)
-                    .into_iter()
-                    .filter_map(|i| st.visible_files.get(i).cloned())
-                    .collect();
-                (files, st.disk.clone(), weak_handles(&st))
-            };
-            let Some((ui_w, st_w)) = weak else { return };
+            let mut st = lock_state(&state);
+            let files: Vec<String> = selected_or_current(&st)
+                .into_iter()
+                .filter_map(|i| st.visible_files.get(i).cloned())
+                .collect();
             if files.is_empty() {
                 return;
             }
-            let what = if files.len() == 1 {
-                format!("'{}'", file_name_of(&files[0]))
-            } else {
-                format!("{} files", files.len())
-            };
-            let confirm = rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Warning)
-                .set_title("Move to Recycle Bin")
-                .set_description(format!("Move {} to the Recycle Bin / Trash?", what))
-                .set_buttons(rfd::MessageButtons::YesNo)
-                .show();
-            if confirm != rfd::MessageDialogResult::Yes {
-                return;
-            }
-            ui.set_status_file_text(format!("Moving {} to the Recycle Bin…", what).into());
-            // Queued after any pending rotation of these files, so nothing writes them back.
-            disk.submit(move || {
-                let mut removed = Vec::new();
-                let mut failed = Vec::new();
-                for f in files {
-                    match crate::disk_ops::move_to_trash(Path::new(&f)) {
-                        Ok(()) => removed.push(f),
-                        Err(e) => failed.push(format!("{}: {}", file_name_of(&f), e)),
-                    }
+            trash_files_with_undo(&ui, &mut st, files);
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_notice_action(move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = lock_state(&state);
+            match st.notice_action {
+                NoticeAction::UndoTrash => {
+                    undo_pending_trash(&ui, &mut st);
                 }
-                post_to_ui(ui_w, st_w, move |ui, st| {
-                    remove_files_from_view(ui, st, &removed);
-                    if failed.is_empty() {
-                        ui.set_status_file_text(
-                            format!("Moved {} file(s) to the Recycle Bin", removed.len()).into(),
-                        );
-                    } else {
-                        ui.set_status_file_text(
-                            format!(
-                                "{} file(s) could not be moved to the Recycle Bin",
-                                failed.len()
-                            )
-                            .into(),
-                        );
-                        show_message_later(
-                            "Delete",
-                            &format!("These files were NOT deleted:\n\n{}", failed.join("\n")),
-                            rfd::MessageLevel::Error,
-                        );
-                    }
-                });
-            });
+                NoticeAction::None => {}
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_notice_dismiss(move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            hide_notice(&ui, &mut lock_state(&state));
         });
     }
 
@@ -4781,10 +4974,12 @@ fn main() -> Result<(), slint::PlatformError> {
                         });
                     } else {
                         ui.set_status_file_text(format!("{} image(s) could not be saved — the application stays open.", failed.len()).into());
-                        show_message_later(
-                            "Save Error",
-                            &format!("These images could not be saved; nothing was lost, the application stays open:\n\n{}", failed.join("\n")),
-                            rfd::MessageLevel::Error,
+                        show_notice(
+                            ui,
+                            st,
+                            &format!("{} image(s) could not be saved; nothing was lost and the application stays open. {}", failed.len(), failed.join("; ")),
+                            true,
+                            NoticeAction::None,
                         );
                     }
                 });
@@ -5249,6 +5444,8 @@ fn main() -> Result<(), slint::PlatformError> {
         store_window_geometry(&ui, &mut st);
         st.settings.save();
         st.folder_watcher = None;
+        // A deletion still waiting for its Undo is carried out now.
+        commit_pending_trash(&ui, &mut st);
         // Never quit in the middle of a lossless rotation write.
         if !st.disk.flush(Duration::from_secs(10)) {
             log::warn!("Some file operations did not finish before exit");

@@ -16,7 +16,8 @@ pub fn extract_exif_thumbnail(path: &Path) -> Option<Vec<u8>> {
     let mut reader = BufReader::new(file);
     let exif_data = exif::Reader::new().read_from_container(&mut reader).ok()?;
     let off_field = exif_data.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
-    let len_field = exif_data.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
+    let len_field =
+        exif_data.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
     let offset = off_field.value.get_uint(0)? as usize;
     let len = len_field.value.get_uint(0)? as usize;
     let tiff_buf = exif_data.buf();
@@ -74,7 +75,12 @@ impl DecodedImage {
         }
     }
 
-    fn remap(&self, new_w: usize, new_h: usize, map: impl Fn(usize, usize) -> (usize, usize)) -> DecodedImage {
+    fn remap(
+        &self,
+        new_w: usize,
+        new_h: usize,
+        map: impl Fn(usize, usize) -> (usize, usize),
+    ) -> DecodedImage {
         let w = self.width as usize;
         let h = self.height as usize;
         let mut new_pixels = vec![0u8; new_w * new_h * 3];
@@ -235,7 +241,9 @@ pub fn extract_jpeg_icc_from_header(data: &[u8]) -> Option<Vec<u8>> {
 
 /// Splits an embedded profile into (usable RGB profile, note about an ignored profile).
 fn classify_icc(icc: Option<Vec<u8>>) -> (Option<Vec<u8>>, Option<String>, Option<String>) {
-    let Some(icc) = icc else { return (None, None, None) };
+    let Some(icc) = icc else {
+        return (None, None, None);
+    };
     match icc_color_space(&icc) {
         Some(cs) if cs == *b"RGB " => {
             let name = extract_icc_description(&icc);
@@ -246,7 +254,14 @@ fn classify_icc(icc: Option<Vec<u8>>) -> (Option<Vec<u8>>, Option<String>, Optio
                 .map(|c| String::from_utf8_lossy(&c).trim().to_string())
                 .unwrap_or_else(|| "unknown".into());
             let name = extract_icc_description(&icc).unwrap_or_else(|| "Embedded ICC".into());
-            (None, None, Some(format!("{} ({} profile, not applicable to RGB — sRGB assumed)", name, cs)))
+            (
+                None,
+                None,
+                Some(format!(
+                    "{} ({} profile, not applicable to RGB — sRGB assumed)",
+                    name, cs
+                )),
+            )
         }
     }
 }
@@ -293,7 +308,11 @@ pub(crate) fn apply_orientation(img: DynamicImage, orientation: u32) -> DynamicI
 }
 
 fn decode_bytes(bytes: &[u8]) -> Option<DynamicImage> {
-    ImageReader::new(Cursor::new(bytes)).with_guessed_format().ok()?.decode().ok()
+    ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()
 }
 
 /// Decode a Camera RAW file using the embedded full-size preview or pure-Rust rawloader + imagepipe.
@@ -308,9 +327,15 @@ fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String>
 
     // 1. Embedded full-size JPEG previews (CR3/CR2/NEF/ARW/RAF...): try candidates largest first.
     for jpeg_bytes in extract_embedded_jpegs(path, 3) {
-        let Some(dyn_img) = decode_bytes(&jpeg_bytes) else { continue };
+        let Some(dyn_img) = decode_bytes(&jpeg_bytes) else {
+            continue;
+        };
         let jpeg_orient = read_exif_orientation_from_bytes(&jpeg_bytes);
-        let orient = if jpeg_orient != 1 { jpeg_orient } else { file_orientation };
+        let orient = if jpeg_orient != 1 {
+            jpeg_orient
+        } else {
+            file_orientation
+        };
         let oriented = apply_orientation(dyn_img, orient);
         let (embedded_icc, embedded_icc_name, ignored_icc_note) =
             classify_icc(extract_icc_from_bytes(&jpeg_bytes, "jpg"));
@@ -341,9 +366,8 @@ fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String>
         .max()
         .map(|w| (32 - (w as u32).leading_zeros()) as u8)
         .unwrap_or(12);
-    let mut pipeline =
-        imagepipe::Pipeline::new_from_source(imagepipe::ImageSource::Raw(raw_image))
-            .map_err(|e| format!("RAW pipeline error: {}", e))?;
+    let mut pipeline = imagepipe::Pipeline::new_from_source(imagepipe::ImageSource::Raw(raw_image))
+        .map_err(|e| format!("RAW pipeline error: {}", e))?;
     let decoded = pipeline
         .output_8bit(None)
         .map_err(|e| format!("RAW demosaic error: {}", e))?;
@@ -443,7 +467,11 @@ fn panic_message(p: Box<dyn std::any::Any + Send>) -> String {
 pub fn load_image(path: &Path) -> Result<DecodedImage, String> {
     match catch_unwind(AssertUnwindSafe(|| load_image_inner(path))) {
         Ok(r) => r,
-        Err(p) => Err(format!("Decoder crashed on '{}': {}", path.display(), panic_message(p))),
+        Err(p) => Err(format!(
+            "Decoder crashed on '{}': {}",
+            path.display(),
+            panic_message(p)
+        )),
     }
 }
 
@@ -489,7 +517,10 @@ fn load_thumbnail_inner(
 ) -> Option<(u32, u32, Vec<u8>)> {
     let file_orientation = read_exif_orientation_from_file(path);
     let is_jpeg = matches!(
-        path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
         Some("jpg" | "jpeg" | "jpe" | "jfif")
     );
 
@@ -510,11 +541,21 @@ fn load_thumbnail_inner(
     // 2. RAW embedded preview path
     if is_raw_file(path) {
         for jpeg_bytes in extract_embedded_jpegs(path, 2) {
-            let Some(img) = decode_bytes(&jpeg_bytes) else { continue };
+            let Some(img) = decode_bytes(&jpeg_bytes) else {
+                continue;
+            };
             let jpeg_orient = read_exif_orientation_from_bytes(&jpeg_bytes);
-            let orient = if jpeg_orient != 1 { jpeg_orient } else { file_orientation };
+            let orient = if jpeg_orient != 1 {
+                jpeg_orient
+            } else {
+                file_orientation
+            };
             let emb_icc = extract_icc_from_bytes(&jpeg_bytes, "jpg");
-            return Some(finish_thumbnail(apply_orientation(img, orient), emb_icc, cm));
+            return Some(finish_thumbnail(
+                apply_orientation(img, orient),
+                emb_icc,
+                cm,
+            ));
         }
     }
 
@@ -522,7 +563,11 @@ fn load_thumbnail_inner(
     let decoded = load_image(path).ok()?;
     let emb_icc = decoded.embedded_icc.clone();
     let rgb_img = image::RgbImage::from_raw(decoded.width, decoded.height, decoded.rgb_pixels)?;
-    Some(finish_thumbnail(DynamicImage::ImageRgb8(rgb_img), emb_icc, cm))
+    Some(finish_thumbnail(
+        DynamicImage::ImageRgb8(rgb_img),
+        emb_icc,
+        cm,
+    ))
 }
 
 /// Ultra-fast thumbnail loader returning (width, height, rgba8_pixels) for the bottom filmstrip.
@@ -532,7 +577,9 @@ pub fn load_thumbnail_rgba(
     path: &Path,
     cm: Option<&crate::color_manager::ColorManager>,
 ) -> Option<(u32, u32, Vec<u8>)> {
-    catch_unwind(AssertUnwindSafe(|| load_thumbnail_inner(path, cm))).ok().flatten()
+    catch_unwind(AssertUnwindSafe(|| load_thumbnail_inner(path, cm)))
+        .ok()
+        .flatten()
 }
 
 /// Creates a filmstrip thumbnail from an in-memory DecodedImage (used e.g. after rotation).
@@ -540,8 +587,13 @@ pub fn create_thumbnail_from_decoded(
     decoded: &DecodedImage,
     cm: Option<&crate::color_manager::ColorManager>,
 ) -> Option<(u32, u32, Vec<u8>)> {
-    let rgb_img = image::RgbImage::from_raw(decoded.width, decoded.height, decoded.rgb_pixels.clone())?;
-    Some(finish_thumbnail(DynamicImage::ImageRgb8(rgb_img), decoded.embedded_icc.clone(), cm))
+    let rgb_img =
+        image::RgbImage::from_raw(decoded.width, decoded.height, decoded.rgb_pixels.clone())?;
+    Some(finish_thumbnail(
+        DynamicImage::ImageRgb8(rgb_img),
+        decoded.embedded_icc.clone(),
+        cm,
+    ))
 }
 
 /// Pixel dimensions of an image file without decoding it (header only where possible).
@@ -553,10 +605,19 @@ pub fn probe_dimensions(path: &Path) -> Option<(u32, u32)> {
                 return Some((sz.width as u32, sz.height as u32));
             }
         }
-        return ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_dimensions().ok();
+        return ImageReader::open(path)
+            .ok()?
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok();
     }
     let jpeg = crate::cr3_parser::extract_largest_embedded_jpeg(path)?;
-    ImageReader::new(Cursor::new(&jpeg)).with_guessed_format().ok()?.into_dimensions().ok()
+    ImageReader::new(Cursor::new(&jpeg))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
 }
 
 #[cfg(test)]
@@ -596,7 +657,11 @@ mod tests {
         // Top-left after CW rotation is the old bottom-left pixel.
         assert_eq!(&cw.rgb_pixels[0..3], &[44, 55, 66]);
 
-        let full_rot = img.rotate_90_cw().rotate_90_cw().rotate_90_cw().rotate_90_cw();
+        let full_rot = img
+            .rotate_90_cw()
+            .rotate_90_cw()
+            .rotate_90_cw()
+            .rotate_90_cw();
         assert_eq!(full_rot.rgb_pixels, img.rgb_pixels);
 
         let back = img.rotate_90_cw().rotate_90_ccw();
@@ -604,23 +669,40 @@ mod tests {
 
         let rot180_twice = img.rotate_180().rotate_180();
         assert_eq!(rot180_twice.rgb_pixels, img.rgb_pixels);
-        assert_eq!(img.rotate_180().rgb_pixels, img.rotate_90_cw().rotate_90_cw().rgb_pixels);
+        assert_eq!(
+            img.rotate_180().rgb_pixels,
+            img.rotate_90_cw().rotate_90_cw().rgb_pixels
+        );
 
         // Must match the image crate's rotations used for files on disk.
-        let dynimg = DynamicImage::ImageRgb8(image::RgbImage::from_raw(2, 3, img.rgb_pixels.clone()).unwrap());
+        let dynimg = DynamicImage::ImageRgb8(
+            image::RgbImage::from_raw(2, 3, img.rgb_pixels.clone()).unwrap(),
+        );
         assert_eq!(dynimg.rotate90().to_rgb8().into_raw(), cw.rgb_pixels);
-        assert_eq!(dynimg.rotate270().to_rgb8().into_raw(), img.rotate_90_ccw().rgb_pixels);
+        assert_eq!(
+            dynimg.rotate270().to_rgb8().into_raw(),
+            img.rotate_90_ccw().rgb_pixels
+        );
     }
 
     #[test]
     fn test_decoded_image_crop() {
-        let img = sample(3, 3, vec![1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9]);
+        let img = sample(
+            3,
+            3,
+            vec![
+                1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9,
+            ],
+        );
         let cropped = img.crop(1, 1, 1, 1);
         assert_eq!((cropped.width, cropped.height), (1, 1));
         assert_eq!(cropped.rgb_pixels, vec![5, 5, 5]);
 
         let top_left = img.crop(0, 0, 2, 2);
-        assert_eq!(top_left.rgb_pixels, vec![1, 1, 1, 2, 2, 2, 4, 4, 4, 5, 5, 5]);
+        assert_eq!(
+            top_left.rgb_pixels,
+            vec![1, 1, 1, 2, 2, 2, 4, 4, 4, 5, 5, 5]
+        );
 
         // Out-of-range sizes are clamped instead of overflowing.
         let clamped = img.crop(2, 2, u32::MAX, u32::MAX);
@@ -634,7 +716,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         for name in ["bad.jpg", "bad.png", "bad.cr2", "bad.nef", "bad.tif"] {
             let p = dir.join(name);
-            std::fs::write(&p, [0xFFu8, 0xD8, 0xFF, 0xE1, 0x00, 0x02, 1, 2, 3, 4, 5, 6, 7]).unwrap();
+            std::fs::write(
+                &p,
+                [0xFFu8, 0xD8, 0xFF, 0xE1, 0x00, 0x02, 1, 2, 3, 4, 5, 6, 7],
+            )
+            .unwrap();
             assert!(load_image(&p).is_err());
             let _ = load_thumbnail_rgba(&p, None);
         }

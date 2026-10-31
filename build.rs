@@ -7,7 +7,10 @@ fn main() {
             let mut res = winres::WindowsResource::new();
             res.set_icon("assets/icon.ico");
             res.set("ProductName", "Horama");
-            res.set("FileDescription", "Horama - Color-Managed RAW & Image Viewer");
+            res.set(
+                "FileDescription",
+                "Horama - Color-Managed RAW & Image Viewer",
+            );
             let _ = res.compile();
         }
     }

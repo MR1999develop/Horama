@@ -25,7 +25,11 @@ fn registry() -> &'static Mutex<HashMap<String, Instant>> {
 
 fn reg_key(path: &Path) -> String {
     let s = crate::config::normalize_path(&path.to_string_lossy());
-    if cfg!(windows) { s.to_lowercase() } else { s }
+    if cfg!(windows) {
+        s.to_lowercase()
+    } else {
+        s
+    }
 }
 
 /// Records that this application is writing `path` right now.
@@ -41,7 +45,10 @@ pub fn is_recent_self_write(path: &Path) -> bool {
     registry()
         .lock()
         .ok()
-        .and_then(|r| r.get(&reg_key(path)).map(|t| t.elapsed() < Duration::from_secs(3)))
+        .and_then(|r| {
+            r.get(&reg_key(path))
+                .map(|t| t.elapsed() < Duration::from_secs(3))
+        })
         .unwrap_or(false)
 }
 
@@ -53,7 +60,10 @@ pub fn is_recent_self_write(path: &Path) -> bool {
 /// is flushed to disk and then renamed over the destination. If anything fails, the original
 /// file is left untouched.
 pub fn atomic_write(dest: &Path, bytes: &[u8]) -> Result<(), String> {
-    let dir = dest.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let dir = dest
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let name = dest
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -68,7 +78,10 @@ pub fn atomic_write(dest: &Path, bytes: &[u8]) -> Result<(), String> {
     ));
     mark_self_write(dest);
     let result = (|| -> std::io::Result<()> {
-        let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         drop(f);
@@ -125,7 +138,10 @@ fn is_animated_file(path: &Path) -> bool {
 }
 
 fn ext_lower(path: &Path) -> String {
-    path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase()
+    path.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase()
 }
 
 fn rotate_dyn(img: DynamicImage, quarter_turns_cw: u8) -> DynamicImage {
@@ -142,7 +158,10 @@ fn exif_orientation_of(bytes: &[u8]) -> u16 {
     exif::Reader::new()
         .read_from_container(&mut cur)
         .ok()
-        .and_then(|e| e.get_field(exif::Tag::Orientation, exif::In::PRIMARY).and_then(|f| f.value.get_uint(0)))
+        .and_then(|e| {
+            e.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                .and_then(|f| f.value.get_uint(0))
+        })
         .map(|v| v as u16)
         .filter(|v| (1..=8).contains(v))
         .unwrap_or(1)
@@ -180,7 +199,10 @@ pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<String, Str
         }
         "png" => {
             if exif_orient::png_is_animated(&bytes) {
-                return Err("animated PNG: the rotation cannot be saved without losing the animation".into());
+                return Err(
+                    "animated PNG: the rotation cannot be saved without losing the animation"
+                        .into(),
+                );
             }
             let out = reencode_png_rotated(&bytes, turns)?;
             atomic_write(path, &out)?;
@@ -205,7 +227,10 @@ pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<String, Str
             atomic_write(path, &out)?;
             Ok("BMP re-encoded losslessly".into())
         }
-        other => Err(format!("Rotation cannot be saved losslessly for '{}' files", other)),
+        other => Err(format!(
+            "Rotation cannot be saved losslessly for '{}' files",
+            other
+        )),
     }
 }
 
@@ -233,14 +258,24 @@ fn reencode_png_rotated(bytes: &[u8], turns: u8) -> Result<Vec<u8>, String> {
     let img = decode(bytes)?;
     let img = rotate_dyn(apply_orientation(img, o as u32), turns);
     let mut encoded = Vec::new();
-    img.write_with_encoder(PngEncoder::new_with_quality(&mut encoded, CompressionType::Best, FilterType::Adaptive))
-        .map_err(|e| format!("PNG encode error: {}", e))?;
+    img.write_with_encoder(PngEncoder::new_with_quality(
+        &mut encoded,
+        CompressionType::Best,
+        FilterType::Adaptive,
+    ))
+    .map_err(|e| format!("PNG encode error: {}", e))?;
 
-    let original = Png::from_bytes(Bytes::copy_from_slice(bytes)).map_err(|e| format!("PNG parse error: {}", e))?;
-    let mut fresh = Png::from_bytes(Bytes::from(encoded)).map_err(|e| format!("PNG parse error: {}", e))?;
+    let original = Png::from_bytes(Bytes::copy_from_slice(bytes))
+        .map_err(|e| format!("PNG parse error: {}", e))?;
+    let mut fresh =
+        Png::from_bytes(Bytes::from(encoded)).map_err(|e| format!("PNG parse error: {}", e))?;
 
-    const COLOR: [&[u8; 4]; 7] = [b"iCCP", b"sRGB", b"gAMA", b"cHRM", b"cICP", b"mDCV", b"cLLI"];
-    const META: [&[u8; 4]; 7] = [b"pHYs", b"tEXt", b"zTXt", b"iTXt", b"tIME", b"eXIf", b"sPLT"];
+    const COLOR: [&[u8; 4]; 7] = [
+        b"iCCP", b"sRGB", b"gAMA", b"cHRM", b"cICP", b"mDCV", b"cLLI",
+    ];
+    const META: [&[u8; 4]; 7] = [
+        b"pHYs", b"tEXt", b"zTXt", b"iTXt", b"tIME", b"eXIf", b"sPLT",
+    ];
     let chunks = fresh.chunks_mut();
     chunks.retain(|c| {
         let k = c.kind();
@@ -270,14 +305,19 @@ fn reencode_png_rotated(bytes: &[u8], turns: u8) -> Result<Vec<u8>, String> {
         }
     }
     let mut out = Vec::new();
-    fresh.encoder().write_to(&mut out).map_err(|e| format!("PNG write error: {}", e))?;
+    fresh
+        .encoder()
+        .write_to(&mut out)
+        .map_err(|e| format!("PNG write error: {}", e))?;
     Ok(out)
 }
 
 fn reencode_webp_rotated(bytes: &[u8], turns: u8) -> Result<Vec<u8>, String> {
     let meta = exif_orient::webp_meta(bytes);
     if meta.animated {
-        return Err("animated WebP: the rotation cannot be saved without losing the animation".into());
+        return Err(
+            "animated WebP: the rotation cannot be saved without losing the animation".into(),
+        );
     }
     let o = exif_orientation_of(bytes);
     let img = decode(bytes)?;
@@ -424,7 +464,11 @@ mod imp {
             w_func: FO_DELETE,
             p_from: wide.as_ptr(),
             p_to: std::ptr::null(),
-            f_flags: FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING,
+            f_flags: FOF_ALLOWUNDO
+                | FOF_NOCONFIRMATION
+                | FOF_SILENT
+                | FOF_NOERRORUI
+                | FOF_WANTNUKEWARNING,
             f_any_operations_aborted: 0,
             h_name_mappings: std::ptr::null_mut(),
             lpsz_progress_title: std::ptr::null(),
@@ -446,8 +490,14 @@ mod imp {
 
     pub fn move_to_trash(path: &Path) -> Result<(), String> {
         let abs = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-        let esc = abs.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
-        let script = format!("tell application \"Finder\" to delete POSIX file \"{}\"", esc);
+        let esc = abs
+            .to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        let script = format!(
+            "tell application \"Finder\" to delete POSIX file \"{}\"",
+            esc
+        );
         let out = std::process::Command::new("osascript")
             .arg("-e")
             .arg(&script)
@@ -456,7 +506,10 @@ mod imp {
         if out.status.success() && !path.exists() {
             Ok(())
         } else {
-            Err(format!("Finder could not move the file to the Trash: {}", String::from_utf8_lossy(&out.stderr).trim()))
+            Err(format!(
+                "Finder could not move the file to the Trash: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
         }
     }
 }
@@ -529,23 +582,52 @@ mod imp {
         let d = doy - (153 * mp + 2) / 5 + 1;
         let m = if mp < 10 { mp + 3 } else { mp - 9 };
         let y = if m <= 2 { y + 1 } else { y };
-        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", y, m, d, rem / 3600, (rem % 3600) / 60, rem % 60)
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            y,
+            m,
+            d,
+            rem / 3600,
+            (rem % 3600) / 60,
+            rem % 60
+        )
     }
 
-    fn try_trash_dir(trash: &Path, abs: &Path, info_path_value: &str) -> Result<(), std::io::Error> {
+    fn try_trash_dir(
+        trash: &Path,
+        abs: &Path,
+        info_path_value: &str,
+    ) -> Result<(), std::io::Error> {
         let files = trash.join("files");
         let info = trash.join("info");
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(&files)?;
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(&info)?;
-        let name = abs.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&files)?;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&info)?;
+        let name = abs
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".into());
         let (stem, ext) = match name.rfind('.') {
             Some(i) if i > 0 => (name[..i].to_string(), name[i..].to_string()),
             _ => (name.clone(), String::new()),
         };
         for n in 0..10_000 {
-            let candidate = if n == 0 { name.clone() } else { format!("{} ({}){}", stem, n, ext) };
+            let candidate = if n == 0 {
+                name.clone()
+            } else {
+                format!("{} ({}){}", stem, n, ext)
+            };
             let info_file = info.join(format!("{}.trashinfo", candidate));
-            let mut f = match fs::OpenOptions::new().write(true).create_new(true).open(&info_file) {
+            let mut f = match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&info_file)
+            {
                 Ok(f) => f,
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(e),
@@ -555,7 +637,12 @@ mod imp {
                 let _ = fs::remove_file(&info_file);
                 continue;
             }
-            write!(f, "[Trash Info]\nPath={}\nDeletionDate={}\n", info_path_value, deletion_date())?;
+            write!(
+                f,
+                "[Trash Info]\nPath={}\nDeletionDate={}\n",
+                info_path_value,
+                deletion_date()
+            )?;
             drop(f);
             if let Err(e) = fs::rename(abs, files.join(&candidate)) {
                 let _ = fs::remove_file(&info_file);
@@ -580,13 +667,19 @@ mod imp {
         if let Some(uid) = uid() {
             let root = mount_root(&abs);
             let trash = root.join(format!(".Trash-{}", uid));
-            let rel = abs.strip_prefix(&root).map(|p| p.to_string_lossy().to_string()).unwrap_or(abs_str.clone());
+            let rel = abs
+                .strip_prefix(&root)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or(abs_str.clone());
             match try_trash_dir(&trash, &abs, &percent_encode(&rel)) {
                 Ok(()) => return Ok(()),
                 Err(e) => errors.push(format!("{}: {}", trash.display(), e)),
             }
         }
-        Err(format!("Could not move the file to the Trash ({})", errors.join("; ")))
+        Err(format!(
+            "Could not move the file to the Trash ({})",
+            errors.join("; ")
+        ))
     }
 
     #[cfg(test)]
@@ -614,7 +707,9 @@ mod tests {
     }
 
     fn pattern_rgb(w: u32, h: u32) -> RgbImage {
-        RgbImage::from_fn(w, h, |x, y| Rgb([(x * 40) as u8, (y * 60) as u8, ((x + y) * 7) as u8]))
+        RgbImage::from_fn(w, h, |x, y| {
+            Rgb([(x * 40) as u8, (y * 60) as u8, ((x + y) * 7) as u8])
+        })
     }
 
     #[test]
@@ -627,7 +722,13 @@ mod tests {
         let bytes = fs::read(&p).unwrap();
         assert_eq!(exif_orient::get_jpeg_orientation(&bytes), 6);
         // Raw pixels identical (no recompression), orientation applied on load.
-        assert_eq!(image::load_from_memory(&bytes).unwrap().to_rgb8().into_raw(), before.clone().into_raw());
+        assert_eq!(
+            image::load_from_memory(&bytes)
+                .unwrap()
+                .to_rgb8()
+                .into_raw(),
+            before.clone().into_raw()
+        );
         let shown = crate::image_loader::load_image(&p).unwrap();
         assert_eq!((shown.width, shown.height), (4, 6));
         // Undo returns to orientation 1.
@@ -641,7 +742,12 @@ mod tests {
         let d = tmpdir("png");
         let p = d.join("a.png");
         let img = image::ImageBuffer::<Rgba<u16>, Vec<u16>>::from_fn(5, 3, |x, y| {
-            Rgba([x as u16 * 1000 + 1, y as u16 * 2000 + 3, 12345, (x * 100 + y) as u16])
+            Rgba([
+                x as u16 * 1000 + 1,
+                y as u16 * 2000 + 3,
+                12345,
+                (x * 100 + y) as u16,
+            ])
         });
         DynamicImage::ImageRgba16(img.clone()).save(&p).unwrap();
         persist_rotation(&p, 1).unwrap();
@@ -660,32 +766,66 @@ mod tests {
         let t = d.join("a.tif");
         DynamicImage::ImageRgb8(src.clone()).save(&t).unwrap();
         persist_rotation(&t, 2).unwrap();
-        assert_eq!(exif_orient::get_tiff_orientation(&fs::read(&t).unwrap(), 0), Some(3));
+        assert_eq!(
+            exif_orient::get_tiff_orientation(&fs::read(&t).unwrap(), 0),
+            Some(3)
+        );
         let shown = crate::image_loader::load_image(&t).unwrap();
-        let expected = DynamicImage::ImageRgb8(src.clone()).rotate180().to_rgb8().into_raw();
+        let expected = DynamicImage::ImageRgb8(src.clone())
+            .rotate180()
+            .to_rgb8()
+            .into_raw();
         assert_eq!(shown.rgb_pixels, expected);
 
         let w = d.join("a.webp");
-        DynamicImage::ImageRgba8(RgbaImage::from_fn(4, 2, |x, y| Rgba([x as u8 * 50, y as u8 * 90, 7, 200])))
-            .save(&w)
-            .unwrap();
+        DynamicImage::ImageRgba8(RgbaImage::from_fn(4, 2, |x, y| {
+            Rgba([x as u8 * 50, y as u8 * 90, 7, 200])
+        }))
+        .save(&w)
+        .unwrap();
         {
             // Add EXIF (raw TIFF layout, as libwebp/ExifTool write it).
             let src = fs::read(&w).unwrap();
-            let make = exif::Field { tag: exif::Tag::Make, ifd_num: exif::In::PRIMARY, value: exif::Value::Ascii(vec![b"WebCam".to_vec()]) };
+            let make = exif::Field {
+                tag: exif::Tag::Make,
+                ifd_num: exif::In::PRIMARY,
+                value: exif::Value::Ascii(vec![b"WebCam".to_vec()]),
+            };
             let mut wr = exif::experimental::Writer::new();
             wr.push_field(&make);
             let mut ex = Cursor::new(Vec::new());
             wr.write(&mut ex, true).unwrap();
-            let out = exif_orient::build_webp(&src, 4, 2, true, None, Some(ex.get_ref()), Some(b"<x:xmpmeta/>")).unwrap();
+            let out = exif_orient::build_webp(
+                &src,
+                4,
+                2,
+                true,
+                None,
+                Some(ex.get_ref()),
+                Some(b"<x:xmpmeta/>"),
+            )
+            .unwrap();
             fs::write(&w, out).unwrap();
         }
         let before = image::open(&w).unwrap().to_rgba8();
         persist_rotation(&w, 3).unwrap();
         let after = image::open(&w).unwrap().to_rgba8();
-        assert_eq!(after.into_raw(), DynamicImage::ImageRgba8(before).rotate270().to_rgba8().into_raw());
-        let e = exif::Reader::new().read_from_container(&mut Cursor::new(fs::read(&w).unwrap())).expect("EXIF kept");
-        assert!(e.get_field(exif::Tag::Make, exif::In::PRIMARY).unwrap().display_value().to_string().contains("WebCam"));
+        assert_eq!(
+            after.into_raw(),
+            DynamicImage::ImageRgba8(before)
+                .rotate270()
+                .to_rgba8()
+                .into_raw()
+        );
+        let e = exif::Reader::new()
+            .read_from_container(&mut Cursor::new(fs::read(&w).unwrap()))
+            .expect("EXIF kept");
+        assert!(e
+            .get_field(exif::Tag::Make, exif::In::PRIMARY)
+            .unwrap()
+            .display_value()
+            .to_string()
+            .contains("WebCam"));
         let meta = exif_orient::webp_meta(&fs::read(&w).unwrap());
         assert_eq!(meta.xmp.as_deref(), Some(&b"<x:xmpmeta/>"[..]), "XMP kept");
         assert!(!meta.animated);
@@ -752,7 +892,11 @@ mod tests {
         fs::write(&p, b"old").unwrap();
         atomic_write(&p, b"new").unwrap();
         assert_eq!(fs::read(&p).unwrap(), b"new");
-        assert_eq!(fs::read_dir(&d).unwrap().count(), 1, "no temp files left behind");
+        assert_eq!(
+            fs::read_dir(&d).unwrap().count(),
+            1,
+            "no temp files left behind"
+        );
         assert!(is_recent_self_write(&p));
         let _ = fs::remove_dir_all(&d);
     }
@@ -780,7 +924,8 @@ mod tests {
         move_to_trash(&p).unwrap();
         assert!(!p.exists());
         assert!(data_home.join("Trash/files/photo one.jpg").exists());
-        let info = fs::read_to_string(data_home.join("Trash/info/photo one.jpg.trashinfo")).unwrap();
+        let info =
+            fs::read_to_string(data_home.join("Trash/info/photo one.jpg.trashinfo")).unwrap();
         assert!(info.contains("Path=") && info.contains("photo%20one.jpg"));
         // Same name again gets a unique suffix.
         fs::write(&p, b"y").unwrap();

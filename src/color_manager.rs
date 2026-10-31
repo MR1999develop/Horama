@@ -8,8 +8,8 @@ use crate::config::{
 use qcms::{DataType, Intent, Profile, Transform};
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct ColorTransformInfo {
@@ -86,7 +86,12 @@ mod win_display {
     #[link(name = "gdi32")]
     extern "system" {
         fn GetICMProfileW(hdc: *mut c_void, lpcb_name: *mut u32, lpsz_filename: *mut u16) -> i32;
-        fn CreateDCW(driver: *const u16, device: *const u16, port: *const u16, devmode: *const c_void) -> *mut c_void;
+        fn CreateDCW(
+            driver: *const u16,
+            device: *const u16,
+            port: *const u16,
+            devmode: *const c_void,
+        ) -> *mut c_void;
         fn DeleteDC(hdc: *mut c_void) -> i32;
     }
 
@@ -118,7 +123,12 @@ mod win_display {
                     let mut mi: MONITORINFOEXW = std::mem::zeroed();
                     mi.cb_size = std::mem::size_of::<MONITORINFOEXW>() as u32;
                     if GetMonitorInfoW(hmon, &mut mi) != 0 {
-                        let hdc = CreateDCW(mi.sz_device.as_ptr(), mi.sz_device.as_ptr(), std::ptr::null(), std::ptr::null());
+                        let hdc = CreateDCW(
+                            mi.sz_device.as_ptr(),
+                            mi.sz_device.as_ptr(),
+                            std::ptr::null(),
+                            std::ptr::null(),
+                        );
                         if !hdc.is_null() {
                             let p = icm_profile(hdc);
                             DeleteDC(hdc);
@@ -147,17 +157,24 @@ mod linux_display {
 
     fn run(args: &[&str]) -> Option<String> {
         let out = Command::new("colormgr").args(args).output().ok()?;
-        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).to_string())
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).to_string())
     }
 
     fn value_after(line: &str, key: &str) -> Option<String> {
-        line.trim_start().strip_prefix(key).map(|v| v.trim().to_string())
+        line.trim_start()
+            .strip_prefix(key)
+            .map(|v| v.trim().to_string())
     }
 
     /// Default profile of the first colord display device (if colord is installed).
     pub fn profile_path() -> Option<PathBuf> {
         let devices = run(&["get-devices-by-kind", "display"])?;
-        let ids: Vec<String> = devices.lines().filter_map(|l| value_after(l, "Device ID:")).collect();
+        let ids: Vec<String> = devices
+            .lines()
+            .filter_map(|l| value_after(l, "Device ID:"))
+            .collect();
         for id in ids {
             if let Some(info) = run(&["device-get-default-profile", &id]) {
                 for line in info.lines() {
@@ -508,7 +525,11 @@ impl ColorManager {
                 let k = format!("display:{:016x}", hash_bytes(&b));
                 (Some(b), n, k)
             }
-            None => (None, "sRGB (Standard)".to_string(), "display:srgb".to_string()),
+            None => (
+                None,
+                "sRGB (Standard)".to_string(),
+                "display:srgb".to_string(),
+            ),
         };
         if key == self.display_key {
             return false;
@@ -577,7 +598,9 @@ impl ColorManager {
     fn display_name_for(&self, profile_name: &str, embedded_icc: Option<&[u8]>) -> String {
         if profile_name == PROFILE_EMBEDDED {
             return match embedded_icc.filter(|e| Profile::new_from_slice(e, false).is_some()) {
-                Some(emb) => extract_icc_description(emb).unwrap_or_else(|| "Embedded ICC".to_string()),
+                Some(emb) => {
+                    extract_icc_description(emb).unwrap_or_else(|| "Embedded ICC".to_string())
+                }
                 None => format!("{} [Default]", DEFAULT_FALLBACK_PROFILE),
             };
         }
@@ -588,13 +611,22 @@ impl ColorManager {
         }
     }
 
-    fn build_profile(&self, key: &str, profile_name: &str, embedded_icc: Option<&[u8]>) -> Box<Profile> {
+    fn build_profile(
+        &self,
+        key: &str,
+        profile_name: &str,
+        embedded_icc: Option<&[u8]>,
+    ) -> Box<Profile> {
         let parsed = if key.starts_with("emb:") {
             embedded_icc.and_then(|e| Profile::new_from_slice(e, false))
         } else if key.starts_with("named:") {
-            self.icc_bytes_map.get(profile_name).and_then(|b| Profile::new_from_slice(b, false))
+            self.icc_bytes_map
+                .get(profile_name)
+                .and_then(|b| Profile::new_from_slice(b, false))
         } else if key.starts_with("display:") && key != "display:srgb" {
-            self.display_icc_bytes.as_ref().and_then(|b| Profile::new_from_slice(b, false))
+            self.display_icc_bytes
+                .as_ref()
+                .and_then(|b| Profile::new_from_slice(b, false))
         } else {
             None
         };
@@ -652,7 +684,12 @@ impl ColorManager {
     ///   Embedded -> Target (document values) -> Monitor profile.
     /// - Otherwise (Assign mode): the selected profile is assigned to the pixels
     ///   (default sRGB for untagged images) and converted to the monitor profile.
-    pub fn render(&self, raw_rgb: &[u8], selected_profile_name: &str, embedded_icc: Option<&[u8]>) -> RenderedPixels {
+    pub fn render(
+        &self,
+        raw_rgb: &[u8],
+        selected_profile_name: &str,
+        embedded_icc: Option<&[u8]>,
+    ) -> RenderedPixels {
         let embedded_icc = embedded_icc.filter(|e| icc_color_space(e) == Some(*b"RGB "));
         let embedded_name = embedded_icc.and_then(extract_icc_description);
         let has_embedded = embedded_name.is_some();
@@ -662,20 +699,35 @@ impl ColorManager {
         let target_key = self.profile_key(selected_profile_name, embedded_icc);
         let target_name = self.display_name_for(selected_profile_name, embedded_icc);
 
-        let (document, source_summary) = if has_embedded && selected_profile_name != PROFILE_EMBEDDED {
-            let emb_key = self.profile_key(PROFILE_EMBEDDED, embedded_icc);
-            let emb_name = self.display_name_for(PROFILE_EMBEDDED, embedded_icc);
-            let mut doc = raw_rgb.to_vec();
-            if let Some(t) = self.transform(&emb_key, PROFILE_EMBEDDED, embedded_icc, &target_key, selected_profile_name, embedded_icc) {
-                Self::apply_transform(&t, &mut doc);
-            }
-            (Some(doc), format!("{} → {}", emb_name, target_name))
-        } else {
-            (None, target_name)
-        };
+        let (document, source_summary) =
+            if has_embedded && selected_profile_name != PROFILE_EMBEDDED {
+                let emb_key = self.profile_key(PROFILE_EMBEDDED, embedded_icc);
+                let emb_name = self.display_name_for(PROFILE_EMBEDDED, embedded_icc);
+                let mut doc = raw_rgb.to_vec();
+                if let Some(t) = self.transform(
+                    &emb_key,
+                    PROFILE_EMBEDDED,
+                    embedded_icc,
+                    &target_key,
+                    selected_profile_name,
+                    embedded_icc,
+                ) {
+                    Self::apply_transform(&t, &mut doc);
+                }
+                (Some(doc), format!("{} → {}", emb_name, target_name))
+            } else {
+                (None, target_name)
+            };
 
         let mut display = document.clone().unwrap_or_else(|| raw_rgb.to_vec());
-        if let Some(t) = self.transform(&target_key, selected_profile_name, embedded_icc, &display_key, "", None) {
+        if let Some(t) = self.transform(
+            &target_key,
+            selected_profile_name,
+            embedded_icc,
+            &display_key,
+            "",
+            None,
+        ) {
             Self::apply_transform(&t, &mut display);
         }
 
@@ -715,7 +767,14 @@ impl ColorManager {
         if has_embedded && selected_profile_name != PROFILE_EMBEDDED {
             let emb_key = self.profile_key(PROFILE_EMBEDDED, embedded_icc);
             let target_key = self.profile_key(selected_profile_name, embedded_icc);
-            if let Some(t) = self.transform(&emb_key, PROFILE_EMBEDDED, embedded_icc, &target_key, selected_profile_name, embedded_icc) {
+            if let Some(t) = self.transform(
+                &emb_key,
+                PROFILE_EMBEDDED,
+                embedded_icc,
+                &target_key,
+                selected_profile_name,
+                embedded_icc,
+            ) {
                 Self::apply_transform(&t, &mut pixels);
             }
         }

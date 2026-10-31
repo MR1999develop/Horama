@@ -18,10 +18,7 @@ pub enum FileSyncAction {
     #[allow(dead_code)]
     Restored(String),
     /// A file was renamed on disk.
-    Renamed {
-        old_path: String,
-        new_path: String,
-    },
+    Renamed { old_path: String, new_path: String },
     /// A new supported image file was added to the folder.
     Created(String),
     /// An existing file in the folder was modified on disk.
@@ -213,15 +210,18 @@ impl FolderWatcher {
                                 // 2. Heuristic rename correlation:
                                 // If a file was removed and another file created in the same directory,
                                 // correlate them as a rename!
-                                let mut removes_list: Vec<PathBuf> = pending_removes.drain().collect();
-                                let mut creates_list: Vec<PathBuf> = pending_creates.drain().collect();
+                                let mut removes_list: Vec<PathBuf> =
+                                    pending_removes.drain().collect();
+                                let mut creates_list: Vec<PathBuf> =
+                                    pending_creates.drain().collect();
 
                                 // Only pair when the folder has exactly one removal and one creation
                                 // with the same extension in this batch; otherwise a deletion plus an
                                 // unrelated new file would be misreported as a rename.
-                                let same_dir_count = |list: &Vec<PathBuf>, dir: Option<&std::path::Path>| {
-                                    list.iter().filter(|p| p.parent() == dir).count()
-                                };
+                                let same_dir_count =
+                                    |list: &Vec<PathBuf>, dir: Option<&std::path::Path>| {
+                                        list.iter().filter(|p| p.parent() == dir).count()
+                                    };
                                 let removes_snapshot = removes_list.clone();
                                 let creates_snapshot = creates_list.clone();
                                 removes_list.retain(|old_p| {
@@ -229,12 +229,17 @@ impl FolderWatcher {
                                         && same_dir_count(&removes_snapshot, old_p.parent()) == 1
                                         && same_dir_count(&creates_snapshot, old_p.parent()) == 1
                                     {
-                                        let old_ext = old_p.extension().map(|e| e.to_string_lossy().to_lowercase());
+                                        let old_ext = old_p
+                                            .extension()
+                                            .map(|e| e.to_string_lossy().to_lowercase());
                                         if let Some(idx) = creates_list.iter().position(|new_p| {
                                             new_p.exists()
                                                 && is_supported_file(new_p)
                                                 && new_p.parent() == old_p.parent()
-                                                && new_p.extension().map(|e| e.to_string_lossy().to_lowercase()) == old_ext
+                                                && new_p
+                                                    .extension()
+                                                    .map(|e| e.to_string_lossy().to_lowercase())
+                                                    == old_ext
                                         }) {
                                             let new_p = creates_list.remove(idx);
                                             pending_modifies.remove(old_p);

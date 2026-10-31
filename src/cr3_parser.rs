@@ -99,10 +99,7 @@ fn find_preview_in_boxes(
             {
                 return Some(res);
             }
-        } else if matches!(
-            &box_type,
-            b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl"
-        ) {
+        } else if matches!(&box_type, b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl") {
             if let Some(res) = find_preview_in_boxes(f, data_pos, data_pos + data_size, depth + 1) {
                 return Some(res);
             }
@@ -124,7 +121,9 @@ fn find_preview_in_boxes(
 /// and CMT4 (GPS) boxes of a CR3 file.
 pub fn extract_cr3_exif_blocks(path: &Path) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
-    let Ok(mut f) = File::open(path) else { return out };
+    let Ok(mut f) = File::open(path) else {
+        return out;
+    };
     let Ok(meta) = f.metadata() else { return out };
     collect_cmt_boxes(&mut f, 0, meta.len(), 0, &mut out);
     out
@@ -164,12 +163,16 @@ fn collect_cmt_boxes(f: &mut File, start: u64, end: u64, depth: usize, out: &mut
         match &kind {
             b"CMT1" | b"CMT2" | b"CMT4" if data_len < 16 * 1024 * 1024 => {
                 let mut blob = vec![0u8; data_len as usize];
-                if f.read_exact(&mut blob).is_ok() && (blob.starts_with(b"II*\0") || blob.starts_with(b"MM\0*")) {
+                if f.read_exact(&mut blob).is_ok()
+                    && (blob.starts_with(b"II*\0") || blob.starts_with(b"MM\0*"))
+                {
                     out.push(blob);
                 }
             }
             b"moov" => collect_cmt_boxes(f, data_start, data_start + data_len, depth + 1, out),
-            b"uuid" if data_len > 16 => collect_cmt_boxes(f, data_start + 16, data_start + data_len, depth + 1, out),
+            b"uuid" if data_len > 16 => {
+                collect_cmt_boxes(f, data_start + 16, data_start + data_len, depth + 1, out)
+            }
             _ => {}
         }
         pos += size;
@@ -232,7 +235,9 @@ pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
         }
     }
 
-    let Ok(mut f) = File::open(path) else { return out };
+    let Ok(mut f) = File::open(path) else {
+        return out;
+    };
     let Ok(meta) = f.metadata() else { return out };
     // Previews live near the start of RAW files; cap the read at 64 MB.
     let read_limit = (meta.len() as usize).min(64 * 1024 * 1024);
@@ -294,7 +299,8 @@ mod tests {
             image::Rgb([(x % 256) as u8, (y % 256) as u8, 77])
         }));
         let mut v = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut v), image::ImageFormat::Jpeg).unwrap();
+        img.write_to(&mut std::io::Cursor::new(&mut v), image::ImageFormat::Jpeg)
+            .unwrap();
         v
     }
 

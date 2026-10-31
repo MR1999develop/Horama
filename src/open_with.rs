@@ -188,16 +188,36 @@ mod win_impl {
 
         let hdc = GetDC(ptr::null_mut());
         if hdc.is_null() {
-            if !ii.hbm_color.is_null() { DeleteObject(ii.hbm_color); }
-            if !ii.hbm_mask.is_null() { DeleteObject(ii.hbm_mask); }
+            if !ii.hbm_color.is_null() {
+                DeleteObject(ii.hbm_color);
+            }
+            if !ii.hbm_mask.is_null() {
+                DeleteObject(ii.hbm_mask);
+            }
             return None;
         }
 
-        let target_bitmap = if !ii.hbm_color.is_null() { ii.hbm_color } else { ii.hbm_mask };
+        let target_bitmap = if !ii.hbm_color.is_null() {
+            ii.hbm_color
+        } else {
+            ii.hbm_mask
+        };
         let mut bm: BITMAP = std::mem::zeroed();
-        let got = GetObjectW(target_bitmap, std::mem::size_of::<BITMAP>() as i32, &mut bm as *mut BITMAP as *mut c_void);
-        let width = if got != 0 && bm.bm_width > 0 { bm.bm_width.min(256) } else { 16 };
-        let mut height = if got != 0 && bm.bm_height > 0 { bm.bm_height.min(256) } else { 16 };
+        let got = GetObjectW(
+            target_bitmap,
+            std::mem::size_of::<BITMAP>() as i32,
+            &mut bm as *mut BITMAP as *mut c_void,
+        );
+        let width = if got != 0 && bm.bm_width > 0 {
+            bm.bm_width.min(256)
+        } else {
+            16
+        };
+        let mut height = if got != 0 && bm.bm_height > 0 {
+            bm.bm_height.min(256)
+        } else {
+            16
+        };
         if ii.hbm_color.is_null() {
             // Monochrome icons store AND and XOR masks stacked vertically.
             height = (height / 2).max(1);
@@ -223,8 +243,12 @@ mod win_impl {
         );
 
         ReleaseDC(ptr::null_mut(), hdc);
-        if !ii.hbm_color.is_null() { DeleteObject(ii.hbm_color); }
-        if !ii.hbm_mask.is_null() { DeleteObject(ii.hbm_mask); }
+        if !ii.hbm_color.is_null() {
+            DeleteObject(ii.hbm_color);
+        }
+        if !ii.hbm_mask.is_null() {
+            DeleteObject(ii.hbm_mask);
+        }
 
         if lines == 0 {
             return None;
@@ -248,7 +272,9 @@ mod win_impl {
 
         // 1. Try ExtractIconExW
         let mut h_small: *mut c_void = ptr::null_mut();
-        if ExtractIconExW(wide.as_ptr(), icon_index, ptr::null_mut(), &mut h_small, 1) > 0 && !h_small.is_null() {
+        if ExtractIconExW(wide.as_ptr(), icon_index, ptr::null_mut(), &mut h_small, 1) > 0
+            && !h_small.is_null()
+        {
             let res = hicon_to_rgba(h_small);
             DestroyIcon(h_small);
             if res.is_some() {
@@ -316,8 +342,11 @@ mod win_impl {
                         std::mem::transmute(*h_vt.add(4));
                     let get_name: extern "system" fn(*mut c_void, *mut *mut u16) -> i32 =
                         std::mem::transmute(*h_vt.add(3));
-                    let get_icon_loc: extern "system" fn(*mut c_void, *mut *mut u16, *mut i32) -> i32 =
-                        std::mem::transmute(*h_vt.add(5));
+                    let get_icon_loc: extern "system" fn(
+                        *mut c_void,
+                        *mut *mut u16,
+                        *mut i32,
+                    ) -> i32 = std::mem::transmute(*h_vt.add(5));
 
                     let mut ui_name_ptr: *mut u16 = ptr::null_mut();
                     let mut name_ptr: *mut u16 = ptr::null_mut();
@@ -329,24 +358,37 @@ mod win_impl {
 
                     if get_ui_name(handler, &mut ui_name_ptr) == 0 && !ui_name_ptr.is_null() {
                         let mut len = 0;
-                        while *ui_name_ptr.add(len) != 0 { len += 1; }
-                        ui_name_str = String::from_utf16_lossy(std::slice::from_raw_parts(ui_name_ptr, len));
+                        while *ui_name_ptr.add(len) != 0 {
+                            len += 1;
+                        }
+                        ui_name_str =
+                            String::from_utf16_lossy(std::slice::from_raw_parts(ui_name_ptr, len));
                         CoTaskMemFree(ui_name_ptr as *mut c_void);
                     }
 
-                    if get_icon_loc(handler, &mut icon_loc_ptr, &mut icon_idx) == 0 && !icon_loc_ptr.is_null() {
+                    if get_icon_loc(handler, &mut icon_loc_ptr, &mut icon_idx) == 0
+                        && !icon_loc_ptr.is_null()
+                    {
                         let mut len = 0;
-                        while *icon_loc_ptr.add(len) != 0 { len += 1; }
-                        let s = String::from_utf16_lossy(std::slice::from_raw_parts(icon_loc_ptr, len));
+                        while *icon_loc_ptr.add(len) != 0 {
+                            len += 1;
+                        }
+                        let s =
+                            String::from_utf16_lossy(std::slice::from_raw_parts(icon_loc_ptr, len));
                         CoTaskMemFree(icon_loc_ptr as *mut c_void);
                         if !s.starts_with('@') && !s.is_empty() {
                             path_for_icon = s;
                         }
                     }
 
-                    if path_for_icon.is_empty() && get_name(handler, &mut name_ptr) == 0 && !name_ptr.is_null() {
+                    if path_for_icon.is_empty()
+                        && get_name(handler, &mut name_ptr) == 0
+                        && !name_ptr.is_null()
+                    {
                         let mut len = 0;
-                        while *name_ptr.add(len) != 0 { len += 1; }
+                        while *name_ptr.add(len) != 0 {
+                            len += 1;
+                        }
                         let s = String::from_utf16_lossy(std::slice::from_raw_parts(name_ptr, len));
                         CoTaskMemFree(name_ptr as *mut c_void);
                         if s.to_lowercase().ends_with(".exe") {
@@ -356,7 +398,12 @@ mod win_impl {
                     }
 
                     let trimmed = ui_name_str.trim().to_string();
-                    if !trimmed.is_empty() && trimmed != "None" && !results.iter().any(|item: &OpenWithItem| item.name == trimmed) {
+                    if !trimmed.is_empty()
+                        && trimmed != "None"
+                        && !results
+                            .iter()
+                            .any(|item: &OpenWithItem| item.name == trimmed)
+                    {
                         let icon_data = if !path_for_icon.is_empty() {
                             extract_app_icon(&path_for_icon, icon_idx)
                         } else {
@@ -412,7 +459,10 @@ mod win_impl {
                 &mut shell_item,
             );
             if hr_item != 0 || shell_item.is_null() {
-                return Err(format!("Failed to create shell item for file: {:#x}", hr_item));
+                return Err(format!(
+                    "Failed to create shell item for file: {:#x}",
+                    hr_item
+                ));
             }
 
             let item_vt = *(shell_item as VTable);
@@ -447,12 +497,8 @@ mod win_impl {
             }
 
             let enum_vt = *(enum_handlers as VTable);
-            let next_fn: extern "system" fn(
-                *mut c_void,
-                u32,
-                *mut *mut c_void,
-                *mut u32,
-            ) -> i32 = std::mem::transmute(*enum_vt.add(3));
+            let next_fn: extern "system" fn(*mut c_void, u32, *mut *mut c_void, *mut u32) -> i32 =
+                std::mem::transmute(*enum_vt.add(3));
 
             let mut cur_idx = 0;
             let mut launched = false;
@@ -492,7 +538,10 @@ mod win_impl {
             if launched {
                 Ok(())
             } else {
-                Err(format!("Could not launch application (code: {:#x})", last_err))
+                Err(format!(
+                    "Could not launch application (code: {:#x})",
+                    last_err
+                ))
             }
         }
     }
@@ -552,9 +601,7 @@ mod macos_impl {
         for (name, p) in &standard_apps {
             if Path::new(p).exists() {
                 if idx == target_idx {
-                    let res = Command::new("open")
-                        .args(["-a", p, file_path])
-                        .spawn();
+                    let res = Command::new("open").args(["-a", p, file_path]).spawn();
                     return match res {
                         Ok(_) => Ok(()),
                         Err(e) => Err(format!("Failed to launch {}: {}", name, e)),
@@ -567,9 +614,7 @@ mod macos_impl {
     }
 
     pub fn launch_open_with_dialog(file_path: &str) {
-        let _ = Command::new("open")
-            .arg(file_path)
-            .spawn();
+        let _ = Command::new("open").arg(file_path).spawn();
     }
 }
 
@@ -612,7 +657,10 @@ mod tests {
         #[cfg(target_os = "windows")]
         {
             println!("Found handlers for .jpg: {:?}", handlers);
-            assert!(!handlers.is_empty(), "Expected at least 1 registered handler for .jpg");
+            assert!(
+                !handlers.is_empty(),
+                "Expected at least 1 registered handler for .jpg"
+            );
         }
     }
 }

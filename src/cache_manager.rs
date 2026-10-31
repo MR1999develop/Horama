@@ -39,7 +39,12 @@ impl RamCache {
 
     #[cfg(test)]
     fn with_budget(budget_bytes: usize) -> Self {
-        Self { entries: HashMap::new(), order: VecDeque::new(), used_bytes: 0, budget_bytes }
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            used_bytes: 0,
+            budget_bytes,
+        }
     }
 
     fn touch(&mut self, path: &str) {
@@ -82,7 +87,9 @@ impl RamCache {
             return;
         }
         while self.used_bytes + img_bytes > self.budget_bytes {
-            let Some(oldest) = self.order.pop_front() else { break };
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
             if let Some(removed) = self.entries.remove(&oldest) {
                 self.used_bytes = self.used_bytes.saturating_sub(removed.memory_bytes());
             }
@@ -128,7 +135,11 @@ type Inflight = Arc<(Mutex<HashSet<String>>, Condvar)>;
 
 /// Loads `path` through the cache. Concurrent requests for the same file wait for the
 /// first decode instead of decoding the file twice.
-fn load_dedup(cache: &Mutex<RamCache>, inflight: &Inflight, path: &str) -> Result<Arc<DecodedImage>, String> {
+fn load_dedup(
+    cache: &Mutex<RamCache>,
+    inflight: &Inflight,
+    path: &str,
+) -> Result<Arc<DecodedImage>, String> {
     let (lock, cvar) = &**inflight;
     loop {
         if let Some(c) = cache.lock().ok().and_then(|mut g| g.get(path)) {
@@ -137,7 +148,9 @@ fn load_dedup(cache: &Mutex<RamCache>, inflight: &Inflight, path: &str) -> Resul
         let mut set = lock.lock().map_err(|_| "cache lock poisoned".to_string())?;
         if set.contains(path) {
             // Another thread is decoding this file: wait for it, then retry the cache.
-            let _unused = cvar.wait_timeout(set, Duration::from_millis(250)).map_err(|_| "cache lock poisoned".to_string())?;
+            let _unused = cvar
+                .wait_timeout(set, Duration::from_millis(250))
+                .map_err(|_| "cache lock poisoned".to_string())?;
             continue;
         }
         set.insert(path.to_string());
@@ -191,11 +204,19 @@ impl PreloadController {
                 .spawn(move || preload_worker(rx, cache, generation, inflight))
                 .expect("failed to start preloader thread");
         }
-        Self { cache, generation, inflight, jobs: tx }
+        Self {
+            cache,
+            generation,
+            inflight,
+            jobs: tx,
+        }
     }
 
     pub fn loader(&self) -> PreloadLoader {
-        PreloadLoader { cache: self.cache.clone(), inflight: self.inflight.clone() }
+        PreloadLoader {
+            cache: self.cache.clone(),
+            inflight: self.inflight.clone(),
+        }
     }
 
     pub fn cancel_and_next_generation(&self) -> u64 {
@@ -222,7 +243,11 @@ impl PreloadController {
                 queue.push(files[current_idx - offset].clone());
             }
         }
-        let _ = self.jobs.send(PreloadJob { gen, queue, on_cached: Box::new(on_cached) });
+        let _ = self.jobs.send(PreloadJob {
+            gen,
+            queue,
+            on_cached: Box::new(on_cached),
+        });
     }
 }
 
@@ -245,7 +270,12 @@ impl PreloadLoader {
     }
 }
 
-fn preload_worker(rx: Receiver<PreloadJob>, cache: Arc<Mutex<RamCache>>, generation: Arc<AtomicU64>, inflight: Inflight) {
+fn preload_worker(
+    rx: Receiver<PreloadJob>,
+    cache: Arc<Mutex<RamCache>>,
+    generation: Arc<AtomicU64>,
+    inflight: Inflight,
+) {
     while let Ok(mut job) = rx.recv() {
         // Only the most recent request matters.
         while let Ok(newer) = rx.try_recv() {

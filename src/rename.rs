@@ -27,7 +27,11 @@ fn validate_name(raw: &str) -> Result<(), String> {
 }
 
 fn same_file_name(a: &str, b: &str) -> bool {
-    if cfg!(windows) { a.eq_ignore_ascii_case(b) } else { a == b }
+    if cfg!(windows) {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
+    }
 }
 
 /// Computes an OS-style rename plan for single or multiple files.
@@ -54,7 +58,11 @@ pub fn compute_batch_rename_plan(
     if files.len() == 1 {
         let old_p = Path::new(&files[0]);
         let parent = old_p.parent().unwrap_or(Path::new(""));
-        let new_filename = match old_p.extension().and_then(|s| s.to_str()).filter(|e| !e.is_empty()) {
+        let new_filename = match old_p
+            .extension()
+            .and_then(|s| s.to_str())
+            .filter(|e| !e.is_empty())
+        {
             Some(ext) => {
                 let typed_same_ext = raw_input
                     .rsplit_once('.')
@@ -105,8 +113,11 @@ pub fn compute_batch_rename_plan(
             let candidate_p = parent.join(&candidate_name);
             let candidate_str = candidate_p.to_string_lossy().to_string();
 
-            let already_in_plan = planned_targets.iter().any(|t| same_file_name(t, &candidate_str));
-            let exists_outside = candidate_p.exists() && !files.iter().any(|f| same_file_name(f, &candidate_str));
+            let already_in_plan = planned_targets
+                .iter()
+                .any(|t| same_file_name(t, &candidate_str));
+            let exists_outside =
+                candidate_p.exists() && !files.iter().any(|f| same_file_name(f, &candidate_str));
             if !already_in_plan && !exists_outside {
                 planned_targets.push(candidate_str.clone());
                 plan.push((file.clone(), candidate_str));
@@ -146,7 +157,10 @@ pub fn execute_batch_rename(plan: &[(String, String)]) -> Result<(), String> {
         let (old, tmp, target) = &temps[idx];
         let target_taken = Path::new(target).exists();
         let result = if target_taken {
-            Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "a file with this name already exists"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "a file with this name already exists",
+            ))
         } else {
             std::fs::rename(tmp, target)
         };
@@ -217,12 +231,22 @@ mod tests {
         std::fs::write(&f1, b"one").unwrap();
         std::fs::write(&f2, b"two").unwrap();
         std::fs::write(&f3, b"three").unwrap();
-        let files: Vec<String> = [&f1, &f2, &f3].iter().map(|p| p.to_string_lossy().to_string()).collect();
+        let files: Vec<String> = [&f1, &f2, &f3]
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
         let plan = compute_batch_rename_plan(&files, "Holiday").unwrap();
         execute_batch_rename(&plan).unwrap();
-        let mut contents: Vec<Vec<u8>> = std::fs::read_dir(&d).unwrap().map(|e| std::fs::read(e.unwrap().path()).unwrap()).collect();
+        let mut contents: Vec<Vec<u8>> = std::fs::read_dir(&d)
+            .unwrap()
+            .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+            .collect();
         contents.sort();
-        assert_eq!(contents, vec![b"one".to_vec(), b"three".to_vec(), b"two".to_vec()], "no file may be lost");
+        assert_eq!(
+            contents,
+            vec![b"one".to_vec(), b"three".to_vec(), b"two".to_vec()],
+            "no file may be lost"
+        );
         assert_eq!(std::fs::read(d.join("Holiday (3).jpg")).unwrap(), b"three");
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -236,8 +260,14 @@ mod tests {
         std::fs::write(&b, b"B").unwrap();
         // Second target already exists (created after planning) -> must roll back.
         let plan = vec![
-            (a.to_string_lossy().to_string(), d.join("x.jpg").to_string_lossy().to_string()),
-            (b.to_string_lossy().to_string(), d.join("y.jpg").to_string_lossy().to_string()),
+            (
+                a.to_string_lossy().to_string(),
+                d.join("x.jpg").to_string_lossy().to_string(),
+            ),
+            (
+                b.to_string_lossy().to_string(),
+                d.join("y.jpg").to_string_lossy().to_string(),
+            ),
         ];
         std::fs::write(d.join("y.jpg"), b"Y").unwrap();
         assert!(execute_batch_rename(&plan).is_err());
@@ -245,7 +275,11 @@ mod tests {
         assert_eq!(std::fs::read(&b).unwrap(), b"B");
         assert_eq!(std::fs::read(d.join("y.jpg")).unwrap(), b"Y");
         assert!(!d.join("x.jpg").exists());
-        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 3, "no temporary files left");
+        assert_eq!(
+            std::fs::read_dir(&d).unwrap().count(),
+            3,
+            "no temporary files left"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 }

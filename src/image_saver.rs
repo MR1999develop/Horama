@@ -37,8 +37,16 @@ pub fn build_export_exif(source_path: &Path, width: u32, height: u32) -> Option<
         .filter(|f| !matches!(f.value, exif::Value::Unknown(..)))
         .cloned()
         .collect();
-    fields.push(exif::Field { tag: exif::Tag::PixelXDimension, ifd_num: exif::In::PRIMARY, value: exif::Value::Long(vec![width]) });
-    fields.push(exif::Field { tag: exif::Tag::PixelYDimension, ifd_num: exif::In::PRIMARY, value: exif::Value::Long(vec![height]) });
+    fields.push(exif::Field {
+        tag: exif::Tag::PixelXDimension,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Long(vec![width]),
+    });
+    fields.push(exif::Field {
+        tag: exif::Tag::PixelYDimension,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Long(vec![height]),
+    });
 
     let mut writer = exif::experimental::Writer::new();
     let mut seen = std::collections::HashSet::new();
@@ -61,14 +69,19 @@ fn read_source_exif(path: &Path) -> Option<exif::Exif> {
     if crate::config::is_raw_file(path) {
         if crate::cr3_parser::is_cr3_file(path) {
             // CMT1 holds IFD0 (camera, date); good enough for exports.
-            if let Some(blob) = crate::cr3_parser::extract_cr3_exif_blocks(path).into_iter().next() {
+            if let Some(blob) = crate::cr3_parser::extract_cr3_exif_blocks(path)
+                .into_iter()
+                .next()
+            {
                 if let Ok(e) = exif::Reader::new().read_raw(blob) {
                     return Some(e);
                 }
             }
         }
         let jpeg = crate::cr3_parser::extract_largest_embedded_jpeg(path)?;
-        return exif::Reader::new().read_from_container(&mut Cursor::new(jpeg)).ok();
+        return exif::Reader::new()
+            .read_from_container(&mut Cursor::new(jpeg))
+            .ok();
     }
     None
 }
@@ -76,9 +89,14 @@ fn read_source_exif(path: &Path) -> Option<exif::Exif> {
 /// Reads the ASCII value of a TIFF-context tag from an EXIF block.
 fn exif_ascii(exif_tiff: &[u8], tag_number: u16) -> Option<String> {
     let e = exif::Reader::new().read_raw(exif_tiff.to_vec()).ok()?;
-    let f = e.fields().find(|f| f.tag.number() == tag_number && f.ifd_num == exif::In::PRIMARY)?;
+    let f = e
+        .fields()
+        .find(|f| f.tag.number() == tag_number && f.ifd_num == exif::In::PRIMARY)?;
     match &f.value {
-        exif::Value::Ascii(v) => v.first().map(|s| String::from_utf8_lossy(s).trim().to_string()).filter(|s| !s.is_empty()),
+        exif::Value::Ascii(v) => v
+            .first()
+            .map(|s| String::from_utf8_lossy(s).trim().to_string())
+            .filter(|s| !s.is_empty()),
         _ => None,
     }
 }
@@ -112,7 +130,9 @@ pub fn save_image_with_icc(
                     .map_err(|e| format!("JPEG ICC error: {}", e))?;
                 jpeg.set_icc_profile(Some(Bytes::copy_from_slice(icc)));
                 let mut buf = Vec::new();
-                jpeg.encoder().write_to(&mut buf).map_err(|e| format!("JPEG ICC write error: {}", e))?;
+                jpeg.encoder()
+                    .write_to(&mut buf)
+                    .map_err(|e| format!("JPEG ICC write error: {}", e))?;
                 out = buf;
             }
             if let Some(exif) = exif_tiff {
@@ -127,7 +147,8 @@ pub fn save_image_with_icc(
             image::codecs::png::PngEncoder::new(&mut raw_png)
                 .write_image(rgb_pixels, width, height, ColorType::Rgb8.into())
                 .map_err(|e| format!("PNG encode error: {}", e))?;
-            let mut png = img_parts::png::Png::from_bytes(Bytes::from(raw_png)).map_err(|e| format!("PNG error: {}", e))?;
+            let mut png = img_parts::png::Png::from_bytes(Bytes::from(raw_png))
+                .map_err(|e| format!("PNG error: {}", e))?;
             if let Some(icc) = icc_bytes {
                 png.set_icc_profile(Some(Bytes::copy_from_slice(icc)));
             }
@@ -135,7 +156,9 @@ pub fn save_image_with_icc(
                 png.set_exif(Some(Bytes::copy_from_slice(exif)));
             }
             let mut buf = Vec::new();
-            png.encoder().write_to(&mut buf).map_err(|e| format!("PNG write error: {}", e))?;
+            png.encoder()
+                .write_to(&mut buf)
+                .map_err(|e| format!("PNG write error: {}", e))?;
             buf
         }
         "webp" => {
@@ -143,12 +166,15 @@ pub fn save_image_with_icc(
             image::codecs::webp::WebPEncoder::new_lossless(&mut raw_webp)
                 .write_image(rgb_pixels, width, height, ColorType::Rgb8.into())
                 .map_err(|e| format!("WebP encode error: {}", e))?;
-            crate::exif_orient::build_webp(&raw_webp, width, height, false, icc_bytes, exif_tiff, None)?
+            crate::exif_orient::build_webp(
+                &raw_webp, width, height, false, icc_bytes, exif_tiff, None,
+            )?
         }
         "tif" | "tiff" => {
             let mut buf = Cursor::new(Vec::new());
             {
-                let mut tiff_enc = TiffEncoder::new(&mut buf).map_err(|e| format!("TIFF encoder init error: {}", e))?;
+                let mut tiff_enc = TiffEncoder::new(&mut buf)
+                    .map_err(|e| format!("TIFF encoder init error: {}", e))?;
                 let mut img_dir = tiff_enc
                     .new_image::<colortype::RGB8>(width, height)
                     .map_err(|e| format!("TIFF dir error: {}", e))?;
@@ -166,7 +192,9 @@ pub fn save_image_with_icc(
                         }
                     }
                 }
-                img_dir.write_data(rgb_pixels).map_err(|e| format!("TIFF write error: {}", e))?;
+                img_dir
+                    .write_data(rgb_pixels)
+                    .map_err(|e| format!("TIFF write error: {}", e))?;
             }
             buf.into_inner()
         }
@@ -177,7 +205,12 @@ pub fn save_image_with_icc(
                 .map_err(|e| format!("BMP encode error: {}", e))?;
             buf
         }
-        "" => return Err("Please choose a file name with an extension (.jpg, .png, .tif, .webp, .bmp)".into()),
+        "" => {
+            return Err(
+                "Please choose a file name with an extension (.jpg, .png, .tif, .webp, .bmp)"
+                    .into(),
+            )
+        }
         other => return Err(format!("Saving as '.{}' is not supported", other)),
     };
 
@@ -190,14 +223,22 @@ pub fn save_image_with_icc(
 /// like `IMG_20240101.jpg` become `IMG_20240101_1.jpg`.
 pub fn generate_next_sequential_path(original_path: &Path) -> PathBuf {
     let parent = original_path.parent().unwrap_or_else(|| Path::new(""));
-    let stem = original_path.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
-    let ext = original_path.extension().and_then(|s| s.to_str()).unwrap_or("jpg");
+    let stem = original_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image");
+    let ext = original_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("jpg");
 
     let (base_stem, start_num) = match stem.rfind('_') {
-        Some(pos) if (1..=3).contains(&(stem.len() - pos - 1)) => match stem[pos + 1..].parse::<usize>() {
-            Ok(n) => (&stem[..pos], n + 1),
-            Err(_) => (stem, 1),
-        },
+        Some(pos) if (1..=3).contains(&(stem.len() - pos - 1)) => {
+            match stem[pos + 1..].parse::<usize>() {
+                Ok(n) => (&stem[..pos], n + 1),
+                Err(_) => (stem, 1),
+            }
+        }
         _ => (stem, 1),
     };
 
@@ -220,11 +261,17 @@ mod tests {
     fn test_generate_next_sequential_path() {
         let p = Path::new("C:/nonexistent_folder_abc123/my_photo.jpg");
         let seq1 = generate_next_sequential_path(p);
-        assert_eq!(seq1, Path::new("C:/nonexistent_folder_abc123/my_photo_1.jpg"));
+        assert_eq!(
+            seq1,
+            Path::new("C:/nonexistent_folder_abc123/my_photo_1.jpg")
+        );
 
         let p_existing_seq = Path::new("C:/nonexistent_folder_abc123/my_photo_3.jpg");
         let seq2 = generate_next_sequential_path(p_existing_seq);
-        assert_eq!(seq2, Path::new("C:/nonexistent_folder_abc123/my_photo_4.jpg"));
+        assert_eq!(
+            seq2,
+            Path::new("C:/nonexistent_folder_abc123/my_photo_4.jpg")
+        );
 
         let dated = Path::new("C:/nonexistent_folder_abc123/IMG_20240101.jpg");
         assert_eq!(
@@ -239,31 +286,59 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // Source JPEG with EXIF (Make + Orientation 6).
         let src = dir.join("src.jpg");
-        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(8, 4, image::Rgb([10, 20, 30])));
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            8,
+            4,
+            image::Rgb([10, 20, 30]),
+        ));
         let mut jpg = Vec::new();
-        img.write_to(&mut Cursor::new(&mut jpg), image::ImageFormat::Jpeg).unwrap();
-        let make = exif::Field { tag: exif::Tag::Make, ifd_num: exif::In::PRIMARY, value: exif::Value::Ascii(vec![b"TestCam".to_vec()]) };
-        let orient = exif::Field { tag: exif::Tag::Orientation, ifd_num: exif::In::PRIMARY, value: exif::Value::Short(vec![6]) };
+        img.write_to(&mut Cursor::new(&mut jpg), image::ImageFormat::Jpeg)
+            .unwrap();
+        let make = exif::Field {
+            tag: exif::Tag::Make,
+            ifd_num: exif::In::PRIMARY,
+            value: exif::Value::Ascii(vec![b"TestCam".to_vec()]),
+        };
+        let orient = exif::Field {
+            tag: exif::Tag::Orientation,
+            ifd_num: exif::In::PRIMARY,
+            value: exif::Value::Short(vec![6]),
+        };
         let mut w = exif::experimental::Writer::new();
         w.push_field(&make);
         w.push_field(&orient);
         let mut ex = Cursor::new(Vec::new());
         w.write(&mut ex, true).unwrap();
-        std::fs::write(&src, crate::exif_orient::replace_jpeg_exif(&jpg, ex.get_ref()).unwrap()).unwrap();
+        std::fs::write(
+            &src,
+            crate::exif_orient::replace_jpeg_exif(&jpg, ex.get_ref()).unwrap(),
+        )
+        .unwrap();
 
         let exif = build_export_exif(&src, 4, 8).expect("exif");
-        let icc = crate::color_manager::ColorManager::new().get_profile_bytes(crate::config::PROFILE_ADOBE_RGB, None);
+        let icc = crate::color_manager::ColorManager::new()
+            .get_profile_bytes(crate::config::PROFILE_ADOBE_RGB, None);
         for ext in ["jpg", "png", "webp", "tif"] {
             let out = dir.join(format!("out.{}", ext));
-            save_image_with_icc(&out, 4, 8, &vec![50u8; 4 * 8 * 3], Some(&icc), Some(&exif)).unwrap();
+            save_image_with_icc(&out, 4, 8, &vec![50u8; 4 * 8 * 3], Some(&icc), Some(&exif))
+                .unwrap();
             let decoded = crate::image_loader::load_image(&out).unwrap();
-            assert_eq!((decoded.width, decoded.height), (4, 8), "{}: orientation must not be re-applied", ext);
+            assert_eq!(
+                (decoded.width, decoded.height),
+                (4, 8),
+                "{}: orientation must not be re-applied",
+                ext
+            );
             assert!(decoded.embedded_icc.is_some(), "{}: ICC missing", ext);
             if ext != "tif" {
-                let e = exif::Reader::new().read_from_container(&mut BufReader::new(File::open(&out).unwrap())).unwrap();
+                let e = exif::Reader::new()
+                    .read_from_container(&mut BufReader::new(File::open(&out).unwrap()))
+                    .unwrap();
                 let m = e.get_field(exif::Tag::Make, exif::In::PRIMARY).unwrap();
                 assert!(m.display_value().to_string().contains("TestCam"), "{}", ext);
-                assert!(e.get_field(exif::Tag::Orientation, exif::In::PRIMARY).is_none());
+                assert!(e
+                    .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                    .is_none());
             }
         }
         assert!(save_image_with_icc(&dir.join("x.dng"), 1, 1, &[0, 0, 0], None, None).is_err());

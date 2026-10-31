@@ -14,7 +14,7 @@ mod metadata;
 mod open_with;
 mod rename;
 
-use mcp_server::{McpCommand, run_mcp_stdio_server};
+use mcp_server::{run_mcp_stdio_server, McpCommand};
 use serde_json::{json, Value};
 
 slint::include_modules!();
@@ -31,7 +31,10 @@ use crate::image_saver::{build_export_exif, generate_next_sequential_path, save_
 use crate::metadata::{extract_metadata, render_histogram_rgba};
 #[cfg(test)]
 use crate::rename::compute_batch_rename_plan;
-use slint::{Color, ComponentHandle, Image, Model, ModelRc, Rgb8Pixel, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
+use slint::{
+    Color, ComponentHandle, Image, Model, ModelRc, Rgb8Pixel, Rgba8Pixel, SharedPixelBuffer,
+    SharedString, VecModel,
+};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -53,29 +56,112 @@ struct ShortcutDef {
 }
 
 const SHORTCUT_DEFS: &[ShortcutDef] = &[
-    ShortcutDef { id: "undo", name: "Undo Last Edit", default_key: "Ctrl+Z" },
-    ShortcutDef { id: "redo", name: "Redo Last Edit", default_key: "Ctrl+Y" },
-    ShortcutDef { id: "zoom_in", name: "Zoom In", default_key: "+" },
-    ShortcutDef { id: "zoom_out", name: "Zoom Out", default_key: "-" },
-    ShortcutDef { id: "zoom_fit", name: "Fit to Window", default_key: "Ctrl+0" },
-    ShortcutDef { id: "zoom_100", name: "Actual Size (100%)", default_key: "Ctrl+1" },
-    ShortcutDef { id: "rotate_cw", name: "Rotate Clockwise (90°)", default_key: "R" },
-    ShortcutDef { id: "rotate_ccw", name: "Rotate Counter-Clockwise (90°)", default_key: "L" },
-    ShortcutDef { id: "toggle_crop", name: "Crop Tool", default_key: "C" },
-    ShortcutDef { id: "next_image", name: "Next Image", default_key: "Right" },
-    ShortcutDef { id: "prev_image", name: "Previous Image", default_key: "Left" },
-    ShortcutDef { id: "jump_forward_10", name: "Jump Forward 10 Images", default_key: "Up" },
-    ShortcutDef { id: "jump_backward_10", name: "Jump Backward 10 Images", default_key: "Down" },
-    ShortcutDef { id: "cycle_profile", name: "Cycle Color Profile", default_key: "P" },
-    ShortcutDef { id: "open_shortcuts", name: "Keyboard Shortcuts Dialog", default_key: "S" },
-    ShortcutDef { id: "rename", name: "Rename Image", default_key: "F2" },
-    ShortcutDef { id: "delete", name: "Delete Image", default_key: "Delete" },
-    ShortcutDef { id: "refresh", name: "Refresh Current Folder", default_key: "F5" },
-    ShortcutDef { id: "open_file", name: "Open File(s)...", default_key: "Ctrl+O" },
-    ShortcutDef { id: "open_folder", name: "Open Folder...", default_key: "Ctrl+Shift+O" },
-    ShortcutDef { id: "save", name: "Save / Export...", default_key: "Ctrl+S" },
+    ShortcutDef {
+        id: "undo",
+        name: "Undo Last Edit",
+        default_key: "Ctrl+Z",
+    },
+    ShortcutDef {
+        id: "redo",
+        name: "Redo Last Edit",
+        default_key: "Ctrl+Y",
+    },
+    ShortcutDef {
+        id: "zoom_in",
+        name: "Zoom In",
+        default_key: "+",
+    },
+    ShortcutDef {
+        id: "zoom_out",
+        name: "Zoom Out",
+        default_key: "-",
+    },
+    ShortcutDef {
+        id: "zoom_fit",
+        name: "Fit to Window",
+        default_key: "Ctrl+0",
+    },
+    ShortcutDef {
+        id: "zoom_100",
+        name: "Actual Size (100%)",
+        default_key: "Ctrl+1",
+    },
+    ShortcutDef {
+        id: "rotate_cw",
+        name: "Rotate Clockwise (90°)",
+        default_key: "R",
+    },
+    ShortcutDef {
+        id: "rotate_ccw",
+        name: "Rotate Counter-Clockwise (90°)",
+        default_key: "L",
+    },
+    ShortcutDef {
+        id: "toggle_crop",
+        name: "Crop Tool",
+        default_key: "C",
+    },
+    ShortcutDef {
+        id: "next_image",
+        name: "Next Image",
+        default_key: "Right",
+    },
+    ShortcutDef {
+        id: "prev_image",
+        name: "Previous Image",
+        default_key: "Left",
+    },
+    ShortcutDef {
+        id: "jump_forward_10",
+        name: "Jump Forward 10 Images",
+        default_key: "Up",
+    },
+    ShortcutDef {
+        id: "jump_backward_10",
+        name: "Jump Backward 10 Images",
+        default_key: "Down",
+    },
+    ShortcutDef {
+        id: "cycle_profile",
+        name: "Cycle Color Profile",
+        default_key: "P",
+    },
+    ShortcutDef {
+        id: "open_shortcuts",
+        name: "Keyboard Shortcuts Dialog",
+        default_key: "S",
+    },
+    ShortcutDef {
+        id: "rename",
+        name: "Rename Image",
+        default_key: "F2",
+    },
+    ShortcutDef {
+        id: "delete",
+        name: "Delete Image",
+        default_key: "Delete",
+    },
+    ShortcutDef {
+        id: "refresh",
+        name: "Refresh Current Folder",
+        default_key: "F5",
+    },
+    ShortcutDef {
+        id: "open_file",
+        name: "Open File(s)...",
+        default_key: "Ctrl+O",
+    },
+    ShortcutDef {
+        id: "open_folder",
+        name: "Open Folder...",
+        default_key: "Ctrl+Shift+O",
+    },
+    ShortcutDef {
+        id: "save",
+        name: "Save / Export...",
+        default_key: "Ctrl+S",
+    },
 ];
-
 
 /// Looks up the action bound to a key combination. Bindings are checked in the fixed order of
 /// `SHORTCUT_DEFS`, so the result is deterministic even if two actions share a combination.
@@ -101,7 +187,9 @@ fn action_for_shortcut(settings: &AppSettings, pressed: &str) -> String {
     let p_lower = pressed_trim.to_lowercase();
 
     for def in SHORTCUT_DEFS {
-        let Some(combo) = settings.shortcuts.get(def.id) else { continue };
+        let Some(combo) = settings.shortcuts.get(def.id) else {
+            continue;
+        };
         let c_lower = combo.trim().to_lowercase();
         if c_lower.is_empty() {
             continue;
@@ -291,9 +379,17 @@ impl ViewerState {
         let is_pixel = matches!(action, HistoryAction::ImageEdit { .. });
         self.history_undo.push(action);
         if is_pixel {
-            let pixel_entries = self.history_undo.iter().filter(|a| matches!(a, HistoryAction::ImageEdit { .. })).count();
+            let pixel_entries = self
+                .history_undo
+                .iter()
+                .filter(|a| matches!(a, HistoryAction::ImageEdit { .. }))
+                .count();
             if pixel_entries > MAX_PIXEL_HISTORY {
-                if let Some(pos) = self.history_undo.iter().position(|a| matches!(a, HistoryAction::ImageEdit { .. })) {
+                if let Some(pos) = self
+                    .history_undo
+                    .iter()
+                    .position(|a| matches!(a, HistoryAction::ImageEdit { .. }))
+                {
                     self.history_undo.remove(pos);
                 }
             }
@@ -320,7 +416,11 @@ impl ViewerState {
         if let Some(e) = self.edited_images.get(path) {
             return Some(e.clone());
         }
-        self.preloader.cache.lock().ok().and_then(|mut g| g.get(path))
+        self.preloader
+            .cache
+            .lock()
+            .ok()
+            .and_then(|mut g| g.get(path))
     }
 
     fn new() -> Self {
@@ -401,7 +501,9 @@ where
     F: FnOnce(&AppWindow, &mut ViewerState) + Send + 'static,
 {
     let Some(ui) = ui_weak.upgrade() else { return };
-    let Some(st_arc) = state_weak.upgrade() else { return };
+    let Some(st_arc) = state_weak.upgrade() else {
+        return;
+    };
     let mut guard = match st_arc.try_lock() {
         Ok(g) => g,
         Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
@@ -409,7 +511,9 @@ where
             // The state is held further up this thread's stack (e.g. a native dialog is
             // running a nested event loop): try again shortly instead of deadlocking.
             drop(ui);
-            slint::Timer::single_shot(Duration::from_millis(15), move || run_with_state(ui_weak, state_weak, f));
+            slint::Timer::single_shot(Duration::from_millis(15), move || {
+                run_with_state(ui_weak, state_weak, f)
+            });
             return;
         }
     };
@@ -456,7 +560,11 @@ pub fn validate_shortcut_combo(input: &str) -> (bool, String) {
         (raw, None)
     };
 
-    let parts: Vec<&str> = prefix.split('+').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let parts: Vec<&str> = prefix
+        .split('+')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut has_ctrl = false;
     let mut has_shift = false;
     let mut has_alt = false;
@@ -464,7 +572,12 @@ pub fn validate_shortcut_combo(input: &str) -> (bool, String) {
 
     for part in parts {
         let p_lower = part.to_lowercase();
-        if p_lower == "ctrl" || p_lower == "control" || p_lower == "cmd" || p_lower == "command" || p_lower == "meta" {
+        if p_lower == "ctrl"
+            || p_lower == "control"
+            || p_lower == "cmd"
+            || p_lower == "command"
+            || p_lower == "meta"
+        {
             has_ctrl = true;
         } else if p_lower == "shift" {
             has_shift = true;
@@ -484,9 +597,18 @@ pub fn validate_shortcut_combo(input: &str) -> (bool, String) {
 
     let k_lower = k.to_lowercase();
     let canonical_key = match k_lower.as_str() {
-        "f1" => "F1", "f2" => "F2", "f3" => "F3", "f4" => "F4",
-        "f5" => "F5", "f6" => "F6", "f7" => "F7", "f8" => "F8",
-        "f9" => "F9", "f10" => "F10", "f11" => "F11", "f12" => "F12",
+        "f1" => "F1",
+        "f2" => "F2",
+        "f3" => "F3",
+        "f4" => "F4",
+        "f5" => "F5",
+        "f6" => "F6",
+        "f7" => "F7",
+        "f8" => "F8",
+        "f9" => "F9",
+        "f10" => "F10",
+        "f11" => "F11",
+        "f12" => "F12",
         "left" | "leftarrow" => "Left",
         "right" | "rightarrow" => "Right",
         "up" | "uparrow" => "Up",
@@ -504,9 +626,7 @@ pub fn validate_shortcut_combo(input: &str) -> (bool, String) {
         "+" | "plus" => "+",
         "-" | "minus" => "-",
         "=" => "=",
-        s if s.chars().count() == 1 => {
-            s
-        }
+        s if s.chars().count() == 1 => s,
         _ => return (false, raw.to_string()),
     };
 
@@ -532,7 +652,11 @@ pub fn validate_shortcut_combo(input: &str) -> (bool, String) {
 fn populate_shortcuts_ui(ui: &AppWindow, settings: &AppSettings) {
     let mut items = Vec::new();
     for def in SHORTCUT_DEFS {
-        let key = settings.shortcuts.get(def.id).cloned().unwrap_or_else(|| def.default_key.to_string());
+        let key = settings
+            .shortcuts
+            .get(def.id)
+            .cloned()
+            .unwrap_or_else(|| def.default_key.to_string());
         let (is_valid, _) = validate_shortcut_combo(&key);
         items.push(ShortcutItemData {
             id: def.id.into(),
@@ -577,7 +701,10 @@ fn relative_depth(root: &str, path: &str) -> i32 {
         .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
         .collect();
     if path_comps.len() > root_comps.len() {
-        let is_prefix = root_comps.iter().zip(path_comps.iter()).all(|(rc, pc)| rc == pc);
+        let is_prefix = root_comps
+            .iter()
+            .zip(path_comps.iter())
+            .all(|(rc, pc)| rc == pc);
         if is_prefix {
             return (path_comps.len() - root_comps.len()) as i32;
         }
@@ -585,14 +712,21 @@ fn relative_depth(root: &str, path: &str) -> i32 {
     1
 }
 
-fn are_ancestors_expanded(path: &str, root_norm: &str, expanded: &std::collections::HashSet<String>) -> bool {
+fn are_ancestors_expanded(
+    path: &str,
+    root_norm: &str,
+    expanded: &std::collections::HashSet<String>,
+) -> bool {
     let mut current = Path::new(path);
     while let Some(parent) = current.parent() {
         let norm_parent = normalize_path(&parent.to_string_lossy());
         if norm_parent.eq_ignore_ascii_case(root_norm) {
             return true;
         }
-        if !expanded.iter().any(|e| e.eq_ignore_ascii_case(&norm_parent)) {
+        if !expanded
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(&norm_parent))
+        {
             return false;
         }
         current = parent;
@@ -634,7 +768,10 @@ fn refresh_folder_tree_ui(ui: &AppWindow, state: &ViewerState) {
 
     let root_has_children = !state.subfolders.is_empty();
     let root_is_expanded = state.expanded_folders.contains("__ALL__")
-        || state.expanded_folders.iter().any(|e| e.eq_ignore_ascii_case(&root_norm))
+        || state
+            .expanded_folders
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(&root_norm))
         || state.expanded_folders.is_empty();
 
     let mut items = Vec::new();
@@ -704,7 +841,10 @@ fn refresh_folder_tree_ui(ui: &AppWindow, state: &ViewerState) {
                 }
             });
 
-            let is_expanded = state.expanded_folders.iter().any(|e| e.eq_ignore_ascii_case(sub));
+            let is_expanded = state
+                .expanded_folders
+                .iter()
+                .any(|e| e.eq_ignore_ascii_case(sub));
 
             items.push(TreeItemData {
                 label: format!("{} ({})", sub_name, count).into(),
@@ -795,7 +935,10 @@ fn parse_aspect_ratio_str(s: &str) -> Option<f32> {
     if clean.contains('x') || clean.contains('X') {
         let parts: Vec<&str> = clean.split(|c| c == 'x' || c == 'X').collect();
         if parts.len() == 2 {
-            if let (Ok(w), Ok(h)) = (parts[0].trim().parse::<f32>(), parts[1].trim().parse::<f32>()) {
+            if let (Ok(w), Ok(h)) = (
+                parts[0].trim().parse::<f32>(),
+                parts[1].trim().parse::<f32>(),
+            ) {
                 if w > 0.0 && h > 0.0 {
                     return Some(w.max(h) / w.min(h));
                 }
@@ -835,12 +978,16 @@ fn matches_aspect_ratio_filter(ratio: f32, filter: &str, saved_customs: &[String
         "21x9" | "21:9" => ratio_matches_target(ratio, 21.0 / 9.0),
         "65x24" | "65:24" => ratio_matches_target(ratio, 65.0 / 24.0),
         "CUSTOM" | "OTHER" => {
-            let matches_any_standard = standard_targets.iter().any(|(_, t)| ratio_matches_target(ratio, *t));
+            let matches_any_standard = standard_targets
+                .iter()
+                .any(|(_, t)| ratio_matches_target(ratio, *t));
             if matches_any_standard {
                 return false;
             }
             let matches_any_saved = saved_customs.iter().any(|s| {
-                parse_aspect_ratio_str(s).map(|t| ratio_matches_target(ratio, t)).unwrap_or(false)
+                parse_aspect_ratio_str(s)
+                    .map(|t| ratio_matches_target(ratio, t))
+                    .unwrap_or(false)
             });
             !matches_any_saved
         }
@@ -908,11 +1055,21 @@ fn show_fatal_error_dialog(title: &str, details: &str) {
             .chain(std::iter::once(0))
             .collect();
         extern "system" {
-            fn MessageBoxW(hwnd: *mut std::ffi::c_void, lpText: *const u16, lpCaption: *const u16, uType: u32) -> i32;
+            fn MessageBoxW(
+                hwnd: *mut std::ffi::c_void,
+                lpText: *const u16,
+                lpCaption: *const u16,
+                uType: u32,
+            ) -> i32;
         }
         unsafe {
             // MB_ICONERROR (0x10) | MB_OK (0x0) | MB_TOPMOST (0x40000)
-            MessageBoxW(std::ptr::null_mut(), wide_msg.as_ptr(), wide_title.as_ptr(), 0x00000010 | 0x00040000);
+            MessageBoxW(
+                std::ptr::null_mut(),
+                wide_msg.as_ptr(),
+                wide_title.as_ptr(),
+                0x00000010 | 0x00040000,
+            );
         }
     }
     #[cfg(target_os = "macos")]
@@ -921,7 +1078,10 @@ fn show_fatal_error_dialog(title: &str, details: &str) {
         let esc_m = details.replace('"', "\"");
         let _ = std::process::Command::new("osascript")
             .arg("-e")
-            .arg(format!("display alert \"{}\" message \"{}\" as critical", esc_t, esc_m))
+            .arg(format!(
+                "display alert \"{}\" message \"{}\" as critical",
+                esc_t, esc_m
+            ))
             .output();
         eprintln!("{}: {}", title, details);
     }
@@ -944,17 +1104,28 @@ fn refresh_multi_selection_overview(ui: &AppWindow, state: &ViewerState) {
     let cur_name = state
         .current_index
         .and_then(|idx| state.visible_files.get(idx))
-        .and_then(|p| Path::new(p).file_name().map(|s| s.to_string_lossy().to_string()))
+        .and_then(|p| {
+            Path::new(p)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+        })
         .unwrap_or_default();
     ui.set_status_eyedropper_text(
-        format!("Selected: {} of {} files | Active: {}", count, total, cur_name).into(),
+        format!(
+            "Selected: {} of {} files | Active: {}",
+            count, total, cur_name
+        )
+        .into(),
     );
 
     ui.set_is_multi_selection(true);
 
     let mut thumb_map: HashMap<usize, (Image, bool, String, String)> = HashMap::new();
     let film_model = ui.get_filmstrip_items();
-    if let Some(vec_model) = film_model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
+    if let Some(vec_model) = film_model
+        .as_any()
+        .downcast_ref::<VecModel<FilmstripItemData>>()
+    {
         for &idx in &state.selected_indices {
             if let Some(item) = vec_model.row_data(idx) {
                 thumb_map.insert(
@@ -1068,8 +1239,9 @@ fn refresh_multi_selection_overview(ui: &AppWindow, state: &ViewerState) {
 fn sync_filmstrip_selection_ui(ui: &AppWindow, state: &ViewerState) {
     let filmstrip_model = ui.get_filmstrip_items();
     let mut thumb_map: HashMap<usize, (Image, bool, String, String)> = HashMap::new();
-    if let Some(vec_model) =
-        filmstrip_model.as_any().downcast_ref::<VecModel<FilmstripItemData>>()
+    if let Some(vec_model) = filmstrip_model
+        .as_any()
+        .downcast_ref::<VecModel<FilmstripItemData>>()
     {
         for i in 0..vec_model.row_count() {
             if let Some(mut item) = vec_model.row_data(i) {
@@ -1154,8 +1326,16 @@ fn calculate_fit_zoom(ui: &AppWindow, img_width: u32, img_height: u32) -> f32 {
         (cw, ch)
     } else {
         let win_size = ui.window().size();
-        let w = if win_size.width > 100 { win_size.width as f32 / scale } else { 1440.0 };
-        let h = if win_size.height > 100 { win_size.height as f32 / scale } else { 900.0 };
+        let w = if win_size.width > 100 {
+            win_size.width as f32 / scale
+        } else {
+            1440.0
+        };
+        let h = if win_size.height > 100 {
+            win_size.height as f32 / scale
+        } else {
+            900.0
+        };
         ((w - 530.0).max(400.0), (h - 252.0).max(300.0))
     };
     let zx = (vw - 24.0).max(64.0) / (img_width.max(1) as f32);
@@ -1182,10 +1362,22 @@ fn sync_display_scale(ui: &AppWindow, state: &mut ViewerState) -> bool {
 /// Updates the thumbnail of the filmstrip row showing `path`. `idx_hint` is checked first;
 /// if the row moved (filter, deletion…) the model is searched by path, so a late result can
 /// never land on the wrong image.
-fn set_thumbnail_for_path(ui: &AppWindow, idx_hint: Option<usize>, path: &str, img: Image, cropped: Option<bool>) {
+fn set_thumbnail_for_path(
+    ui: &AppWindow,
+    idx_hint: Option<usize>,
+    path: &str,
+    img: Image,
+    cropped: Option<bool>,
+) {
     let model = ui.get_filmstrip_items();
-    let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() else { return };
-    let matches = |i: usize| vm.row_data(i).map(|it| same_path(it.full_path.as_str(), path)).unwrap_or(false);
+    let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() else {
+        return;
+    };
+    let matches = |i: usize| {
+        vm.row_data(i)
+            .map(|it| same_path(it.full_path.as_str(), path))
+            .unwrap_or(false)
+    };
     let row = match idx_hint {
         Some(i) if i < vm.row_count() && matches(i) => Some(i),
         _ => (0..vm.row_count()).find(|&i| matches(i)),
@@ -1203,16 +1395,31 @@ fn set_thumbnail_for_path(ui: &AppWindow, idx_hint: Option<usize>, path: &str, i
 }
 
 /// Rebuilds the thumbnail of `path` from an in-memory image (after rotate/crop/undo).
-fn refresh_thumbnail_from_memory(ui: &AppWindow, state: &ViewerState, path: &str, img: &DecodedImage) {
-    if let Some((tw, th, rgba)) = crate::image_loader::create_thumbnail_from_decoded(img, Some(&state.color_manager)) {
+fn refresh_thumbnail_from_memory(
+    ui: &AppWindow,
+    state: &ViewerState,
+    path: &str,
+    img: &DecodedImage,
+) {
+    if let Some((tw, th, rgba)) =
+        crate::image_loader::create_thumbnail_from_decoded(img, Some(&state.color_manager))
+    {
         let idx = state.visible_files.iter().position(|f| f == path);
-        set_thumbnail_for_path(ui, idx, path, rgba_to_slint_image(tw, th, &rgba), Some(state.is_cropped(path)));
+        set_thumbnail_for_path(
+            ui,
+            idx,
+            path,
+            rgba_to_slint_image(tw, th, &rgba),
+            Some(state.is_cropped(path)),
+        );
     }
 }
 
 /// Reloads the thumbnail of `path` from disk in the background.
 fn refresh_thumbnail_from_disk(state: &ViewerState, path: &str) {
-    let Some((ui_w, st_w)) = weak_handles(state) else { return };
+    let Some((ui_w, st_w)) = weak_handles(state) else {
+        return;
+    };
     let cm = state.color_manager.clone();
     let p = path.to_string();
     std::thread::spawn(move || {
@@ -1227,7 +1434,6 @@ fn refresh_thumbnail_from_disk(state: &ViewerState, path: &str) {
     });
 }
 
-
 // ----------------------------------------------------------------------------
 // Background display pipeline (decode → color transform → histogram → metadata)
 // ----------------------------------------------------------------------------
@@ -1236,7 +1442,11 @@ enum ProfileMode {
     /// Use exactly this profile.
     Fixed(String),
     /// Decide after decoding (lock / per-image override / embedded / default).
-    Auto { lock: bool, current: String, override_profile: Option<String> },
+    Auto {
+        lock: bool,
+        current: String,
+        override_profile: Option<String>,
+    },
 }
 
 struct DisplayRequest {
@@ -1262,14 +1472,22 @@ struct DisplayResult {
     preserve_view: bool,
 }
 
-fn compute_display(req: DisplayRequest, cm: &ColorManager, loader: &PreloadLoader) -> Result<DisplayResult, String> {
+fn compute_display(
+    req: DisplayRequest,
+    cm: &ColorManager,
+    loader: &PreloadLoader,
+) -> Result<DisplayResult, String> {
     let decoded = match req.source {
         Some(d) => d,
         None => loader.get_or_load(&req.path)?,
     };
     let (profile, lock_insert) = match req.profile_mode {
         ProfileMode::Fixed(p) => (p, false),
-        ProfileMode::Auto { lock, current, override_profile } => {
+        ProfileMode::Auto {
+            lock,
+            current,
+            override_profile,
+        } => {
             if lock {
                 (current, true)
             } else if let Some(o) = override_profile {
@@ -1281,12 +1499,17 @@ fn compute_display(req: DisplayRequest, cm: &ColorManager, loader: &PreloadLoade
             }
         }
     };
-    let r = cm.render(&decoded.rgb_pixels, &profile, decoded.embedded_icc.as_deref());
+    let r = cm.render(
+        &decoded.rgb_pixels,
+        &profile,
+        decoded.embedded_icc.as_deref(),
+    );
     let mut rendered = SharedPixelBuffer::<Rgb8Pixel>::new(decoded.width, decoded.height);
     rendered.make_mut_bytes().copy_from_slice(&r.display);
     drop(r.display);
     // The histogram describes the document values, not the monitor-specific display values.
-    let (hw, hh, hist_rgba) = render_histogram_rgba(r.document.as_deref().unwrap_or(&decoded.rgb_pixels));
+    let (hw, hh, hist_rgba) =
+        render_histogram_rgba(r.document.as_deref().unwrap_or(&decoded.rgb_pixels));
     let mut histogram = SharedPixelBuffer::<Rgba8Pixel>::new(hw, hh);
     histogram.make_mut_bytes().copy_from_slice(&hist_rgba);
     let meta = req.need_meta.then(|| extract_metadata(&decoded));
@@ -1308,14 +1531,18 @@ fn compute_display(req: DisplayRequest, cm: &ColorManager, loader: &PreloadLoade
 fn start_display_job(state: &mut ViewerState, mut req: DisplayRequest) {
     state.load_request_id += 1;
     req.req_id = state.load_request_id;
-    let Some((ui_w, st_w)) = weak_handles(state) else { return };
+    let Some((ui_w, st_w)) = weak_handles(state) else {
+        return;
+    };
     let cm = state.color_manager.clone();
     let loader = state.preloader.loader();
     let path = req.path.clone();
     let req_id = req.req_id;
     std::thread::spawn(move || {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| compute_display(req, &cm, &loader)))
-            .unwrap_or_else(|_| Err("internal error while rendering".to_string()));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compute_display(req, &cm, &loader)
+        }))
+        .unwrap_or_else(|_| Err("internal error while rendering".to_string()));
         post_to_ui(ui_w, st_w, move |ui, st| {
             if st.load_request_id != req_id {
                 return; // a newer request superseded this one
@@ -1323,10 +1550,14 @@ fn start_display_job(state: &mut ViewerState, mut req: DisplayRequest) {
             match result {
                 Ok(res) => apply_display_result(ui, st, res),
                 Err(err) => {
-                    ui.set_status_file_text(format!("Error loading {}: {}", file_name_of(&path), err).into());
+                    ui.set_status_file_text(
+                        format!("Error loading {}: {}", file_name_of(&path), err).into(),
+                    );
                     if st.current_decoded.is_none() {
                         ui.set_has_image(false);
-                        ui.set_canvas_empty_text(format!("⚠️ Cannot display this image: {}", err).into());
+                        ui.set_canvas_empty_text(
+                            format!("⚠️ Cannot display this image: {}", err).into(),
+                        );
                     }
                 }
             }
@@ -1337,7 +1568,9 @@ fn start_display_job(state: &mut ViewerState, mut req: DisplayRequest) {
 fn apply_display_result(ui: &AppWindow, state: &mut ViewerState, res: DisplayResult) {
     let decoded = res.decoded.clone();
     if res.lock_insert {
-        state.image_profile_overrides.insert(decoded.path.clone(), res.profile.clone());
+        state
+            .image_profile_overrides
+            .insert(decoded.path.clone(), res.profile.clone());
     }
     state.selected_profile = res.profile.clone();
     ui.set_current_profile(res.profile.clone().into());
@@ -1367,18 +1600,32 @@ fn apply_display_result(ui: &AppWindow, state: &mut ViewerState, res: DisplayRes
     ui.set_has_embedded_icc(xfm_info.has_embedded);
     if let Some(emb_name) = &xfm_info.embedded_name {
         if converting {
-            ui.set_embedded_badge_text(format!("Embedded: {} → Convert to {}", emb_name, state.selected_profile).into());
+            ui.set_embedded_badge_text(
+                format!(
+                    "Embedded: {} → Convert to {}",
+                    emb_name, state.selected_profile
+                )
+                .into(),
+            );
         } else {
             ui.set_embedded_badge_text(format!("Embedded: {}", emb_name).into());
         }
         ui.set_meta_embedded_icc(format!("Embedded ICC: {}", emb_name).into());
     } else {
-        ui.set_embedded_badge_text(format!("No ICC (Default: {})", DEFAULT_FALLBACK_PROFILE).into());
-        ui.set_meta_embedded_icc(format!("Embedded ICC: None (Default {})", DEFAULT_FALLBACK_PROFILE).into());
+        ui.set_embedded_badge_text(
+            format!("No ICC (Default: {})", DEFAULT_FALLBACK_PROFILE).into(),
+        );
+        ui.set_meta_embedded_icc(
+            format!("Embedded ICC: None (Default {})", DEFAULT_FALLBACK_PROFILE).into(),
+        );
     }
     if converting {
         ui.set_meta_active_icc(
-            format!("Active: Convert {} (same look on screen; pixel values & histogram change)", xfm_info.source_name).into(),
+            format!(
+                "Active: Convert {} (same look on screen; pixel values & histogram change)",
+                xfm_info.source_name
+            )
+            .into(),
         );
     } else {
         ui.set_meta_active_icc(format!("Active Profile: {}", xfm_info.source_name).into());
@@ -1389,7 +1636,10 @@ fn apply_display_result(ui: &AppWindow, state: &mut ViewerState, res: DisplayRes
     if let Some(meta_pairs) = res.meta {
         let meta_models: Vec<MetadataRowData> = meta_pairs
             .into_iter()
-            .map(|(k, v)| MetadataRowData { key: k.into(), value: v.into() })
+            .map(|(k, v)| MetadataRowData {
+                key: k.into(),
+                value: v.into(),
+            })
             .collect();
         ui.set_metadata_rows(ModelRc::new(VecModel::from(meta_models)));
     }
@@ -1407,7 +1657,10 @@ fn apply_display_result(ui: &AppWindow, state: &mut ViewerState, res: DisplayRes
             decoded.format_name,
             if converting { "Convert " } else { "" },
             if converting {
-                format!("{} — colors preserved on screen, pixel values converted", xfm_info.source_name)
+                format!(
+                    "{} — colors preserved on screen, pixel values converted",
+                    xfm_info.source_name
+                )
             } else {
                 xfm_info.source_name.clone()
             }
@@ -1426,32 +1679,36 @@ fn start_neighborhood_preload(ui: &AppWindow, state: &ViewerState, index: usize)
     let ui_weak = ui.as_weak();
     let cache_ref = state.preloader.cache.clone();
     let total_cnt = state.visible_files.len();
-    state.preloader.preload_neighborhood(index, &state.visible_files, move || {
-        let ui_c = ui_weak.clone();
-        let c_ref = cache_ref.clone();
-        let _ = slint::invoke_from_event_loop(move || {
-            if let Some(ui) = ui_c.upgrade() {
-                if let Ok(guard) = c_ref.lock() {
-                    let (count, used, budget) = guard.stats();
-                    ui.set_status_cache_text(
-                        format!(
-                            "RAM Cache: {} / {} ({:.0} / {:.0} MB)",
-                            count,
-                            total_cnt,
-                            used as f64 / (1024.0 * 1024.0),
-                            budget as f64 / (1024.0 * 1024.0)
-                        )
-                        .into(),
-                    );
+    state
+        .preloader
+        .preload_neighborhood(index, &state.visible_files, move || {
+            let ui_c = ui_weak.clone();
+            let c_ref = cache_ref.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_c.upgrade() {
+                    if let Ok(guard) = c_ref.lock() {
+                        let (count, used, budget) = guard.stats();
+                        ui.set_status_cache_text(
+                            format!(
+                                "RAM Cache: {} / {} ({:.0} / {:.0} MB)",
+                                count,
+                                total_cnt,
+                                used as f64 / (1024.0 * 1024.0),
+                                budget as f64 / (1024.0 * 1024.0)
+                            )
+                            .into(),
+                        );
+                    }
                 }
-            }
+            });
         });
-    });
 }
 
 /// Re-renders the current image (profile change, edit, rename…) in the background.
 fn request_render(state: &mut ViewerState, preserve_view: bool, need_meta: bool) {
-    let Some(decoded) = state.current_decoded.clone() else { return };
+    let Some(decoded) = state.current_decoded.clone() else {
+        return;
+    };
     let req = DisplayRequest {
         req_id: 0,
         path: decoded.path.clone(),
@@ -1471,12 +1728,26 @@ fn request_render(state: &mut ViewerState, preserve_view: bool, need_meta: bool)
 /// Rotates `path` by 90° (in memory and, where possible, losslessly on disk).
 fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, record: bool) {
     // 1. In-memory version (current image, unsaved edit, or cache).
-    let current_matches = state.current_decoded.as_ref().map(|d| d.path == path).unwrap_or(false);
-    let in_mem = if current_matches { state.current_decoded.clone() } else { state.in_memory(path) };
+    let current_matches = state
+        .current_decoded
+        .as_ref()
+        .map(|d| d.path == path)
+        .unwrap_or(false);
+    let in_mem = if current_matches {
+        state.current_decoded.clone()
+    } else {
+        state.in_memory(path)
+    };
     if let Some(dec) = in_mem {
-        let rotated = Arc::new(if cw { dec.rotate_90_cw() } else { dec.rotate_90_ccw() });
+        let rotated = Arc::new(if cw {
+            dec.rotate_90_cw()
+        } else {
+            dec.rotate_90_ccw()
+        });
         if state.edited_images.contains_key(path) {
-            state.edited_images.insert(path.to_string(), rotated.clone());
+            state
+                .edited_images
+                .insert(path.to_string(), rotated.clone());
         } else if let Ok(mut g) = state.preloader.cache.lock() {
             g.insert(path.to_string(), rotated.clone());
         }
@@ -1490,7 +1761,10 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
         }
     }
     if record {
-        state.push_undo(HistoryAction::Rotate { path: path.to_string(), cw });
+        state.push_undo(HistoryAction::Rotate {
+            path: path.to_string(),
+            cw,
+        });
     }
 
     // 2. Persist losslessly (serial queue: rotations of the same file never interleave).
@@ -1501,11 +1775,19 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
     }
     if !crate::disk_ops::rotation_persist_supported(&p) {
         ui.set_status_file_text(
-            format!("Rotation shown only: '{}' files are never modified (RAW/unsupported format).", p.extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default()).into(),
+            format!(
+                "Rotation shown only: '{}' files are never modified (RAW/unsupported format).",
+                p.extension()
+                    .map(|e| e.to_string_lossy().to_uppercase())
+                    .unwrap_or_default()
+            )
+            .into(),
         );
         return;
     }
-    let Some((ui_w, st_w)) = weak_handles(state) else { return };
+    let Some((ui_w, st_w)) = weak_handles(state) else {
+        return;
+    };
     let turns = if cw { 1 } else { 3 };
     let name = file_name_of(path);
     let path_owned = path.to_string();
@@ -1526,12 +1808,20 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
             }
             let failed = result.is_err();
             match result {
-                Ok(method) => ui.set_status_file_text(format!("Rotation saved: {} — {}", name, method).into()),
+                Ok(method) => {
+                    ui.set_status_file_text(format!("Rotation saved: {} — {}", name, method).into())
+                }
                 Err(e) => {
-                    ui.set_status_file_text(format!("Rotation NOT saved for {}: {}", name, e).into());
+                    ui.set_status_file_text(
+                        format!("Rotation NOT saved for {}: {}", name, e).into(),
+                    );
                     // The undo history no longer matches the file.
-                    st.history_undo.retain(|a| !matches!(a, HistoryAction::Rotate { path, .. } if *path == path_owned));
-                    st.history_redo.retain(|a| !matches!(a, HistoryAction::Rotate { path, .. } if *path == path_owned));
+                    st.history_undo.retain(
+                        |a| !matches!(a, HistoryAction::Rotate { path, .. } if *path == path_owned),
+                    );
+                    st.history_redo.retain(
+                        |a| !matches!(a, HistoryAction::Rotate { path, .. } if *path == path_owned),
+                    );
                     show_message_later(
                         "Rotation not saved",
                         &format!("The rotation of '{}' could not be saved:\n{}", name, e),
@@ -1562,7 +1852,11 @@ fn reconcile_with_disk(_ui: &AppWindow, st: &mut ViewerState, path: &str) {
         c.remove(&path_key(path));
     }
     refresh_thumbnail_from_disk(st, path);
-    let is_current = st.current_decoded.as_ref().map(|d| d.path == path).unwrap_or(false);
+    let is_current = st
+        .current_decoded
+        .as_ref()
+        .map(|d| d.path == path)
+        .unwrap_or(false);
     if is_current {
         let req = DisplayRequest {
             req_id: 0,
@@ -1578,12 +1872,16 @@ fn reconcile_with_disk(_ui: &AppWindow, st: &mut ViewerState, path: &str) {
 }
 
 fn rotate_current_image(ui: &AppWindow, state: &mut ViewerState, cw: bool) {
-    let Some(decoded) = state.current_decoded.clone() else { return };
+    let Some(decoded) = state.current_decoded.clone() else {
+        return;
+    };
     rotate_path(ui, state, &decoded.path.clone(), cw, true);
 }
 
 fn apply_crop(ui: &AppWindow, state: &mut ViewerState) {
-    let Some(decoded) = state.current_decoded.clone() else { return };
+    let Some(decoded) = state.current_decoded.clone() else {
+        return;
+    };
     let path = decoded.path.clone();
     let was_cropped = state.is_cropped(&path);
 
@@ -1625,7 +1923,13 @@ fn apply_crop(ui: &AppWindow, state: &mut ViewerState) {
 }
 
 /// Restores an in-memory image state for undo/redo of an edit (never touches the disk).
-fn restore_edit_state(ui: &AppWindow, state: &mut ViewerState, path: &str, image: Arc<DecodedImage>, cropped: bool) {
+fn restore_edit_state(
+    ui: &AppWindow,
+    state: &mut ViewerState,
+    path: &str,
+    image: Arc<DecodedImage>,
+    cropped: bool,
+) {
     // Snapshots taken before a rename still carry the old file name.
     let image = if image.path == path {
         image
@@ -1665,19 +1969,25 @@ fn undo_last_operation(ui: &AppWindow, state: &mut ViewerState) {
         HistoryAction::ImageSelection { from_idx, .. } => {
             if from_idx < state.visible_files.len() {
                 select_image_by_index(ui, state, from_idx);
-                ui.set_status_file_text(format!("Undone image selection -> Image #{}", from_idx + 1).into());
+                ui.set_status_file_text(
+                    format!("Undone image selection -> Image #{}", from_idx + 1).into(),
+                );
             }
         }
         HistoryAction::ColorProfile { old_profile, .. } => {
             state.selected_profile = old_profile.clone();
             ui.set_current_profile(old_profile.clone().into());
             if let Some(curr) = state.current_decoded.as_ref().map(|d| d.path.clone()) {
-                state.image_profile_overrides.insert(curr, old_profile.clone());
+                state
+                    .image_profile_overrides
+                    .insert(curr, old_profile.clone());
             }
             request_render(state, true, false);
             ui.set_status_file_text(format!("Undone color profile -> {}", old_profile).into());
         }
-        HistoryAction::Rating { path, old_rating, .. } => {
+        HistoryAction::Rating {
+            path, old_rating, ..
+        } => {
             set_ratings(ui, state, &[path], old_rating as u8, false);
             ui.set_status_file_text(format!("Undone rating -> {} stars", old_rating).into());
         }
@@ -1685,7 +1995,13 @@ fn undo_last_operation(ui: &AppWindow, state: &mut ViewerState) {
             rotate_path(ui, state, &path, !cw, false);
             ui.set_status_file_text("Undone rotation".into());
         }
-        HistoryAction::ImageEdit { path, before, before_cropped, desc, .. } => {
+        HistoryAction::ImageEdit {
+            path,
+            before,
+            before_cropped,
+            desc,
+            ..
+        } => {
             restore_edit_state(ui, state, &path, before, before_cropped);
             ui.set_status_file_text(format!("Undone: {}", desc).into());
         }
@@ -1709,19 +2025,25 @@ fn redo_last_operation(ui: &AppWindow, state: &mut ViewerState) {
         HistoryAction::ImageSelection { to_idx, .. } => {
             if to_idx < state.visible_files.len() {
                 select_image_by_index(ui, state, to_idx);
-                ui.set_status_file_text(format!("Redone image selection -> Image #{}", to_idx + 1).into());
+                ui.set_status_file_text(
+                    format!("Redone image selection -> Image #{}", to_idx + 1).into(),
+                );
             }
         }
         HistoryAction::ColorProfile { new_profile, .. } => {
             state.selected_profile = new_profile.clone();
             ui.set_current_profile(new_profile.clone().into());
             if let Some(curr) = state.current_decoded.as_ref().map(|d| d.path.clone()) {
-                state.image_profile_overrides.insert(curr, new_profile.clone());
+                state
+                    .image_profile_overrides
+                    .insert(curr, new_profile.clone());
             }
             request_render(state, true, false);
             ui.set_status_file_text(format!("Redone color profile -> {}", new_profile).into());
         }
-        HistoryAction::Rating { path, new_rating, .. } => {
+        HistoryAction::Rating {
+            path, new_rating, ..
+        } => {
             set_ratings(ui, state, &[path], new_rating as u8, false);
             ui.set_status_file_text(format!("Redone rating -> {} stars", new_rating).into());
         }
@@ -1729,7 +2051,13 @@ fn redo_last_operation(ui: &AppWindow, state: &mut ViewerState) {
             rotate_path(ui, state, &path, cw, false);
             ui.set_status_file_text("Redone rotation".into());
         }
-        HistoryAction::ImageEdit { path, after, after_cropped, desc, .. } => {
+        HistoryAction::ImageEdit {
+            path,
+            after,
+            after_cropped,
+            desc,
+            ..
+        } => {
             restore_edit_state(ui, state, &path, after, after_cropped);
             ui.set_status_file_text(format!("Redone: {}", desc).into());
         }
@@ -1739,12 +2067,22 @@ fn redo_last_operation(ui: &AppWindow, state: &mut ViewerState) {
 }
 
 /// Sets the rating of several files, updates the filmstrip and saves the settings once.
-fn set_ratings(ui: &AppWindow, state: &mut ViewerState, paths: &[String], rating: u8, record: bool) {
+fn set_ratings(
+    ui: &AppWindow,
+    state: &mut ViewerState,
+    paths: &[String],
+    rating: u8,
+    record: bool,
+) {
     let rating = rating.min(5);
     for p in paths {
         let old = state.settings.get_rating(p) as i32;
         if record && old != rating as i32 {
-            state.push_undo(HistoryAction::Rating { path: p.clone(), old_rating: old, new_rating: rating as i32 });
+            state.push_undo(HistoryAction::Rating {
+                path: p.clone(),
+                old_rating: old,
+                new_rating: rating as i32,
+            });
         }
         state.settings.set_rating(p, rating);
     }
@@ -1770,11 +2108,18 @@ fn set_ratings(ui: &AppWindow, state: &mut ViewerState, paths: &[String], rating
 }
 
 fn cycle_color_profile(ui: &AppWindow, state: &mut ViewerState) {
-    let mut profiles: Vec<String> = crate::config::BUILTIN_PROFILES.iter().map(|s| s.to_string()).collect();
+    let mut profiles: Vec<String> = crate::config::BUILTIN_PROFILES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     for (name, _) in state.color_manager.get_custom_profiles() {
         profiles.push(name);
     }
-    let has_embedded = state.current_decoded.as_ref().map(|d| d.embedded_icc.is_some()).unwrap_or(false);
+    let has_embedded = state
+        .current_decoded
+        .as_ref()
+        .map(|d| d.embedded_icc.is_some())
+        .unwrap_or(false);
     if !has_embedded {
         profiles.retain(|p| p != crate::config::PROFILE_EMBEDDED);
     }
@@ -1789,11 +2134,16 @@ fn cycle_color_profile(ui: &AppWindow, state: &mut ViewerState) {
     };
     let old_p = state.selected_profile.clone();
     if old_p != next_profile {
-        state.push_undo(HistoryAction::ColorProfile { old_profile: old_p, new_profile: next_profile.clone() });
+        state.push_undo(HistoryAction::ColorProfile {
+            old_profile: old_p,
+            new_profile: next_profile.clone(),
+        });
     }
     state.selected_profile = next_profile.clone();
     if let Some(dec) = &state.current_decoded {
-        state.image_profile_overrides.insert(dec.path.clone(), next_profile.clone());
+        state
+            .image_profile_overrides
+            .insert(dec.path.clone(), next_profile.clone());
     }
     ui.set_current_profile(next_profile.into());
     request_render(state, true, false);
@@ -1810,7 +2160,10 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
 
     if let Some(from) = state.current_index {
         if from != index {
-            state.push_undo(HistoryAction::ImageSelection { from_idx: from, to_idx: index });
+            state.push_undo(HistoryAction::ImageSelection {
+                from_idx: from,
+                to_idx: index,
+            });
         }
     }
 
@@ -1825,7 +2178,10 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
     // Update filmstrip selection indicator & read item badge
     let mut badge = Badge::None;
     let filmstrip_model = ui.get_filmstrip_items();
-    if let Some(vec_model) = filmstrip_model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
+    if let Some(vec_model) = filmstrip_model
+        .as_any()
+        .downcast_ref::<VecModel<FilmstripItemData>>()
+    {
         for i in 0..vec_model.row_count() {
             if let Some(mut item) = vec_model.row_data(i) {
                 let should_sel = state.selected_indices.contains(&i);
@@ -1843,14 +2199,24 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
     ui.set_current_rating(state.settings.get_rating(&path) as i32);
     ui.set_current_image_is_cropped(state.is_cropped(&path));
 
-    let same_image_as_before = state.current_decoded.as_ref().map(|d| d.path == path).unwrap_or(false);
+    let same_image_as_before = state
+        .current_decoded
+        .as_ref()
+        .map(|d| d.path == path)
+        .unwrap_or(false);
     let in_memory = state.in_memory(&path);
     if !Path::new(&path).exists() && in_memory.is_none() {
         state.current_decoded = None;
         state.load_request_id += 1; // cancel pending loads
         ui.set_has_image(false);
         ui.set_canvas_empty_text("⚠️ Image Unavailable — File was deleted from disk".into());
-        ui.set_status_file_text(format!("Error: File '{}' is not available on disk.", file_name_of(&path)).into());
+        ui.set_status_file_text(
+            format!(
+                "Error: File '{}' is not available on disk.",
+                file_name_of(&path)
+            )
+            .into(),
+        );
         return;
     }
 
@@ -1891,7 +2257,12 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
 /// heavy work. RAW files that are not cached yet return `None` (computed in the background).
 fn get_image_aspect_ratio_norm(state: &ViewerState, path: &str) -> Option<f32> {
     let key = path_key(path);
-    if let Some(r) = state.aspect_cache.lock().ok().and_then(|c| c.get(&key).copied()) {
+    if let Some(r) = state
+        .aspect_cache
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&key).copied())
+    {
         return Some(r);
     }
     let ratio_of = |w: u32, h: u32| (w > 0 && h > 0).then(|| w.max(h) as f32 / w.min(h) as f32);
@@ -1904,7 +2275,8 @@ fn get_image_aspect_ratio_norm(state: &ViewerState, path: &str) -> Option<f32> {
     if crate::config::is_raw_file(Path::new(path)) {
         return None;
     }
-    let r = crate::image_loader::probe_dimensions(Path::new(path)).and_then(|(w, h)| ratio_of(w, h))?;
+    let r =
+        crate::image_loader::probe_dimensions(Path::new(path)).and_then(|(w, h)| ratio_of(w, h))?;
     if let Ok(mut c) = state.aspect_cache.lock() {
         c.insert(key, r);
     }
@@ -1915,7 +2287,11 @@ fn get_file_color_profile_info(state: &ViewerState, path: &str) -> (String, bool
     if let Some(prof) = state.image_profile_overrides.get(path) {
         return (prof.clone(), true);
     }
-    let dec = state.edited_images.get(path).cloned().or_else(|| state.preloader.cache.lock().ok().and_then(|g| g.peek(path)));
+    let dec = state
+        .edited_images
+        .get(path)
+        .cloned()
+        .or_else(|| state.preloader.cache.lock().ok().and_then(|g| g.peek(path)));
     if let Some(dec) = dec {
         if let Some(ref name) = dec.embedded_icc_name {
             return (name.clone(), true);
@@ -1927,7 +2303,11 @@ fn get_file_color_profile_info(state: &ViewerState, path: &str) -> (String, bool
 }
 
 fn matches_format_filter(path: &str, filter: &str) -> bool {
-    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     match filter.to_uppercase().as_str() {
         "" | "ALL" => true,
         "RAW" => crate::config::is_raw_extension(&ext),
@@ -1945,7 +2325,9 @@ fn start_aspect_ratio_job(state: &mut ViewerState, pending: Vec<String>) {
     if state.aspect_job_running || pending.is_empty() {
         return;
     }
-    let Some((ui_w, st_w)) = weak_handles(state) else { return };
+    let Some((ui_w, st_w)) = weak_handles(state) else {
+        return;
+    };
     state.aspect_job_running = true;
     let cache = state.aspect_cache.clone();
     std::thread::spawn(move || {
@@ -1970,7 +2352,9 @@ fn start_aspect_ratio_job(state: &mut ViewerState, pending: Vec<String>) {
 fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
     let root_norm = normalize_path(&state.current_folder);
     let filter_key = state.selected_tree_filter.clone();
-    let previous_file = state.current_index.and_then(|i| state.visible_files.get(i).cloned());
+    let previous_file = state
+        .current_index
+        .and_then(|i| state.visible_files.get(i).cloned());
 
     let mut visible: Vec<String> = if filter_key == "__ALL__" {
         state.all_folder_files.clone()
@@ -1993,7 +2377,10 @@ fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
             .iter()
             .filter(|f| {
                 path_key(f).starts_with(&prefix)
-                    || Path::new(f).parent().map(|p| same_path(&p.to_string_lossy(), &filter_key)).unwrap_or(false)
+                    || Path::new(f)
+                        .parent()
+                        .map(|p| same_path(&p.to_string_lossy(), &filter_key))
+                        .unwrap_or(false)
             })
             .cloned()
             .collect()
@@ -2026,7 +2413,9 @@ fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
             if state.filter_is_cropped && !state.is_cropped(fpath) {
                 return false;
             }
-            if state.filter_is_profile_modified && !state.image_profile_overrides.contains_key(fpath) {
+            if state.filter_is_profile_modified
+                && !state.image_profile_overrides.contains_key(fpath)
+            {
                 return false;
             }
             if r_mask != 0 && r_mask != 63 {
@@ -2134,7 +2523,11 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
     let mut order: Vec<usize> = (0..state.visible_files.len()).collect();
     order.sort_by_key(|&idx| {
         let diff = (idx as isize - cur_idx as isize).unsigned_abs();
-        if idx >= cur_idx { diff * 2 } else { diff * 2 + 1 }
+        if idx >= cur_idx {
+            diff * 2
+        } else {
+            diff * 2 + 1
+        }
     });
 
     let gen = state.thumbnail_generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2144,11 +2537,22 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
     let cm = Arc::new(state.color_manager.clone());
     let next = Arc::new(AtomicUsize::new(0));
     let (tx, rx) = crossbeam_channel::unbounded::<(usize, String, u32, u32, Vec<u8>)>();
-    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 8) - 1;
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(2, 8)
+        - 1;
 
     for _ in 0..workers.max(1) {
-        let (files, order, edits, cm, next, tx, gen_arc) =
-            (files.clone(), order.clone(), edits.clone(), cm.clone(), next.clone(), tx.clone(), state.thumbnail_generation.clone());
+        let (files, order, edits, cm, next, tx, gen_arc) = (
+            files.clone(),
+            order.clone(),
+            edits.clone(),
+            cm.clone(),
+            next.clone(),
+            tx.clone(),
+            state.thumbnail_generation.clone(),
+        );
         std::thread::spawn(move || loop {
             if gen_arc.load(Ordering::SeqCst) != gen {
                 return;
@@ -2188,7 +2592,13 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
                 }
                 if let Some(ui) = ui_copy.upgrade() {
                     for (idx, path, tw, th, rgba) in to_send {
-                        set_thumbnail_for_path(&ui, Some(idx), &path, rgba_to_slint_image(tw, th, &rgba), None);
+                        set_thumbnail_for_path(
+                            &ui,
+                            Some(idx),
+                            &path,
+                            rgba_to_slint_image(tw, th, &rgba),
+                            None,
+                        );
                     }
                 }
             });
@@ -2199,7 +2609,8 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
             }
             batch.push(item);
             count += 1;
-            if count <= 10 || batch.len() >= 16 || last_flush.elapsed() >= Duration::from_millis(40) {
+            if count <= 10 || batch.len() >= 16 || last_flush.elapsed() >= Duration::from_millis(40)
+            {
                 flush(std::mem::take(&mut batch));
                 last_flush = std::time::Instant::now();
             }
@@ -2218,8 +2629,16 @@ type ScanDone = Box<dyn FnOnce(&AppWindow, &mut ViewerState, Result<usize, Strin
 
 /// Scans the current folder on a worker thread and repopulates the UI when done.
 /// `keep_file` is re-selected afterwards if still present; `restore_sub` restores a tree filter.
-fn start_folder_scan(ui: &AppWindow, state: &mut ViewerState, keep_file: Option<String>, restore_sub: Option<String>, on_done: Option<ScanDone>) {
-    let Some((ui_w, st_w)) = weak_handles(state) else { return };
+fn start_folder_scan(
+    ui: &AppWindow,
+    state: &mut ViewerState,
+    keep_file: Option<String>,
+    restore_sub: Option<String>,
+    on_done: Option<ScanDone>,
+) {
+    let Some((ui_w, st_w)) = weak_handles(state) else {
+        return;
+    };
     state.scan_generation += 1;
     let gen = state.scan_generation;
     let folder = normalize_path(&state.current_folder);
@@ -2273,7 +2692,9 @@ fn refresh_current_folder_content(ui: &AppWindow, state: &mut ViewerState) {
         state.visible_files.retain(|f| Path::new(f).exists());
         state.all_folder_files.retain(|f| Path::new(f).exists());
         apply_tree_filter_and_populate(ui, state);
-        ui.set_status_file_text(format!("Refreshed: {} files available", state.visible_files.len()).into());
+        ui.set_status_file_text(
+            format!("Refreshed: {} files available", state.visible_files.len()).into(),
+        );
         return;
     }
     if state.current_folder.is_empty() {
@@ -2285,7 +2706,9 @@ fn refresh_current_folder_content(ui: &AppWindow, state: &mut ViewerState) {
         ui.set_status_file_text(format!("Folder not found: {}", norm).into());
         return;
     }
-    let cur_file = state.current_index.and_then(|idx| state.visible_files.get(idx).cloned());
+    let cur_file = state
+        .current_index
+        .and_then(|idx| state.visible_files.get(idx).cloned());
     // Decoded images may be stale after a refresh; unsaved edits are kept separately.
     if let Ok(mut guard) = state.preloader.cache.lock() {
         guard.clear();
@@ -2295,22 +2718,41 @@ fn refresh_current_folder_content(ui: &AppWindow, state: &mut ViewerState) {
         state,
         cur_file,
         None,
-        Some(Box::new(|ui: &AppWindow, st: &mut ViewerState, res: Result<usize, String>| {
-            if let Ok(n) = res {
-                ui.set_status_file_text(format!("Refreshed: {} images found across {} subfolder(s)", n, st.subfolders.len()).into());
-            }
-        })),
+        Some(Box::new(
+            |ui: &AppWindow, st: &mut ViewerState, res: Result<usize, String>| {
+                if let Ok(n) = res {
+                    ui.set_status_file_text(
+                        format!(
+                            "Refreshed: {} images found across {} subfolder(s)",
+                            n,
+                            st.subfolders.len()
+                        )
+                        .into(),
+                    );
+                }
+            },
+        )),
     );
 }
 
 /// True if `path` is (or contains) a known subfolder of the current tree.
 fn is_known_folder(state: &ViewerState, path: &str) -> bool {
     let prefix = dir_prefix_key(path);
-    state.subfolders.iter().any(|s| same_path(s, path) || path_key(s).starts_with(&prefix))
-        || state.all_folder_files.iter().any(|f| path_key(f).starts_with(&prefix))
+    state
+        .subfolders
+        .iter()
+        .any(|s| same_path(s, path) || path_key(s).starts_with(&prefix))
+        || state
+            .all_folder_files
+            .iter()
+            .any(|f| path_key(f).starts_with(&prefix))
 }
 
-fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<crate::file_watcher::FileSyncAction>) {
+fn handle_filesystem_sync(
+    ui: &AppWindow,
+    state: &mut ViewerState,
+    actions: Vec<crate::file_watcher::FileSyncAction>,
+) {
     use crate::file_watcher::FileSyncAction;
     let model = ui.get_filmstrip_items();
     let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() else {
@@ -2321,11 +2763,17 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
     let actions: Vec<FileSyncAction> = actions
         .into_iter()
         .map(|a| match a {
-            FileSyncAction::Modified(p) if !state.all_folder_files.iter().any(|f| same_path(f, &p)) => FileSyncAction::Created(p),
+            FileSyncAction::Modified(p)
+                if !state.all_folder_files.iter().any(|f| same_path(f, &p)) =>
+            {
+                FileSyncAction::Created(p)
+            }
             other => other,
         })
         .collect();
-    let cur_path = state.current_index.and_then(|idx| state.visible_files.get(idx).cloned());
+    let cur_path = state
+        .current_index
+        .and_then(|idx| state.visible_files.get(idx).cloned());
     let mut tree_changed = false;
     let mut folder_structure_changed = false;
 
@@ -2352,21 +2800,35 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
                     continue;
                 }
                 set_badge_for(&removed_path, Badge::Deleted);
-                if cur_path.as_deref().is_some_and(|cp| same_path(cp, &removed_path)) {
+                if cur_path
+                    .as_deref()
+                    .is_some_and(|cp| same_path(cp, &removed_path))
+                {
                     show_current_badge(ui, Badge::Deleted);
-                    ui.set_status_file_text(format!("Current image: {} [Deleted from disk]", file_name_of(&removed_path)).into());
+                    ui.set_status_file_text(
+                        format!(
+                            "Current image: {} [Deleted from disk]",
+                            file_name_of(&removed_path)
+                        )
+                        .into(),
+                    );
                 }
             }
             FileSyncAction::Restored(restored_path) => {
                 for i in 0..vm.row_count() {
                     if let Some(mut item) = vm.row_data(i) {
-                        if same_path(item.full_path.as_str(), &restored_path) && item.badge_type == "deleted" {
+                        if same_path(item.full_path.as_str(), &restored_path)
+                            && item.badge_type == "deleted"
+                        {
                             set_item_badge(&mut item, Badge::None);
                             vm.set_row_data(i, item);
                         }
                     }
                 }
-                if cur_path.as_deref().is_some_and(|cp| same_path(cp, &restored_path)) {
+                if cur_path
+                    .as_deref()
+                    .is_some_and(|cp| same_path(cp, &restored_path))
+                {
                     show_current_badge(ui, Badge::None);
                 }
             }
@@ -2376,7 +2838,13 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
                     continue;
                 }
                 let renamed_here = migrate_renamed_path(ui, state, &old_path, &new_path, true);
-                if !renamed_here && !state.is_files_mode && !state.all_folder_files.iter().any(|f| same_path(f, &new_path)) {
+                if !renamed_here
+                    && !state.is_files_mode
+                    && !state
+                        .all_folder_files
+                        .iter()
+                        .any(|f| same_path(f, &new_path))
+                {
                     // Renamed from a file we did not track (e.g. unsupported extension).
                     state.all_folder_files.push(new_path.clone());
                     tree_changed = true;
@@ -2387,7 +2855,11 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
                     continue;
                 }
                 let norm_cre = normalize_path(&created_path);
-                if state.all_folder_files.iter().any(|f| same_path(f, &norm_cre)) {
+                if state
+                    .all_folder_files
+                    .iter()
+                    .any(|f| same_path(f, &norm_cre))
+                {
                     // Re-created (e.g. restored from the Recycle Bin).
                     set_badge_for(&norm_cre, Badge::None);
                     continue;
@@ -2399,7 +2871,10 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
                 let root_norm = normalize_path(&state.current_folder);
                 let should_show = match state.selected_tree_filter.as_str() {
                     "__ALL__" => true,
-                    "__ROOT_ONLY__" => Path::new(&norm_cre).parent().map(|p| same_path(&p.to_string_lossy(), &root_norm)).unwrap_or(false),
+                    "__ROOT_ONLY__" => Path::new(&norm_cre)
+                        .parent()
+                        .map(|p| same_path(&p.to_string_lossy(), &root_norm))
+                        .unwrap_or(false),
                     sub => path_key(&norm_cre).starts_with(&dir_prefix_key(sub)),
                 };
                 if should_show {
@@ -2426,7 +2901,9 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
             }
             FileSyncAction::Modified(modified_path) => {
                 let norm_mod = normalize_path(&modified_path);
-                if !Path::new(&norm_mod).exists() || crate::disk_ops::is_recent_self_write(Path::new(&norm_mod)) {
+                if !Path::new(&norm_mod).exists()
+                    || crate::disk_ops::is_recent_self_write(Path::new(&norm_mod))
+                {
                     // Our own write (rotation / save): memory is already up to date.
                     continue;
                 }
@@ -2441,10 +2918,15 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
                     refresh_thumbnail_from_disk(state, &norm_mod);
                 }
 
-                if cur_path.as_deref().is_some_and(|cp| same_path(cp, &norm_mod)) {
+                if cur_path
+                    .as_deref()
+                    .is_some_and(|cp| same_path(cp, &norm_mod))
+                {
                     show_current_badge(ui, Badge::Modified);
                     if state.is_cropped(&norm_mod) {
-                        ui.set_status_file_text("The file changed on disk; your unsaved crop is kept in memory.".into());
+                        ui.set_status_file_text(
+                            "The file changed on disk; your unsaved crop is kept in memory.".into(),
+                        );
                     } else {
                         let idx = state.current_index;
                         let req = DisplayRequest {
@@ -2476,7 +2958,13 @@ fn handle_filesystem_sync(ui: &AppWindow, state: &mut ViewerState, actions: Vec<
 /// Moves every piece of per-file state from `old_path` to `new_path` after a rename
 /// (filmstrip row, lists, cache, unsaved edits, profile overrides, rating, current image).
 /// Returns true if the file was known.
-fn migrate_renamed_path(ui: &AppWindow, state: &mut ViewerState, old_path: &str, new_path: &str, show_badge: bool) -> bool {
+fn migrate_renamed_path(
+    ui: &AppWindow,
+    state: &mut ViewerState,
+    old_path: &str,
+    new_path: &str,
+    show_badge: bool,
+) -> bool {
     let mut known = false;
     let model = ui.get_filmstrip_items();
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
@@ -2493,7 +2981,11 @@ fn migrate_renamed_path(ui: &AppWindow, state: &mut ViewerState, old_path: &str,
             }
         }
     }
-    for f in state.visible_files.iter_mut().chain(state.all_folder_files.iter_mut()) {
+    for f in state
+        .visible_files
+        .iter_mut()
+        .chain(state.all_folder_files.iter_mut())
+    {
         if same_path(f, old_path) {
             *f = new_path.to_string();
             known = true;
@@ -2505,10 +2997,14 @@ fn migrate_renamed_path(ui: &AppWindow, state: &mut ViewerState, old_path: &str,
     if let Some(edit) = state.edited_images.remove(old_path) {
         let mut moved = (*edit).clone();
         moved.path = new_path.to_string();
-        state.edited_images.insert(new_path.to_string(), Arc::new(moved));
+        state
+            .edited_images
+            .insert(new_path.to_string(), Arc::new(moved));
     }
     if let Some(p) = state.image_profile_overrides.remove(old_path) {
-        state.image_profile_overrides.insert(new_path.to_string(), p);
+        state
+            .image_profile_overrides
+            .insert(new_path.to_string(), p);
     }
     if let Ok(mut c) = state.aspect_cache.lock() {
         if let Some(r) = c.remove(&path_key(old_path)) {
@@ -2516,9 +3012,15 @@ fn migrate_renamed_path(ui: &AppWindow, state: &mut ViewerState, old_path: &str,
         }
     }
     state.settings.rename_rating(old_path, new_path);
-    for action in state.history_undo.iter_mut().chain(state.history_redo.iter_mut()) {
+    for action in state
+        .history_undo
+        .iter_mut()
+        .chain(state.history_redo.iter_mut())
+    {
         match action {
-            HistoryAction::Rating { path, .. } | HistoryAction::Rotate { path, .. } | HistoryAction::ImageEdit { path, .. } => {
+            HistoryAction::Rating { path, .. }
+            | HistoryAction::Rotate { path, .. }
+            | HistoryAction::ImageEdit { path, .. } => {
                 if same_path(path, old_path) {
                     *path = new_path.to_string();
                 }
@@ -2527,7 +3029,11 @@ fn migrate_renamed_path(ui: &AppWindow, state: &mut ViewerState, old_path: &str,
         }
     }
 
-    let is_current = state.current_decoded.as_ref().map(|d| same_path(&d.path, old_path)).unwrap_or(false);
+    let is_current = state
+        .current_decoded
+        .as_ref()
+        .map(|d| same_path(&d.path, old_path))
+        .unwrap_or(false);
     if is_current {
         if let Some(dec) = state.current_decoded.clone() {
             let mut new_dec = (*dec).clone();
@@ -2547,9 +3053,13 @@ fn migrate_renamed_path(ui: &AppWindow, state: &mut ViewerState, old_path: &str,
 
 fn start_folder_watcher(state: &mut ViewerState, folder: &str) {
     state.folder_watcher = None;
-    let Some((ui_w, st_w)) = weak_handles(state) else { return };
+    let Some((ui_w, st_w)) = weak_handles(state) else {
+        return;
+    };
     match crate::file_watcher::FolderWatcher::start(folder, move |actions| {
-        post_to_ui(ui_w.clone(), st_w.clone(), move |ui, st| handle_filesystem_sync(ui, st, actions));
+        post_to_ui(ui_w.clone(), st_w.clone(), move |ui, st| {
+            handle_filesystem_sync(ui, st, actions)
+        });
     }) {
         Ok(watcher) => state.folder_watcher = Some(watcher),
         Err(err) => eprintln!("Warning: Failed to start folder watcher: {}", err),
@@ -2588,7 +3098,13 @@ fn open_specific_files(ui: &AppWindow, state: &mut ViewerState, files: Vec<Strin
 
 /// Opens a folder: the scan runs in the background; `on_done` is called once the filmstrip
 /// is populated (or immediately with an error).
-fn open_folder_path(ui: &AppWindow, state: &mut ViewerState, folder: &str, restore_sub: Option<String>, on_done: Option<ScanDone>) {
+fn open_folder_path(
+    ui: &AppWindow,
+    state: &mut ViewerState,
+    folder: &str,
+    restore_sub: Option<String>,
+    on_done: Option<ScanDone>,
+) {
     let norm = normalize_path(folder);
     if !Path::new(&norm).is_dir() {
         let msg = format!("Folder does not exist: {}", norm);
@@ -2636,7 +3152,13 @@ fn open_folder_path(ui: &AppWindow, state: &mut ViewerState, folder: &str, resto
 }
 
 /// Convert viewport mouse coordinates (mx, my) into image pixel coordinates (ix, iy).
-fn viewport_to_image_coords(mx: f32, my: f32, vw: f32, vh: f32, state: &ViewerState) -> Option<(u32, u32)> {
+fn viewport_to_image_coords(
+    mx: f32,
+    my: f32,
+    vw: f32,
+    vh: f32,
+    state: &ViewerState,
+) -> Option<(u32, u32)> {
     let decoded = state.current_decoded.as_ref()?;
     let z = view_zoom(state);
     let img_w = decoded.width as f32 * z;
@@ -2647,7 +3169,8 @@ fn viewport_to_image_coords(mx: f32, my: f32, vw: f32, vh: f32, state: &ViewerSt
     let rel_x = (mx - img_x0) / z;
     let rel_y = (my - img_y0) / z;
 
-    if rel_x < 0.0 || rel_y < 0.0 || rel_x >= decoded.width as f32 || rel_y >= decoded.height as f32 {
+    if rel_x < 0.0 || rel_y < 0.0 || rel_x >= decoded.width as f32 || rel_y >= decoded.height as f32
+    {
         return None;
     }
 
@@ -2663,7 +3186,6 @@ fn current_rendered_bytes(state: &ViewerState) -> Option<&[u8]> {
     let buf = state.rendered.as_ref()?;
     (buf.width() == dec.width && buf.height() == dec.height).then(|| buf.as_bytes())
 }
-
 
 // ----------------------------------------------------------------------------
 // Helpers used by the UI callbacks
@@ -2704,7 +3226,12 @@ fn effective_profile_for(state: &ViewerState, path: &str, decoded: &DecodedImage
     if let Some(p) = state.image_profile_overrides.get(path) {
         return p.clone();
     }
-    if state.current_decoded.as_ref().map(|d| d.path == path).unwrap_or(false) {
+    if state
+        .current_decoded
+        .as_ref()
+        .map(|d| d.path == path)
+        .unwrap_or(false)
+    {
         return state.selected_profile.clone();
     }
     if decoded.embedded_icc.is_some() {
@@ -2715,11 +3242,27 @@ fn effective_profile_for(state: &ViewerState, path: &str, decoded: &DecodedImage
 }
 
 /// Encodes `decoded` with `profile` to `dest` (color conversion, ICC and EXIF included).
-fn export_image(cm: &ColorManager, decoded: &DecodedImage, profile: &str, dest: &Path) -> Result<(), String> {
-    let pixels = cm.prepare_pixels_for_save(&decoded.rgb_pixels, profile, decoded.embedded_icc.as_deref());
+fn export_image(
+    cm: &ColorManager,
+    decoded: &DecodedImage,
+    profile: &str,
+    dest: &Path,
+) -> Result<(), String> {
+    let pixels = cm.prepare_pixels_for_save(
+        &decoded.rgb_pixels,
+        profile,
+        decoded.embedded_icc.as_deref(),
+    );
     let icc = cm.get_profile_bytes(profile, decoded.embedded_icc.as_deref());
     let exif = build_export_exif(Path::new(&decoded.path), decoded.width, decoded.height);
-    save_image_with_icc(dest, decoded.width, decoded.height, &pixels, Some(&icc), exif.as_deref())
+    save_image_with_icc(
+        dest,
+        decoded.width,
+        decoded.height,
+        &pixels,
+        Some(&icc),
+        exif.as_deref(),
+    )
 }
 
 fn unsaved_edits_prompt(ui: &AppWindow, count: usize) {
@@ -2769,9 +3312,9 @@ fn remove_files_from_view(ui: &AppWindow, st: &mut ViewerState, removed: &[Strin
     st.settings.save();
     let keep = |a: &HistoryAction| match a {
         HistoryAction::ImageSelection { .. } => false,
-        HistoryAction::Rating { path, .. } | HistoryAction::Rotate { path, .. } | HistoryAction::ImageEdit { path, .. } => {
-            !removed.iter().any(|r| same_path(r, path))
-        }
+        HistoryAction::Rating { path, .. }
+        | HistoryAction::Rotate { path, .. }
+        | HistoryAction::ImageEdit { path, .. } => !removed.iter().any(|r| same_path(r, path)),
         HistoryAction::ColorProfile { .. } => true,
     };
     st.history_undo.retain(keep);
@@ -2780,7 +3323,11 @@ fn remove_files_from_view(ui: &AppWindow, st: &mut ViewerState, removed: &[Strin
     let model = ui.get_filmstrip_items();
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
         for i in (0..vm.row_count()).rev() {
-            if vm.row_data(i).map(|it| removed.iter().any(|r| same_path(r, it.full_path.as_str()))).unwrap_or(false) {
+            if vm
+                .row_data(i)
+                .map(|it| removed.iter().any(|r| same_path(r, it.full_path.as_str())))
+                .unwrap_or(false)
+            {
                 vm.remove(i);
             }
         }
@@ -2831,7 +3378,10 @@ fn reveal_in_file_manager(path_str: &str) {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open").arg("-R").arg(path_str).spawn();
+        let _ = std::process::Command::new("open")
+            .arg("-R")
+            .arg(path_str)
+            .spawn();
     }
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
@@ -2849,7 +3399,10 @@ fn enable_windows_dpi_awareness() {
         type SetProcessDpiAwareFn = unsafe extern "system" fn() -> i32;
         extern "system" {
             fn GetModuleHandleA(lpModuleName: *const u8) -> *mut std::ffi::c_void;
-            fn GetProcAddress(hModule: *mut std::ffi::c_void, lpProcName: *const u8) -> *mut std::ffi::c_void;
+            fn GetProcAddress(
+                hModule: *mut std::ffi::c_void,
+                lpProcName: *const u8,
+            ) -> *mut std::ffi::c_void;
         }
         let user32 = GetModuleHandleA(b"user32.dll\0".as_ptr());
         if !user32.is_null() {
@@ -2879,13 +3432,24 @@ fn install_panic_hook() {
         };
         let location = panic_info
             .location()
-            .map(|loc| format!("File: {}\nLine: {}, Column: {}", loc.file(), loc.line(), loc.column()))
+            .map(|loc| {
+                format!(
+                    "File: {}\nLine: {}, Column: {}",
+                    loc.file(),
+                    loc.line(),
+                    loc.column()
+                )
+            })
             .unwrap_or_else(|| "Location: unknown".to_string());
 
         // Worker threads catch their panics (corrupt files, decoder bugs) and report them as
         // normal errors; only a panic on the UI thread is fatal.
         if std::thread::current().name() != Some("main") {
-            eprintln!("Worker thread panic: {} ({})", payload, location.replace('\n', " "));
+            eprintln!(
+                "Worker thread panic: {} ({})",
+                payload,
+                location.replace('\n', " ")
+            );
             return;
         }
         let msg = format!(
@@ -2935,9 +3499,13 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                 st,
                 &path,
                 None,
-                Some(Box::new(move |_ui: &AppWindow, _st: &mut ViewerState, res: Result<usize, String>| {
-                    let _ = resp.send(res.map(|n| format!("Opened folder '{}' with {} visible images", shown, n)));
-                })),
+                Some(Box::new(
+                    move |_ui: &AppWindow, _st: &mut ViewerState, res: Result<usize, String>| {
+                        let _ = resp.send(res.map(|n| {
+                            format!("Opened folder '{}' with {} visible images", shown, n)
+                        }));
+                    },
+                )),
             );
         }
         McpCommand::SelectImage { filename, resp } => {
@@ -2950,8 +3518,11 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                 .position(|f| file_name_of(f).to_lowercase() == wanted_low)
                 .or_else(|| st.visible_files.iter().position(|f| same_path(f, wanted)))
                 .or_else(|| {
-                    let suffix = format!("{}{}", std::path::MAIN_SEPARATOR, normalize_path(wanted)).to_lowercase();
-                    st.visible_files.iter().position(|f| f.to_lowercase().ends_with(&suffix))
+                    let suffix = format!("{}{}", std::path::MAIN_SEPARATOR, normalize_path(wanted))
+                        .to_lowercase();
+                    st.visible_files
+                        .iter()
+                        .position(|f| f.to_lowercase().ends_with(&suffix))
                 });
             if let Some(idx) = found {
                 st.selected_indices.clear();
@@ -2963,7 +3534,10 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                 sync_filmstrip_selection_ui(ui, st);
                 let _ = resp.send(Ok(format!("Selected image: {}", st.visible_files[idx])));
             } else {
-                let _ = resp.send(Err(format!("Image '{}' not found in current folder", filename)));
+                let _ = resp.send(Err(format!(
+                    "Image '{}' not found in current folder",
+                    filename
+                )));
             }
         }
         McpCommand::RotateImage { direction, resp } => {
@@ -3023,7 +3597,9 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                     update_zoom_ui(ui, st);
                     let _ = resp.send(Ok(format!("Zoom set to {:.0}%", st.zoom_factor * 100.0)));
                 } else {
-                    let _ = resp.send(Err("Missing or invalid 'factor' parameter for custom zoom".to_string()));
+                    let _ = resp.send(Err(
+                        "Missing or invalid 'factor' parameter for custom zoom".to_string()
+                    ));
                 }
             }
             _ => {
@@ -3031,15 +3607,29 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
             }
         },
         McpCommand::SetRating { rating, resp } => {
-            let current_path = st.current_index.and_then(|idx| st.visible_files.get(idx)).cloned();
+            let current_path = st
+                .current_index
+                .and_then(|idx| st.visible_files.get(idx))
+                .cloned();
             if let Some(path) = current_path {
-                set_ratings(ui, st, std::slice::from_ref(&path), rating.clamp(0, 5) as u8, true);
+                set_ratings(
+                    ui,
+                    st,
+                    std::slice::from_ref(&path),
+                    rating.clamp(0, 5) as u8,
+                    true,
+                );
                 let _ = resp.send(Ok(format!("Rating set to {} stars for {}", rating, path)));
             } else {
                 let _ = resp.send(Err("No active image to rate".to_string()));
             }
         }
-        McpCommand::FilterImages { query, min_rating, format, resp } => {
+        McpCommand::FilterImages {
+            query,
+            min_rating,
+            format,
+            resp,
+        } => {
             if let Some(q) = query {
                 st.filter_search_text = q.clone();
                 ui.set_filter_search_text(q.into());
@@ -3051,12 +3641,22 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                 st.filter_format = fmt.trim().to_uppercase();
             }
             apply_tree_filter_and_populate(ui, st);
-            let _ = resp.send(Ok(format!("Filters applied: {} images matching criteria", st.visible_files.len())));
+            let _ = resp.send(Ok(format!(
+                "Filters applied: {} images matching criteria",
+                st.visible_files.len()
+            )));
         }
         McpCommand::GetCurrentImageInfo { resp } => {
-            let current_path = st.current_index.and_then(|idx| st.visible_files.get(idx)).cloned();
+            let current_path = st
+                .current_index
+                .and_then(|idx| st.visible_files.get(idx))
+                .cloned();
             if let Some(ref path) = current_path {
-                let (w, h) = st.current_decoded.as_ref().map(|d| (d.width, d.height)).unwrap_or((0, 0));
+                let (w, h) = st
+                    .current_decoded
+                    .as_ref()
+                    .map(|d| (d.width, d.height))
+                    .unwrap_or((0, 0));
                 let mut meta_map = serde_json::Map::new();
                 if let Some(ref dec) = st.current_decoded {
                     for (k, v) in extract_metadata(dec) {
@@ -3115,7 +3715,12 @@ fn main() -> Result<(), slint::PlatformError> {
         if is_max {
             ui.window().set_maximized(true);
         }
-        let saved_aspects: Vec<SharedString> = st.settings.saved_aspect_ratios.iter().map(|s| SharedString::from(s.as_str())).collect();
+        let saved_aspects: Vec<SharedString> = st
+            .settings
+            .saved_aspect_ratios
+            .iter()
+            .map(|s| SharedString::from(s.as_str()))
+            .collect();
         ui.set_saved_custom_aspect_ratios(ModelRc::new(VecModel::from(saved_aspects)));
 
         let last = st.settings.last_folder.clone();
@@ -3134,19 +3739,23 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_weak = ui.as_weak();
         let state = state.clone();
         let timer = slint::Timer::default();
-        timer.start(slint::TimerMode::SingleShot, Duration::from_millis(60), move || {
-            let Some(ui) = ui_weak.upgrade() else { return };
-            let mut st = lock_state(&state);
-            sync_display_scale(&ui, &mut st);
-            if !st.lock_zoom {
-                if let Some(dec) = st.current_decoded.clone() {
-                    st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
-                    st.pan_x = 0.0;
-                    st.pan_y = 0.0;
-                    update_zoom_ui(&ui, &st);
+        timer.start(
+            slint::TimerMode::SingleShot,
+            Duration::from_millis(60),
+            move || {
+                let Some(ui) = ui_weak.upgrade() else { return };
+                let mut st = lock_state(&state);
+                sync_display_scale(&ui, &mut st);
+                if !st.lock_zoom {
+                    if let Some(dec) = st.current_decoded.clone() {
+                        st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
+                        st.pan_x = 0.0;
+                        st.pan_y = 0.0;
+                        update_zoom_ui(&ui, &st);
+                    }
                 }
-            }
-        });
+            },
+        );
         timer
     };
 
@@ -3159,7 +3768,10 @@ fn main() -> Result<(), slint::PlatformError> {
             let start_dir = dialog_start_dir(&lock_state(&state));
             let mut dlg = rfd::FileDialog::new()
                 .set_title("Open Images")
-                .add_filter("Supported Images & RAW", &crate::config::dialog_extensions())
+                .add_filter(
+                    "Supported Images & RAW",
+                    &crate::config::dialog_extensions(),
+                )
                 .add_filter("All Files (*.*)", &["*"]);
             if let Some(dir) = start_dir {
                 dlg = dlg.set_directory(dir);
@@ -3189,7 +3801,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 dlg = dlg.set_directory(dir);
             }
             if let Some(folder) = dlg.pick_folder() {
-                open_folder_path(&ui, &mut lock_state(&state), &folder.to_string_lossy(), None, None);
+                open_folder_path(
+                    &ui,
+                    &mut lock_state(&state),
+                    &folder.to_string_lossy(),
+                    None,
+                    None,
+                );
             }
         });
     }
@@ -3322,7 +3940,10 @@ fn main() -> Result<(), slint::PlatformError> {
                         rebuild_profile_combobox_list(&ui, &st);
                         let old = st.selected_profile.clone();
                         if old != label {
-                            st.push_undo(HistoryAction::ColorProfile { old_profile: old, new_profile: label.clone() });
+                            st.push_undo(HistoryAction::ColorProfile {
+                                old_profile: old,
+                                new_profile: label.clone(),
+                            });
                         }
                         st.selected_profile = label.clone();
                         ui.set_current_profile(label.clone().into());
@@ -3332,7 +3953,9 @@ fn main() -> Result<(), slint::PlatformError> {
                         request_render(&mut st, true, false);
                         return;
                     }
-                    ui.set_status_file_text(format!("'{}' is not a valid RGB ICC profile.", icc_path.display()).into());
+                    ui.set_status_file_text(
+                        format!("'{}' is not a valid RGB ICC profile.", icc_path.display()).into(),
+                    );
                 }
                 ui.set_current_profile(st.selected_profile.clone().into());
                 return;
@@ -3341,7 +3964,10 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut st = lock_state(&state);
             let old_p = st.selected_profile.clone();
             if old_p != chosen {
-                st.push_undo(HistoryAction::ColorProfile { old_profile: old_p, new_profile: chosen.clone() });
+                st.push_undo(HistoryAction::ColorProfile {
+                    old_profile: old_p,
+                    new_profile: chosen.clone(),
+                });
             }
             st.selected_profile = chosen.clone();
             if let Some(curr) = st.current_decoded.as_ref().map(|d| d.path.clone()) {
@@ -3457,7 +4083,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             }
             let curr = st.current_index.unwrap_or(0);
-            let prev = if curr == 0 { st.visible_files.len() - 1 } else { curr - 1 };
+            let prev = if curr == 0 {
+                st.visible_files.len() - 1
+            } else {
+                curr - 1
+            };
             st.selected_indices.clear();
             select_image_by_index(&ui, &mut st, prev);
             sync_filmstrip_selection_ui(&ui, &st);
@@ -3484,7 +4114,13 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_filmstrip_item_clicked(move |idx, is_ctrl, is_shift| {
             let Some(ui) = ui_weak.upgrade() else { return };
             if idx >= 0 {
-                handle_filmstrip_click(&ui, &mut lock_state(&state), idx as usize, is_ctrl, is_shift);
+                handle_filmstrip_click(
+                    &ui,
+                    &mut lock_state(&state),
+                    idx as usize,
+                    is_ctrl,
+                    is_shift,
+                );
             }
         });
     }
@@ -3499,10 +4135,18 @@ fn main() -> Result<(), slint::PlatformError> {
                 .into_iter()
                 .map(|h| {
                     let (icon, has_icon) = match h.icon_rgba {
-                        Some(rgba) => (rgba_to_slint_image(h.icon_width, h.icon_height, &rgba), true),
+                        Some(rgba) => (
+                            rgba_to_slint_image(h.icon_width, h.icon_height, &rgba),
+                            true,
+                        ),
                         None => (Image::default(), false),
                     };
-                    OpenWithAppItem { id: h.id, name: h.name.into(), icon, has_icon }
+                    OpenWithAppItem {
+                        id: h.id,
+                        name: h.name.into(),
+                        icon,
+                        has_icon,
+                    }
                 })
                 .collect();
             ui.set_open_with_apps(ModelRc::new(VecModel::from(items)));
@@ -3520,14 +4164,19 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_open_with_dialog_clicked(move |file_path| {
         crate::open_with::launch_open_with_dialog(file_path.as_str());
     });
-    ui.on_open_containing_folder_explorer(move |file_path| reveal_in_file_manager(file_path.as_str()));
+    ui.on_open_containing_folder_explorer(move |file_path| {
+        reveal_in_file_manager(file_path.as_str())
+    });
     {
         let ui_weak = ui.as_weak();
         let state = state.clone();
         ui.on_rate_selected_images(move |rating| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            let paths: Vec<String> = selected_or_current(&st).into_iter().filter_map(|i| st.visible_files.get(i).cloned()).collect();
+            let paths: Vec<String> = selected_or_current(&st)
+                .into_iter()
+                .filter_map(|i| st.visible_files.get(i).cloned())
+                .collect();
             set_ratings(&ui, &mut st, &paths, rating.clamp(0, 5) as u8, true);
         });
     }
@@ -3541,12 +4190,16 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             let mut st = lock_state(&state);
             let idx = idx as usize;
-            let targets: Vec<usize> = if st.selected_indices.contains(&idx) && st.selected_indices.len() > 1 {
-                st.selected_indices.iter().copied().collect()
-            } else {
-                vec![idx]
-            };
-            let paths: Vec<String> = targets.into_iter().filter_map(|i| st.visible_files.get(i).cloned()).collect();
+            let targets: Vec<usize> =
+                if st.selected_indices.contains(&idx) && st.selected_indices.len() > 1 {
+                    st.selected_indices.iter().copied().collect()
+                } else {
+                    vec![idx]
+                };
+            let paths: Vec<String> = targets
+                .into_iter()
+                .filter_map(|i| st.visible_files.get(i).cloned())
+                .collect();
             set_ratings(&ui, &mut st, &paths, rating.clamp(0, 5) as u8, true);
         });
     }
@@ -3557,14 +4210,21 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let (files, disk, weak) = {
                 let st = lock_state(&state);
-                let files: Vec<String> = selected_or_current(&st).into_iter().filter_map(|i| st.visible_files.get(i).cloned()).collect();
+                let files: Vec<String> = selected_or_current(&st)
+                    .into_iter()
+                    .filter_map(|i| st.visible_files.get(i).cloned())
+                    .collect();
                 (files, st.disk.clone(), weak_handles(&st))
             };
             let Some((ui_w, st_w)) = weak else { return };
             if files.is_empty() {
                 return;
             }
-            let what = if files.len() == 1 { format!("'{}'", file_name_of(&files[0])) } else { format!("{} files", files.len()) };
+            let what = if files.len() == 1 {
+                format!("'{}'", file_name_of(&files[0]))
+            } else {
+                format!("{} files", files.len())
+            };
             let confirm = rfd::MessageDialog::new()
                 .set_level(rfd::MessageLevel::Warning)
                 .set_title("Move to Recycle Bin")
@@ -3588,9 +4248,17 @@ fn main() -> Result<(), slint::PlatformError> {
                 post_to_ui(ui_w, st_w, move |ui, st| {
                     remove_files_from_view(ui, st, &removed);
                     if failed.is_empty() {
-                        ui.set_status_file_text(format!("Moved {} file(s) to the Recycle Bin", removed.len()).into());
+                        ui.set_status_file_text(
+                            format!("Moved {} file(s) to the Recycle Bin", removed.len()).into(),
+                        );
                     } else {
-                        ui.set_status_file_text(format!("{} file(s) could not be moved to the Recycle Bin", failed.len()).into());
+                        ui.set_status_file_text(
+                            format!(
+                                "{} file(s) could not be moved to the Recycle Bin",
+                                failed.len()
+                            )
+                            .into(),
+                        );
                         show_message_later(
                             "Delete",
                             &format!("These files were NOT deleted:\n\n{}", failed.join("\n")),
@@ -3609,7 +4277,10 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_request_rename(move || {
             let Some(ui) = ui_weak.upgrade() else { return };
             let st = lock_state(&state);
-            let indices: Vec<usize> = selected_or_current(&st).into_iter().filter(|&i| i < st.visible_files.len()).collect();
+            let indices: Vec<usize> = selected_or_current(&st)
+                .into_iter()
+                .filter(|&i| i < st.visible_files.len())
+                .collect();
             if indices.is_empty() {
                 return;
             }
@@ -3623,7 +4294,11 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_rename_file_count(indices.len() as i32);
             ui.set_rename_input_text(stem.into());
             if indices.len() == 1 {
-                let ext = p.extension().and_then(|s| s.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+                let ext = p
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|e| format!(".{}", e))
+                    .unwrap_or_default();
                 ui.set_rename_extension_text(ext.into());
             } else {
                 ui.set_rename_extension_text("Original extensions preserved".into());
@@ -3637,7 +4312,10 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_confirm_rename(move |new_name| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            let files: Vec<String> = selected_or_current(&st).into_iter().filter_map(|i| st.visible_files.get(i).cloned()).collect();
+            let files: Vec<String> = selected_or_current(&st)
+                .into_iter()
+                .filter_map(|i| st.visible_files.get(i).cloned())
+                .collect();
             if files.is_empty() {
                 ui.set_rename_dialog_visible(false);
                 return;
@@ -3655,7 +4333,9 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             // Let pending rotations finish first: they write to the old names.
             if !st.disk.flush(Duration::from_secs(10)) {
-                ui.set_rename_error_text("Files are still being written; try again in a moment.".into());
+                ui.set_rename_error_text(
+                    "Files are still being written; try again in a moment.".into(),
+                );
                 return;
             }
             if let Err(e) = crate::rename::execute_batch_rename(&plan) {
@@ -3665,7 +4345,9 @@ fn main() -> Result<(), slint::PlatformError> {
             // A target can be another selected file's old name ("A → X (1)", "X (1) → X (2)"):
             // migrate through unique placeholders so every entry is rewritten exactly once.
             let moves: Vec<&(String, String)> = plan.iter().filter(|(o, n)| o != n).collect();
-            let placeholders: Vec<String> = (0..moves.len()).map(|i| format!("\u{1}mr-rename-{}\u{1}", i)).collect();
+            let placeholders: Vec<String> = (0..moves.len())
+                .map(|i| format!("\u{1}mr-rename-{}\u{1}", i))
+                .collect();
             for ((old_f, _), ph) in moves.iter().map(|m| (&m.0, &m.1)).zip(&placeholders) {
                 migrate_renamed_path(&ui, &mut st, old_f, ph, false);
             }
@@ -3673,7 +4355,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 migrate_renamed_path(&ui, &mut st, ph, new_f, true);
             }
             st.settings.save();
-            if let Some(cur) = st.current_index.and_then(|i| st.visible_files.get(i)).cloned() {
+            if let Some(cur) = st
+                .current_index
+                .and_then(|i| st.visible_files.get(i))
+                .cloned()
+            {
                 ui.set_status_file_text(format!("Renamed: {}", cur).into());
             }
             if st.selected_indices.len() > 1 {
@@ -3688,7 +4374,11 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_multi_select_tile_clicked(move |full_path| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            if let Some(target_idx) = st.visible_files.iter().position(|f| f.as_str() == full_path.as_str()) {
+            if let Some(target_idx) = st
+                .visible_files
+                .iter()
+                .position(|f| f.as_str() == full_path.as_str())
+            {
                 st.selected_indices.clear();
                 st.selected_indices.insert(target_idx);
                 st.selection_anchor = Some(target_idx);
@@ -3736,7 +4426,11 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             } else {
                 let norm_k = normalize_path(&key);
-                let existing = st.expanded_folders.iter().find(|e| same_path(e, &norm_k)).cloned();
+                let existing = st
+                    .expanded_folders
+                    .iter()
+                    .find(|e| same_path(e, &norm_k))
+                    .cloned();
                 match existing {
                     Some(ex) => {
                         st.expanded_folders.remove(&ex);
@@ -3834,10 +4528,20 @@ fn main() -> Result<(), slint::PlatformError> {
             let text_trim = text.trim().to_string();
             if parse_aspect_ratio_str(&text_trim).is_some() {
                 let mut st = lock_state(&state);
-                if !st.settings.saved_aspect_ratios.iter().any(|s| s.eq_ignore_ascii_case(&text_trim)) {
+                if !st
+                    .settings
+                    .saved_aspect_ratios
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(&text_trim))
+                {
                     st.settings.saved_aspect_ratios.push(text_trim);
                     st.settings.save();
-                    let model: Vec<SharedString> = st.settings.saved_aspect_ratios.iter().map(|s| SharedString::from(s.as_str())).collect();
+                    let model: Vec<SharedString> = st
+                        .settings
+                        .saved_aspect_ratios
+                        .iter()
+                        .map(|s| SharedString::from(s.as_str()))
+                        .collect();
                     ui.set_saved_custom_aspect_ratios(ModelRc::new(VecModel::from(model)));
                 }
                 ui.set_crop_custom_dialog_visible(false);
@@ -3851,9 +4555,16 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let text_trim = text.trim();
             let mut st = lock_state(&state);
-            st.settings.saved_aspect_ratios.retain(|s| !s.eq_ignore_ascii_case(text_trim));
+            st.settings
+                .saved_aspect_ratios
+                .retain(|s| !s.eq_ignore_ascii_case(text_trim));
             st.settings.save();
-            let model: Vec<SharedString> = st.settings.saved_aspect_ratios.iter().map(|s| SharedString::from(s.as_str())).collect();
+            let model: Vec<SharedString> = st
+                .settings
+                .saved_aspect_ratios
+                .iter()
+                .map(|s| SharedString::from(s.as_str()))
+                .collect();
             ui.set_saved_custom_aspect_ratios(ModelRc::new(VecModel::from(model)));
         });
     }
@@ -3977,7 +4688,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_canvas_double_clicked(move |mx, my, vw, vh| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            let Some(decoded) = st.current_decoded.clone() else { return };
+            let Some(decoded) = st.current_decoded.clone() else {
+                return;
+            };
             if (st.zoom_factor - 1.0).abs() < 0.01 && !st.is_fit_mode {
                 st.zoom_factor = calculate_fit_zoom(&ui, decoded.width, decoded.height);
                 st.pan_x = 0.0;
@@ -3999,17 +4712,24 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let ui_weak = ui.as_weak();
         let state = state.clone();
-        ui.on_filter_changed_advanced(move |search_text, ratings_mask, aspect_filter, profile_filter, f_cropped, f_prof_mod| {
-            let Some(ui) = ui_weak.upgrade() else { return };
-            let mut st = lock_state(&state);
-            st.filter_search_text = search_text.to_string();
-            st.filter_ratings_mask = (ratings_mask & 63) as u8;
-            st.filter_aspect_ratio = aspect_filter.to_string();
-            st.filter_color_profile = profile_filter.to_string();
-            st.filter_is_cropped = f_cropped;
-            st.filter_is_profile_modified = f_prof_mod;
-            apply_tree_filter_and_populate(&ui, &mut st);
-        });
+        ui.on_filter_changed_advanced(
+            move |search_text,
+                  ratings_mask,
+                  aspect_filter,
+                  profile_filter,
+                  f_cropped,
+                  f_prof_mod| {
+                let Some(ui) = ui_weak.upgrade() else { return };
+                let mut st = lock_state(&state);
+                st.filter_search_text = search_text.to_string();
+                st.filter_ratings_mask = (ratings_mask & 63) as u8;
+                st.filter_aspect_ratio = aspect_filter.to_string();
+                st.filter_color_profile = profile_filter.to_string();
+                st.filter_is_cropped = f_cropped;
+                st.filter_is_profile_modified = f_prof_mod;
+                apply_tree_filter_and_populate(&ui, &mut st);
+            },
+        );
     }
     {
         let ui_weak = ui.as_weak();
@@ -4032,7 +4752,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // --- Keyboard shortcuts ---
     {
         let state = state.clone();
-        ui.on_get_action_for_shortcut(move |pressed| action_for_shortcut(&lock_state(&state).settings, &pressed).into());
+        ui.on_get_action_for_shortcut(move |pressed| {
+            action_for_shortcut(&lock_state(&state).settings, &pressed).into()
+        });
     }
     {
         let ui_weak = ui.as_weak();
@@ -4165,27 +4887,46 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_canvas_inspect_pixel(move |mx, my, vw, vh| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let st = lock_state(&state);
-            let Some(decoded) = st.current_decoded.clone() else { return };
+            let Some(decoded) = st.current_decoded.clone() else {
+                return;
+            };
 
             let hud_x = (mx + 22.0).clamp(8.0, (vw - 296.0).max(8.0));
             let hud_y = (my + 22.0).clamp(8.0, (vh - 126.0).max(8.0));
             ui.set_eyedropper_x(hud_x);
             ui.set_eyedropper_y(hud_y);
 
-            let Some((ix, iy)) = viewport_to_image_coords(mx, my, vw, vh, &st) else { return };
+            let Some((ix, iy)) = viewport_to_image_coords(mx, my, vw, vh, &st) else {
+                return;
+            };
             let idx = ((iy as usize * decoded.width as usize) + ix as usize) * 3;
             // Numbers: document values (what the file means in the active profile).
             // Swatch: the color actually shown on this monitor.
-            let doc: &[u8] = st.document_rgb.as_deref().map(|v| v.as_slice()).unwrap_or(&decoded.rgb_pixels);
-            let Some(px) = doc.get(idx..idx + 3) else { return };
+            let doc: &[u8] = st
+                .document_rgb
+                .as_deref()
+                .map(|v| v.as_slice())
+                .unwrap_or(&decoded.rgb_pixels);
+            let Some(px) = doc.get(idx..idx + 3) else {
+                return;
+            };
             let (r, g, b) = (px[0], px[1], px[2]);
-            let swatch = current_rendered_bytes(&st).and_then(|s| s.get(idx..idx + 3)).map(|s| (s[0], s[1], s[2])).unwrap_or((r, g, b));
+            let swatch = current_rendered_bytes(&st)
+                .and_then(|s| s.get(idx..idx + 3))
+                .map(|s| (s[0], s[1], s[2]))
+                .unwrap_or((r, g, b));
             let (h, s, l) = rgb_to_hsl(r, g, b);
             ui.set_eyedropper_color(Color::from_rgb_u8(swatch.0, swatch.1, swatch.2));
             ui.set_eyedropper_xy_text(format!("XY: ({}, {})", ix, iy).into());
             ui.set_eyedropper_rgb_text(format!("RGB: {:3}, {:3}, {:3}", r, g, b).into());
             ui.set_eyedropper_hsl_text(format!("HSL: {:3}°, {:3}%, {:3}%", h, s, l).into());
-            ui.set_status_eyedropper_text(format!("XY:({},{}) RGB:({},{},{}) HSL:({}°,{}%,{}%)", ix, iy, r, g, b, h, s, l).into());
+            ui.set_status_eyedropper_text(
+                format!(
+                    "XY:({},{}) RGB:({},{},{}) HSL:({}°,{}%,{}%)",
+                    ix, iy, r, g, b, h, s, l
+                )
+                .into(),
+            );
         });
     }
     {
@@ -4194,7 +4935,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_canvas_inspect_loupe(move |mx, my, vw, vh| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let st = lock_state(&state);
-            let Some(decoded) = st.current_decoded.clone() else { return };
+            let Some(decoded) = st.current_decoded.clone() else {
+                return;
+            };
 
             // Center the 332x356 loupe overlay over the cursor.
             let lx = (mx - 166.0).clamp(4.0, (vw - 336.0).max(4.0));
@@ -4211,29 +4954,47 @@ fn main() -> Result<(), slint::PlatformError> {
             // 4× the current on-screen magnification.
             let effective_mag = (z * 4.0).clamp(0.20, 128.0);
             let pixels = current_rendered_bytes(&st).unwrap_or(&decoded.rgb_pixels);
-            let (pw, ph, patch_rgba) = render_loupe_patch_rgba(center_x, center_y, effective_mag, decoded.width, decoded.height, pixels);
+            let (pw, ph, patch_rgba) = render_loupe_patch_rgba(
+                center_x,
+                center_y,
+                effective_mag,
+                decoded.width,
+                decoded.height,
+                pixels,
+            );
             ui.set_loupe_image(rgba_to_slint_image(pw, ph, &patch_rgba));
-            let ix = center_x.floor().clamp(0.0, decoded.width.saturating_sub(1) as f32) as u32;
-            let iy = center_y.floor().clamp(0.0, decoded.height.saturating_sub(1) as f32) as u32;
-            ui.set_loupe_badge_text(format!("4× ({:.0}%) [{}, {}]", st.zoom_factor * 400.0, ix, iy).into());
+            let ix = center_x
+                .floor()
+                .clamp(0.0, decoded.width.saturating_sub(1) as f32) as u32;
+            let iy = center_y
+                .floor()
+                .clamp(0.0, decoded.height.saturating_sub(1) as f32) as u32;
+            ui.set_loupe_badge_text(
+                format!("4× ({:.0}%) [{}, {}]", st.zoom_factor * 400.0, ix, iy).into(),
+            );
         });
     }
 
     // --- MCP server (stdio) ---
     let args: Vec<String> = std::env::args().collect();
-    let is_mcp_enabled = args.iter().any(|a| a == "--mcp" || a == "-mcp") || std::env::var("HORAMA_MCP").is_ok();
+    let is_mcp_enabled = args.iter().any(|a| a == "--mcp" || a == "-mcp")
+        || std::env::var("HORAMA_MCP").is_ok();
     let _mcp_timer = if is_mcp_enabled {
         let (mcp_tx, mcp_rx) = crossbeam_channel::unbounded::<McpCommand>();
         std::thread::spawn(move || run_mcp_stdio_server(mcp_tx));
         let timer = slint::Timer::default();
         let ui_weak = ui.as_weak();
         let state = state.clone();
-        timer.start(slint::TimerMode::Repeated, Duration::from_millis(20), move || {
-            let Some(ui) = ui_weak.upgrade() else { return };
-            while let Ok(cmd) = mcp_rx.try_recv() {
-                handle_mcp_command(&ui, &state, cmd);
-            }
-        });
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(20),
+            move || {
+                let Some(ui) = ui_weak.upgrade() else { return };
+                while let Ok(cmd) = mcp_rx.try_recv() {
+                    handle_mcp_command(&ui, &state, cmd);
+                }
+            },
+        );
         Some(timer)
     } else {
         None
@@ -4246,61 +5007,85 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let mut last_center: Option<(i32, i32)> = None;
         let mut ticks: u32 = 0;
-        timer.start(slint::TimerMode::Repeated, Duration::from_millis(500), move || {
-            let Some(ui) = ui_weak.upgrade() else { return };
-            let mut st = lock_state(&state);
-            ticks = ticks.wrapping_add(1);
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(500),
+            move || {
+                let Some(ui) = ui_weak.upgrade() else { return };
+                let mut st = lock_state(&state);
+                ticks = ticks.wrapping_add(1);
 
-            if sync_display_scale(&ui, &mut st) {
-                if let Some(dec) = st.current_decoded.clone() {
-                    if st.is_fit_mode && !st.lock_zoom {
-                        st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
-                        st.pan_x = 0.0;
-                        st.pan_y = 0.0;
+                if sync_display_scale(&ui, &mut st) {
+                    if let Some(dec) = st.current_decoded.clone() {
+                        if st.is_fit_mode && !st.lock_zoom {
+                            st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
+                            st.pan_x = 0.0;
+                            st.pan_y = 0.0;
+                        }
+                    }
+                    update_zoom_ui(&ui, &st);
+                }
+
+                // The monitor profile can differ between screens: re-detect it when the window moves.
+                let pos = ui.window().position();
+                let size = ui.window().size();
+                let center = (
+                    pos.x + size.width as i32 / 2,
+                    pos.y + size.height as i32 / 2,
+                );
+                if cfg!(target_os = "windows") && last_center != Some(center) {
+                    if st.color_manager.refresh_display_profile(Some(center)) {
+                        ui.set_status_file_text(
+                            format!(
+                                "Display profile: {}",
+                                st.color_manager.display_profile_name()
+                            )
+                            .into(),
+                        );
+                        request_render(&mut st, true, false);
+                        spawn_filmstrip_thumbnail_loader(&ui, &mut st);
                     }
                 }
-                update_zoom_ui(&ui, &st);
-            }
+                last_center = Some(center);
 
-            // The monitor profile can differ between screens: re-detect it when the window moves.
-            let pos = ui.window().position();
-            let size = ui.window().size();
-            let center = (pos.x + size.width as i32 / 2, pos.y + size.height as i32 / 2);
-            if cfg!(target_os = "windows") && last_center != Some(center) {
-                if st.color_manager.refresh_display_profile(Some(center)) {
-                    ui.set_status_file_text(format!("Display profile: {}", st.color_manager.display_profile_name()).into());
-                    request_render(&mut st, true, false);
-                    spawn_filmstrip_thumbnail_loader(&ui, &mut st);
+                // Window geometry is saved every 2 seconds at most.
+                if ticks % 4 == 0 {
+                    let before = (
+                        st.settings.window_maximized,
+                        st.settings.window_width,
+                        st.settings.window_height,
+                    );
+                    store_window_geometry(&ui, &mut st);
+                    if before
+                        != (
+                            st.settings.window_maximized,
+                            st.settings.window_width,
+                            st.settings.window_height,
+                        )
+                    {
+                        st.settings.save();
+                    }
                 }
-            }
-            last_center = Some(center);
-
-            // Window geometry is saved every 2 seconds at most.
-            if ticks % 4 == 0 {
-                let before = (st.settings.window_maximized, st.settings.window_width, st.settings.window_height);
-                store_window_geometry(&ui, &mut st);
-                if before != (st.settings.window_maximized, st.settings.window_width, st.settings.window_height) {
-                    st.settings.save();
-                }
-            }
-        });
+            },
+        );
         timer
     };
 
     {
         let ui_weak = ui.as_weak();
         let state = state.clone();
-        ui.window().on_close_requested(move || -> slint::CloseRequestResponse {
-            let count = lock_state(&state).edited_images.len();
-            if count > 0 {
-                if let Some(ui) = ui_weak.upgrade() {
-                    unsaved_edits_prompt(&ui, count);
+        ui.window()
+            .on_close_requested(move || -> slint::CloseRequestResponse {
+                let count = lock_state(&state).edited_images.len();
+                if count > 0 {
+                    if let Some(ui) = ui_weak.upgrade() {
+                        unsaved_edits_prompt(&ui, count);
+                    }
+                    slint::CloseRequestResponse::KeepWindowShown
+                } else {
+                    slint::CloseRequestResponse::HideWindow
                 }
-                slint::CloseRequestResponse::KeepWindowShown
-            } else {
-                slint::CloseRequestResponse::HideWindow
-            }
-        });
+            });
     }
 
     let res = ui.run();
@@ -4339,9 +5124,15 @@ mod tests {
         let cm = ColorManager::new();
         let srgb_bytes = cm.get_profile_bytes(PROFILE_SRGB, None);
         assert!(srgb_bytes.len() >= 128);
-        assert_eq!(extract_icc_description(&srgb_bytes).as_deref(), Some(PROFILE_SRGB));
+        assert_eq!(
+            extract_icc_description(&srgb_bytes).as_deref(),
+            Some(PROFILE_SRGB)
+        );
         let adobe_bytes = cm.get_profile_bytes(PROFILE_ADOBE_RGB, None);
-        assert_eq!(extract_icc_description(&adobe_bytes).as_deref(), Some(PROFILE_ADOBE_RGB));
+        assert_eq!(
+            extract_icc_description(&adobe_bytes).as_deref(),
+            Some(PROFILE_ADOBE_RGB)
+        );
         let test_px = vec![200u8, 100, 50, 50, 150, 220, 255, 255, 255, 128, 128, 128];
         let (out_srgb, _) = cm.apply_profile_with_info(&test_px, PROFILE_SRGB, None);
         assert_eq!(out_srgb.len(), test_px.len());
@@ -4351,13 +5142,15 @@ mod tests {
     fn test_automatic_assign_and_convert_pipeline() {
         let cm = ColorManager::new();
         let sample_rgb = vec![200u8, 80, 40, 50, 180, 220];
-        let (out_untagged, info_untagged) = cm.apply_profile_with_info(&sample_rgb, PROFILE_ADOBE_RGB, None);
+        let (out_untagged, info_untagged) =
+            cm.apply_profile_with_info(&sample_rgb, PROFILE_ADOBE_RGB, None);
         assert_eq!(out_untagged.len(), sample_rgb.len());
         assert!(!info_untagged.has_embedded);
         assert_eq!(info_untagged.source_name, PROFILE_ADOBE_RGB);
 
         let emb_bytes = cm.get_profile_bytes(PROFILE_ADOBE_RGB, None);
-        let (out_conv, info_conv) = cm.apply_profile_with_info(&sample_rgb, PROFILE_PROPHOTO, Some(&emb_bytes));
+        let (out_conv, info_conv) =
+            cm.apply_profile_with_info(&sample_rgb, PROFILE_PROPHOTO, Some(&emb_bytes));
         assert_eq!(out_conv.len(), sample_rgb.len());
         assert!(info_conv.has_embedded);
         assert!(info_conv.source_name.contains("→"));
@@ -4379,7 +5172,13 @@ mod tests {
 
     #[test]
     fn badge_roundtrip() {
-        for b in [Badge::None, Badge::Deleted, Badge::Renamed, Badge::New, Badge::Modified] {
+        for b in [
+            Badge::None,
+            Badge::Deleted,
+            Badge::Renamed,
+            Badge::New,
+            Badge::Modified,
+        ] {
             assert_eq!(Badge::from_kind(b.kind()), b);
         }
     }
@@ -4389,12 +5188,24 @@ mod tests {
         assert_eq!(validate_shortcut_combo("c"), (true, "C".to_string()));
         assert_eq!(validate_shortcut_combo("up"), (true, "Up".to_string()));
         assert_eq!(validate_shortcut_combo("F2"), (true, "F2".to_string()));
-        assert_eq!(validate_shortcut_combo("delete"), (true, "Delete".to_string()));
+        assert_eq!(
+            validate_shortcut_combo("delete"),
+            (true, "Delete".to_string())
+        );
         assert_eq!(validate_shortcut_combo("+"), (true, "+".to_string()));
         assert_eq!(validate_shortcut_combo("="), (true, "+".to_string()));
-        assert_eq!(validate_shortcut_combo("ctrl++"), (true, "Ctrl++".to_string()));
-        assert_eq!(validate_shortcut_combo("cmd+z"), (true, "Ctrl+Z".to_string()));
-        assert_eq!(validate_shortcut_combo("ctrl+shift+o"), (true, "Ctrl+Shift+O".to_string()));
+        assert_eq!(
+            validate_shortcut_combo("ctrl++"),
+            (true, "Ctrl++".to_string())
+        );
+        assert_eq!(
+            validate_shortcut_combo("cmd+z"),
+            (true, "Ctrl+Z".to_string())
+        );
+        assert_eq!(
+            validate_shortcut_combo("ctrl+shift+o"),
+            (true, "Ctrl+Shift+O".to_string())
+        );
         assert_eq!(validate_shortcut_combo(""), (true, "".to_string()));
         assert!(!validate_shortcut_combo("asdfgh").0);
         assert!(!validate_shortcut_combo("ctrl+").0);
@@ -4405,14 +5216,20 @@ mod tests {
     fn shortcut_lookup_is_deterministic_and_handles_control_codes() {
         let mut settings = AppSettings::default();
         settings.shortcuts.clear();
-        settings.shortcuts.insert("undo".to_string(), "Ctrl+Z".to_string());
-        settings.shortcuts.insert("next_image".to_string(), "Right".to_string());
+        settings
+            .shortcuts
+            .insert("undo".to_string(), "Ctrl+Z".to_string());
+        settings
+            .shortcuts
+            .insert("next_image".to_string(), "Right".to_string());
         assert_eq!(action_for_shortcut(&settings, "Ctrl+Z"), "undo");
         assert_eq!(action_for_shortcut(&settings, "Ctrl+\u{1a}"), "undo");
         assert_eq!(action_for_shortcut(&settings, "cmd+z"), "undo");
         assert_eq!(action_for_shortcut(&settings, "Right"), "next_image");
         assert_eq!(action_for_shortcut(&settings, "space"), "");
-        settings.shortcuts.insert("zoom_fit".to_string(), "Ctrl+0".to_string());
+        settings
+            .shortcuts
+            .insert("zoom_fit".to_string(), "Ctrl+0".to_string());
         assert_eq!(action_for_shortcut(&settings, "space"), "zoom_fit");
     }
 
@@ -4442,7 +5259,11 @@ mod tests {
                 desc: "Crop".into(),
             });
         }
-        let pixel = state.history_undo.iter().filter(|a| matches!(a, HistoryAction::ImageEdit { .. })).count();
+        let pixel = state
+            .history_undo
+            .iter()
+            .filter(|a| matches!(a, HistoryAction::ImageEdit { .. }))
+            .count();
         assert_eq!(pixel, MAX_PIXEL_HISTORY);
         state.edited_images.insert("a.jpg".into(), img);
         assert!(state.is_cropped("a.jpg"));
@@ -4462,10 +5283,18 @@ mod tests {
     fn test_aspect_ratio_filters() {
         let empty: Vec<String> = Vec::new();
         assert!(matches_aspect_ratio_filter(6000.0 / 4000.0, "3x2", &empty));
-        assert!(!matches_aspect_ratio_filter(6000.0 / 4000.0, "16x9", &empty));
+        assert!(!matches_aspect_ratio_filter(
+            6000.0 / 4000.0,
+            "16x9",
+            &empty
+        ));
         assert!(matches_aspect_ratio_filter(1920.0 / 1080.0, "16x9", &empty));
         assert!(matches_aspect_ratio_filter(1.0, "1x1", &empty));
-        assert!(matches_aspect_ratio_filter(2500.0 / 1200.0, "OTHER", &empty));
+        assert!(matches_aspect_ratio_filter(
+            2500.0 / 1200.0,
+            "OTHER",
+            &empty
+        ));
         let saved = vec!["18x9".to_string()];
         assert!(matches_aspect_ratio_filter(2.0, "18x9", &saved));
         assert!(!matches_aspect_ratio_filter(2.0, "OTHER", &saved));

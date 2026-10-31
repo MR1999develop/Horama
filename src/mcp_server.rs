@@ -1,7 +1,7 @@
-use std::io::{BufRead, Write};
 use crossbeam_channel::{bounded, Sender};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::io::{BufRead, Write};
 
 #[derive(Debug)]
 pub enum McpCommand {
@@ -251,7 +251,11 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
             Some(serde_json::to_string(&resp).unwrap())
         }
         "tools/call" => {
-            let tool_name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let tool_name = req
+                .params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let arguments = req.params.get("arguments").cloned().unwrap_or(json!({}));
 
             let tool_res: Result<Value, String> = match tool_name {
@@ -265,13 +269,19 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                             path: path.to_string(),
                             resp: resp_tx,
                         });
-                        resp_rx.recv_timeout(wait(120))
+                        resp_rx
+                            .recv_timeout(wait(120))
                             .map_err(|e| format!("Timeout or error: {}", e))
-                            .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
+                            .and_then(|res| {
+                                res.map(|msg| json!({ "status": "success", "message": msg }))
+                            })
                     }
                 }
                 "select_image" => {
-                    let filename = arguments.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                    let filename = arguments
+                        .get("filename")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     if filename.is_empty() {
                         Err("Missing 'filename' argument".to_string())
                     } else {
@@ -280,39 +290,63 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                             filename: filename.to_string(),
                             resp: resp_tx,
                         });
-                        resp_rx.recv_timeout(wait(30))
+                        resp_rx
+                            .recv_timeout(wait(30))
                             .map_err(|e| format!("Timeout or error: {}", e))
-                            .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
+                            .and_then(|res| {
+                                res.map(|msg| json!({ "status": "success", "message": msg }))
+                            })
                     }
                 }
                 "rotate_image" => {
-                    let dir = arguments.get("direction").and_then(|v| v.as_str()).unwrap_or("cw");
+                    let dir = arguments
+                        .get("direction")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("cw");
                     let (resp_tx, resp_rx) = bounded(1);
                     let _ = tx.send(McpCommand::RotateImage {
                         direction: dir.to_string(),
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(wait(30))
+                    resp_rx
+                        .recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
-                        .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
+                        .and_then(|res| {
+                            res.map(|msg| json!({ "status": "success", "message": msg }))
+                        })
                 }
                 "set_zoom" => {
-                    let mode = arguments.get("mode").and_then(|v| v.as_str()).unwrap_or("fit");
-                    let factor = arguments.get("factor").and_then(|v| v.as_f64()).map(|f| f as f32);
+                    let mode = arguments
+                        .get("mode")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("fit");
+                    let factor = arguments
+                        .get("factor")
+                        .and_then(|v| v.as_f64())
+                        .map(|f| f as f32);
                     let (resp_tx, resp_rx) = bounded(1);
                     let _ = tx.send(McpCommand::SetZoom {
                         mode: mode.to_string(),
                         factor,
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(wait(30))
+                    resp_rx
+                        .recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
-                        .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
+                        .and_then(|res| {
+                            res.map(|msg| json!({ "status": "success", "message": msg }))
+                        })
                 }
                 "set_rating" => {
-                    let rating = arguments.get("rating").and_then(|v| v.as_i64()).unwrap_or(-1);
+                    let rating = arguments
+                        .get("rating")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(-1);
                     if !(0..=5).contains(&rating) {
-                        return Some(tool_error_response(id, "'rating' must be an integer between 0 and 5"));
+                        return Some(tool_error_response(
+                            id,
+                            "'rating' must be an integer between 0 and 5",
+                        ));
                     }
                     let rating = rating as i32;
                     let (resp_tx, resp_rx) = bounded(1);
@@ -320,14 +354,26 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                         rating,
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(wait(30))
+                    resp_rx
+                        .recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
-                        .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
+                        .and_then(|res| {
+                            res.map(|msg| json!({ "status": "success", "message": msg }))
+                        })
                 }
                 "filter_images" => {
-                    let query = arguments.get("query").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let min_rating = arguments.get("min_rating").and_then(|v| v.as_i64()).map(|n| n as i32);
-                    let format = arguments.get("format").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let query = arguments
+                        .get("query")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let min_rating = arguments
+                        .get("min_rating")
+                        .and_then(|v| v.as_i64())
+                        .map(|n| n as i32);
+                    let format = arguments
+                        .get("format")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     let (resp_tx, resp_rx) = bounded(1);
                     let _ = tx.send(McpCommand::FilterImages {
                         query,
@@ -335,27 +381,30 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                         format,
                         resp: resp_tx,
                     });
-                    resp_rx.recv_timeout(wait(30))
+                    resp_rx
+                        .recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
-                        .and_then(|res| res.map(|msg| json!({ "status": "success", "message": msg })))
+                        .and_then(|res| {
+                            res.map(|msg| json!({ "status": "success", "message": msg }))
+                        })
                 }
                 "get_current_image_info" => {
                     let (resp_tx, resp_rx) = bounded(1);
-                    let _ = tx.send(McpCommand::GetCurrentImageInfo {
-                        resp: resp_tx,
-                    });
-                    resp_rx.recv_timeout(wait(30))
+                    let _ = tx.send(McpCommand::GetCurrentImageInfo { resp: resp_tx });
+                    resp_rx
+                        .recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
                         .and_then(|res| res)
                 }
                 "list_images" => {
                     let (resp_tx, resp_rx) = bounded(1);
-                    let _ = tx.send(McpCommand::ListImages {
-                        resp: resp_tx,
-                    });
-                    resp_rx.recv_timeout(wait(30))
+                    let _ = tx.send(McpCommand::ListImages { resp: resp_tx });
+                    resp_rx
+                        .recv_timeout(wait(30))
                         .map_err(|e| format!("Timeout or error: {}", e))
-                        .and_then(|res| res.map(|files| json!({ "count": files.len(), "files": files })))
+                        .and_then(|res| {
+                            res.map(|files| json!({ "count": files.len(), "files": files }))
+                        })
                 }
                 _ => Err(format!("Unknown tool: {}", tool_name)),
             };
@@ -447,7 +496,11 @@ mod tests {
     #[test]
     fn notifications_get_no_response() {
         let (tx, _rx) = bounded(1);
-        for m in ["notifications/initialized", "notifications/cancelled", "anything"] {
+        for m in [
+            "notifications/initialized",
+            "notifications/cancelled",
+            "anything",
+        ] {
             let req = format!(r#"{{"jsonrpc":"2.0","method":"{}","params":{{}}}}"#, m);
             assert!(handle_jsonrpc_request(&req, &tx).is_none(), "{}", m);
         }

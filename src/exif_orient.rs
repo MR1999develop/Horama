@@ -62,25 +62,49 @@ struct Endian {
 impl Endian {
     fn u16(&self, b: &[u8], at: usize) -> Option<u16> {
         let s: [u8; 2] = b.get(at..at + 2)?.try_into().ok()?;
-        Some(if self.le { u16::from_le_bytes(s) } else { u16::from_be_bytes(s) })
+        Some(if self.le {
+            u16::from_le_bytes(s)
+        } else {
+            u16::from_be_bytes(s)
+        })
     }
     fn u32(&self, b: &[u8], at: usize) -> Option<u32> {
         let s: [u8; 4] = b.get(at..at + 4)?.try_into().ok()?;
-        Some(if self.le { u32::from_le_bytes(s) } else { u32::from_be_bytes(s) })
+        Some(if self.le {
+            u32::from_le_bytes(s)
+        } else {
+            u32::from_be_bytes(s)
+        })
     }
     fn put_u16(&self, b: &mut [u8], at: usize, v: u16) {
-        let bytes = if self.le { v.to_le_bytes() } else { v.to_be_bytes() };
+        let bytes = if self.le {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
         b[at..at + 2].copy_from_slice(&bytes);
     }
     fn put_u32(&self, b: &mut [u8], at: usize, v: u32) {
-        let bytes = if self.le { v.to_le_bytes() } else { v.to_be_bytes() };
+        let bytes = if self.le {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
         b[at..at + 4].copy_from_slice(&bytes);
     }
     fn u16_bytes(&self, v: u16) -> [u8; 2] {
-        if self.le { v.to_le_bytes() } else { v.to_be_bytes() }
+        if self.le {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        }
     }
     fn u32_bytes(&self, v: u32) -> [u8; 4] {
-        if self.le { v.to_le_bytes() } else { v.to_be_bytes() }
+        if self.le {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        }
     }
 }
 
@@ -124,7 +148,11 @@ pub fn get_tiff_orientation(buf: &[u8], base: usize) -> Option<u16> {
 /// to `base`). If the tag exists as a single SHORT it is overwritten in place; otherwise a new
 /// copy of IFD0 containing the tag is appended at the end of `buf` and the header is redirected
 /// to it. Image data and every other offset remain untouched, so the change is lossless.
-pub fn set_tiff_orientation(buf: &mut Vec<u8>, base: usize, orientation: u16) -> Result<(), String> {
+pub fn set_tiff_orientation(
+    buf: &mut Vec<u8>,
+    base: usize,
+    orientation: u16,
+) -> Result<(), String> {
     if !(1..=8).contains(&orientation) {
         return Err(format!("Invalid orientation value {}", orientation));
     }
@@ -238,7 +266,10 @@ pub fn jpeg_header_segments(data: &[u8]) -> Result<Vec<JpegSegment>, String> {
             }
             _ => {
                 let len = u16::from_be_bytes(
-                    data.get(m + 1..m + 3).ok_or("JPEG truncated")?.try_into().unwrap(),
+                    data.get(m + 1..m + 3)
+                        .ok_or("JPEG truncated")?
+                        .try_into()
+                        .unwrap(),
                 ) as usize;
                 if len < 2 {
                     return Err("Invalid JPEG segment length".into());
@@ -262,8 +293,12 @@ fn find_exif_segment(data: &[u8], segs: &[JpegSegment]) -> Option<JpegSegment> {
 
 /// Reads the EXIF orientation of a JPEG file (1 when absent).
 pub fn get_jpeg_orientation(data: &[u8]) -> u16 {
-    let Ok(segs) = jpeg_header_segments(data) else { return 1 };
-    let Some(seg) = find_exif_segment(data, &segs) else { return 1 };
+    let Ok(segs) = jpeg_header_segments(data) else {
+        return 1;
+    };
+    let Some(seg) = find_exif_segment(data, &segs) else {
+        return 1;
+    };
     let tiff = &seg.contents(data)[EXIF_PREFIX.len()..];
     get_tiff_orientation(tiff, 0).unwrap_or(1)
 }
@@ -345,7 +380,10 @@ pub fn patch_xmp_orientation(xmp: &mut [u8], orientation: u16) -> bool {
             while j < xmp.len() && matches!(xmp[j], b' ' | b'=' | b'"' | b'\'' | b'>') {
                 j += 1;
             }
-            if j < xmp.len() && xmp[j].is_ascii_digit() && !xmp.get(j + 1).is_some_and(|c| c.is_ascii_digit()) {
+            if j < xmp.len()
+                && xmp[j].is_ascii_digit()
+                && !xmp.get(j + 1).is_some_and(|c| c.is_ascii_digit())
+            {
                 xmp[j] = digit;
                 changed = true;
             }
@@ -365,7 +403,9 @@ pub fn patch_all_xmp_packets(buf: &mut [u8], orientation: u16) -> bool {
     let mut pos = 0;
     while let Some(rel) = find(&buf[pos..], open) {
         let start = pos + rel;
-        let Some(rel_end) = find(&buf[start..], close) else { break };
+        let Some(rel_end) = find(&buf[start..], close) else {
+            break;
+        };
         let end = start + rel_end + close.len();
         changed |= patch_xmp_orientation(&mut buf[start..end], orientation);
         pos = end;
@@ -376,7 +416,6 @@ pub fn patch_all_xmp_packets(buf: &mut [u8], orientation: u16) -> bool {
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
-
 
 // ---------------------------------------------------------------------------
 // WebP / PNG containers
@@ -514,7 +553,8 @@ pub fn png_is_animated(data: &[u8]) -> bool {
     }
     let mut pos = 8;
     while pos + 8 <= data.len() {
-        let len = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        let len =
+            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
         let kind = &data[pos + 4..pos + 8];
         if kind == b"acTL" {
             return true;
@@ -555,8 +595,17 @@ mod tests {
                 }
                 let o2 = compose_rotation(o, k);
                 let got = crate::image_loader::apply_orientation(base.clone(), o2 as u32);
-                assert_eq!(got.to_rgb8().into_raw(), expected.to_rgb8().into_raw(), "o={} k={}", o, k);
-                assert_eq!((got.width(), got.height()), (expected.width(), expected.height()));
+                assert_eq!(
+                    got.to_rgb8().into_raw(),
+                    expected.to_rgb8().into_raw(),
+                    "o={} k={}",
+                    o,
+                    k
+                );
+                assert_eq!(
+                    (got.width(), got.height()),
+                    (expected.width(), expected.height())
+                );
             }
         }
     }
@@ -583,14 +632,22 @@ mod tests {
         assert_eq!(get_tiff_orientation(&b, 0), Some(8));
         let off = u32::from_be_bytes(b[4..8].try_into().unwrap()) as usize;
         assert_eq!(u16::from_be_bytes(b[off..off + 2].try_into().unwrap()), 2);
-        assert_eq!(&b[off + 2..off + 4], &0x010Fu16.to_be_bytes(), "entries must stay sorted");
+        assert_eq!(
+            &b[off + 2..off + 4],
+            &0x010Fu16.to_be_bytes(),
+            "entries must stay sorted"
+        );
     }
 
     #[test]
     fn jpeg_orientation_roundtrip_preserves_image_data() {
         let img = sample();
         let mut jpg = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg).unwrap();
+        img.write_to(
+            &mut std::io::Cursor::new(&mut jpg),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap();
         assert_eq!(get_jpeg_orientation(&jpg), 1);
         let rotated = set_jpeg_orientation(&jpg, 6).unwrap();
         assert_eq!(get_jpeg_orientation(&rotated), 6);

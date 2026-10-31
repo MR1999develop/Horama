@@ -180,7 +180,8 @@ impl AppSettings {
     pub fn set_rating(&mut self, path: &str, rating: u8) {
         let key = path_key(path);
         if !cfg!(windows) {
-            self.image_ratings.remove(&normalize_path(path).to_lowercase());
+            self.image_ratings
+                .remove(&normalize_path(path).to_lowercase());
         }
         if rating == 0 {
             self.image_ratings.remove(&key);
@@ -208,7 +209,11 @@ impl AppSettings {
 /// because Linux/macOS file names are case-sensitive.
 pub fn path_key(p: &str) -> String {
     let n = normalize_path(p);
-    if cfg!(windows) { n.to_lowercase() } else { n }
+    if cfg!(windows) {
+        n.to_lowercase()
+    } else {
+        n
+    }
 }
 
 /// True if two paths refer to the same file name (case-insensitive on Windows only).
@@ -221,13 +226,17 @@ pub const STANDARD_EXTENSIONS: &[&str] = &[
     "pbm", "pnm", "ico", "tga",
 ];
 pub const RAW_EXTENSIONS: &[&str] = &[
-    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raw", "pef", "raf",
-    "erf", "3fr", "fff", "iiq", "mrw", "mos", "x3f", "srw",
+    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raw", "pef",
+    "raf", "erf", "3fr", "fff", "iiq", "mrw", "mos", "x3f", "srw",
 ];
 
 /// All extensions accepted by the "Open" dialog (exactly the supported ones).
 pub fn dialog_extensions() -> Vec<&'static str> {
-    STANDARD_EXTENSIONS.iter().chain(RAW_EXTENSIONS.iter()).copied().collect()
+    STANDARD_EXTENSIONS
+        .iter()
+        .chain(RAW_EXTENSIONS.iter())
+        .copied()
+        .collect()
 }
 
 pub fn normalize_path(p: &str) -> String {
@@ -347,8 +356,7 @@ pub fn discover_subfolders(root_folder: &str, all_files: &[String]) -> Vec<Strin
         let mut curr = Path::new(f).parent();
         while let Some(p) = curr {
             let norm_p = normalize_path(&p.to_string_lossy());
-            if norm_p.to_lowercase() == norm_root.to_lowercase()
-                || norm_p.len() <= norm_root.len()
+            if norm_p.to_lowercase() == norm_root.to_lowercase() || norm_p.len() <= norm_root.len()
             {
                 break;
             }
@@ -436,13 +444,16 @@ mod tests {
             "C:\\Photos\\2025".to_string(),
         ];
         paths.sort_by(|a, b| compare_paths_hierarchical(root, a, b));
-        assert_eq!(paths, vec![
-            "C:\\Photos\\2024",
-            "C:\\Photos\\2024\\Vacation",
-            "C:\\Photos\\2024\\Vacation\\Beach",
-            "C:\\Photos\\2025",
-            "C:\\Photos\\2025\\Trip",
-        ]);
+        assert_eq!(
+            paths,
+            vec![
+                "C:\\Photos\\2024",
+                "C:\\Photos\\2024\\Vacation",
+                "C:\\Photos\\2024\\Vacation\\Beach",
+                "C:\\Photos\\2025",
+                "C:\\Photos\\2025\\Trip",
+            ]
+        );
     }
 
     #[test]
@@ -451,11 +462,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("sub")).unwrap();
         std::fs::create_dir_all(root.join(".cache")).unwrap();
-        for f in ["a.jpg", "sub/b.png", ".cache/c.jpg", "notes.txt", ".a.jpg.mrtmp-1"] {
+        for f in [
+            "a.jpg",
+            "sub/b.png",
+            ".cache/c.jpg",
+            "notes.txt",
+            ".a.jpg.mrtmp-1",
+        ] {
             std::fs::write(root.join(f), b"x").unwrap();
         }
         let (files, subs) = scan_folder_and_subfolders(&root.to_string_lossy());
-        let names: Vec<String> = files.iter().map(|f| Path::new(f).file_name().unwrap().to_string_lossy().to_string()).collect();
+        let names: Vec<String> = files
+            .iter()
+            .map(|f| {
+                Path::new(f)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
         assert_eq!(names, vec!["a.jpg".to_string(), "b.png".to_string()]);
         assert_eq!(subs.len(), 1);
         let _ = std::fs::remove_dir_all(&root);

@@ -149,7 +149,9 @@ pub fn extract_metadata(decoded: &DecodedImage) -> Vec<(String, String)> {
     // 3. RAW fallback: shooting data stored in the EXIF of the embedded preview JPEG.
     //    Only read when key fields are still missing (it means reading the file again).
     let has = |rows: &Vec<(String, String)>, k: &str| rows.iter().any(|(key, _)| key == k);
-    if decoded.is_raw && !(has(&rows, "Camera Model") && has(&rows, "ISO") && has(&rows, "Shutter Speed")) {
+    if decoded.is_raw
+        && !(has(&rows, "Camera Model") && has(&rows, "ISO") && has(&rows, "Shutter Speed"))
+    {
         if let Some(jpeg_bytes) = crate::cr3_parser::extract_largest_embedded_jpeg(path) {
             let mut cur = std::io::Cursor::new(jpeg_bytes);
             if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cur) {

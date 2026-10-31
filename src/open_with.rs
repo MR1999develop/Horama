@@ -12,6 +12,8 @@ pub struct OpenWithItem {
 
 #[cfg(target_os = "windows")]
 mod win_impl {
+    // Win32 structures keep their SDK names so they can be checked against the documentation.
+    #![allow(clippy::upper_case_acronyms)]
     use super::OpenWithItem;
     use std::ffi::c_void;
     use std::path::Path;

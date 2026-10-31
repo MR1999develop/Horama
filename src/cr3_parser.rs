@@ -16,10 +16,11 @@ pub fn is_cr3_file(path: &Path) -> bool {
     }
     if let Ok(mut f) = File::open(path) {
         let mut header = [0u8; 16];
-        if f.read_exact(&mut header).is_ok() {
-            if &header[4..8] == b"ftyp" && &header[8..12] == b"crx " {
-                return true;
-            }
+        if f.read_exact(&mut header).is_ok()
+            && &header[4..8] == b"ftyp"
+            && &header[8..12] == b"crx "
+        {
+            return true;
         }
     }
     false
@@ -275,7 +276,7 @@ pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
         }
         search_idx = start + 3;
     }
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, s, e) in found {
         if out.len() >= max {
             break;

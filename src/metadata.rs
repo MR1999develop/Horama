@@ -246,7 +246,9 @@ pub fn render_histogram_rgba(rgb_pixels: &[u8]) -> (u32, u32, Vec<u8>) {
         buf[idx + 2] = ((buf[idx + 2] as f32 * inv) + (cb as f32 * alpha)).clamp(0.0, 255.0) as u8;
     };
 
-    let channels: [(&[u32; 256], (u8, u8, u8), f32); 4] = [
+    // (bins, colour, fill opacity)
+    type Channel<'a> = (&'a [u32; 256], (u8, u8, u8), f32);
+    let channels: [Channel; 4] = [
         (&y_bins, (215, 215, 215), 0.18),
         (&r_bins, (255, 75, 75), 0.30),
         (&g_bins, (75, 235, 110), 0.28),

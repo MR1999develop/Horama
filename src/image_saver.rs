@@ -320,8 +320,7 @@ mod tests {
             .get_profile_bytes(crate::config::PROFILE_ADOBE_RGB, None);
         for ext in ["jpg", "png", "webp", "tif"] {
             let out = dir.join(format!("out.{}", ext));
-            save_image_with_icc(&out, 4, 8, &vec![50u8; 4 * 8 * 3], Some(&icc), Some(&exif))
-                .unwrap();
+            save_image_with_icc(&out, 4, 8, &[50u8; 4 * 8 * 3], Some(&icc), Some(&exif)).unwrap();
             let decoded = crate::image_loader::load_image(&out).unwrap();
             assert_eq!(
                 (decoded.width, decoded.height),

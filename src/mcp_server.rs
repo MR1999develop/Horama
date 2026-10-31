@@ -208,9 +208,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
     };
 
     // JSON-RPC notifications (no "id") must never receive a response.
-    let Some(id) = req.id.clone() else {
-        return None;
-    };
+    let id = req.id.clone()?;
     let wait = |secs: u64| std::time::Duration::from_secs(secs);
 
     match req.method.as_str() {

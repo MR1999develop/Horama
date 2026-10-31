@@ -160,7 +160,7 @@ fn load_dedup(
     struct Done<'a>(&'a Inflight, String);
     impl Drop for Done<'_> {
         fn drop(&mut self) {
-            let (lock, cvar) = &*self.0.as_ref();
+            let (lock, cvar) = self.0.as_ref();
             if let Ok(mut set) = lock.lock() {
                 set.remove(&self.1);
             }

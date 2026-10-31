@@ -57,6 +57,8 @@ pub fn get_system_display_icc_path(screen_point: Option<(i32, i32)>) -> Option<P
 
 #[cfg(target_os = "windows")]
 mod win_display {
+    // Win32 structures keep their SDK names so they can be checked against the documentation.
+    #![allow(clippy::upper_case_acronyms)]
     use std::ffi::c_void;
     use std::path::PathBuf;
 

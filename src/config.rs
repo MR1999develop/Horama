@@ -296,7 +296,7 @@ pub fn scan_folder_recursive(folder: &str) -> Vec<String> {
             files.push(normalize_path(&entry.path().to_string_lossy()));
         }
     }
-    files.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    files.sort_by_key(|a| a.to_lowercase());
     files
 }
 
@@ -421,7 +421,7 @@ pub fn scan_folder_and_subfolders(folder: &str) -> (Vec<String>, Vec<String>) {
         }
     }
 
-    files.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    files.sort_by_key(|a| a.to_lowercase());
 
     let mut sorted_subdirs: Vec<String> = subdirs.into_iter().collect();
     sorted_subdirs.sort_by(|a, b| compare_paths_hierarchical(&norm_root, a, b));

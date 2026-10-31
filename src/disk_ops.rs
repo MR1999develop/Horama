@@ -419,6 +419,8 @@ pub fn move_to_trash(path: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 mod imp {
+    // Win32 structures keep their SDK names so they can be checked against the documentation.
+    #![allow(clippy::upper_case_acronyms)]
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;

@@ -933,7 +933,7 @@ fn parse_aspect_ratio_str(s: &str) -> Option<f32> {
         return None;
     }
     if clean.contains('x') || clean.contains('X') {
-        let parts: Vec<&str> = clean.split(|c| c == 'x' || c == 'X').collect();
+        let parts: Vec<&str> = clean.split(['x', 'X']).collect();
         if parts.len() == 2 {
             if let (Ok(w), Ok(h)) = (
                 parts[0].trim().parse::<f32>(),
@@ -1168,7 +1168,7 @@ fn refresh_multi_selection_overview(ui: &AppWindow, state: &ViewerState) {
 
     let active_slots = if has_ellipsis { max_slots } else { show_count };
     let grid_cols = cols.min(active_slots);
-    let grid_rows = ((active_slots + cols - 1) / cols).max(1);
+    let grid_rows = active_slots.div_ceil(cols).max(1);
 
     let grid_w = grid_cols as f32 * eff_w + (grid_cols.saturating_sub(1)) as f32 * gap;
     let grid_h = grid_rows as f32 * eff_h + (grid_rows.saturating_sub(1)) as f32 * gap;
@@ -3020,10 +3020,10 @@ fn migrate_renamed_path(
         match action {
             HistoryAction::Rating { path, .. }
             | HistoryAction::Rotate { path, .. }
-            | HistoryAction::ImageEdit { path, .. } => {
-                if same_path(path, old_path) {
-                    *path = new_path.to_string();
-                }
+            | HistoryAction::ImageEdit { path, .. }
+                if same_path(path, old_path) =>
+            {
+                *path = new_path.to_string();
             }
             _ => {}
         }
@@ -3398,20 +3398,20 @@ fn enable_windows_dpi_awareness() {
         type SetProcessDpiAwarenessContextFn = unsafe extern "system" fn(isize) -> i32;
         type SetProcessDpiAwareFn = unsafe extern "system" fn() -> i32;
         extern "system" {
-            fn GetModuleHandleA(lpModuleName: *const u8) -> *mut std::ffi::c_void;
+            fn GetModuleHandleA(lpModuleName: *const std::ffi::c_char) -> *mut std::ffi::c_void;
             fn GetProcAddress(
                 hModule: *mut std::ffi::c_void,
-                lpProcName: *const u8,
+                lpProcName: *const std::ffi::c_char,
             ) -> *mut std::ffi::c_void;
         }
-        let user32 = GetModuleHandleA(b"user32.dll\0".as_ptr());
+        let user32 = GetModuleHandleA(c"user32.dll".as_ptr());
         if !user32.is_null() {
-            let set_ctx = GetProcAddress(user32, b"SetProcessDpiAwarenessContext\0".as_ptr());
+            let set_ctx = GetProcAddress(user32, c"SetProcessDpiAwarenessContext".as_ptr());
             if !set_ctx.is_null() {
                 let func: SetProcessDpiAwarenessContextFn = std::mem::transmute(set_ctx);
                 func(-4); // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
             } else {
-                let set_dpi = GetProcAddress(user32, b"SetProcessDPIAware\0".as_ptr());
+                let set_dpi = GetProcAddress(user32, c"SetProcessDPIAware".as_ptr());
                 if !set_dpi.is_null() {
                     let func: SetProcessDpiAwareFn = std::mem::transmute(set_dpi);
                     func();
@@ -5006,14 +5006,15 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_weak = ui.as_weak();
         let state = state.clone();
         let mut last_center: Option<(i32, i32)> = None;
-        let mut ticks: u32 = 0;
+        // Ticks since the window geometry was last saved.
+        let mut ticks_since_save: u32 = 0;
         timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(500),
             move || {
                 let Some(ui) = ui_weak.upgrade() else { return };
                 let mut st = lock_state(&state);
-                ticks = ticks.wrapping_add(1);
+                ticks_since_save += 1;
 
                 if sync_display_scale(&ui, &mut st) {
                     if let Some(dec) = st.current_decoded.clone() {
@@ -5033,23 +5034,25 @@ fn main() -> Result<(), slint::PlatformError> {
                     pos.x + size.width as i32 / 2,
                     pos.y + size.height as i32 / 2,
                 );
-                if cfg!(target_os = "windows") && last_center != Some(center) {
-                    if st.color_manager.refresh_display_profile(Some(center)) {
-                        ui.set_status_file_text(
-                            format!(
-                                "Display profile: {}",
-                                st.color_manager.display_profile_name()
-                            )
-                            .into(),
-                        );
-                        request_render(&mut st, true, false);
-                        spawn_filmstrip_thumbnail_loader(&ui, &mut st);
-                    }
+                if cfg!(target_os = "windows")
+                    && last_center != Some(center)
+                    && st.color_manager.refresh_display_profile(Some(center))
+                {
+                    ui.set_status_file_text(
+                        format!(
+                            "Display profile: {}",
+                            st.color_manager.display_profile_name()
+                        )
+                        .into(),
+                    );
+                    request_render(&mut st, true, false);
+                    spawn_filmstrip_thumbnail_loader(&ui, &mut st);
                 }
                 last_center = Some(center);
 
                 // Window geometry is saved every 2 seconds at most.
-                if ticks % 4 == 0 {
+                if ticks_since_save >= 4 {
+                    ticks_since_save = 0;
                     let before = (
                         st.settings.window_maximized,
                         st.settings.window_width,

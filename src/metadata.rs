@@ -169,11 +169,8 @@ pub fn render_histogram_rgba(rgb_pixels: &[u8]) -> (u32, u32, Vec<u8>) {
     let mut rgba = vec![0u8; (w * h * 4) as usize];
 
     // Background #141414
-    for px in rgba.chunks_exact_mut(4) {
-        px[0] = 0x14;
-        px[1] = 0x14;
-        px[2] = 0x14;
-        px[3] = 0xFF;
+    for px in rgba.as_chunks_mut::<4>().0 {
+        *px = [0x14, 0x14, 0x14, 0xFF];
     }
 
     // Subtle grid lines (#262626)

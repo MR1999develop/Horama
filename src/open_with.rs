@@ -257,8 +257,8 @@ mod win_impl {
         }
 
         // Convert BGRA to RGBA. Icons without an alpha channel (all alpha = 0) are opaque.
-        let has_alpha = buf.chunks_exact(4).any(|c| c[3] != 0);
-        for chunk in buf.chunks_exact_mut(4) {
+        let has_alpha = buf.as_chunks::<4>().0.iter().any(|c| c[3] != 0);
+        for chunk in buf.as_chunks_mut::<4>().0 {
             chunk.swap(0, 2);
             if !has_alpha {
                 chunk[3] = 255;

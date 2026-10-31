@@ -497,8 +497,8 @@ fn finish_thumbnail(
         rgb.into_raw()
     };
     let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for px in final_rgb.chunks_exact(3) {
-        rgba.extend_from_slice(&[px[0], px[1], px[2], 255]);
+    for [r, g, b] in final_rgb.as_chunks::<3>().0 {
+        rgba.extend_from_slice(&[*r, *g, *b, 255]);
     }
     (w, h, rgba)
 }

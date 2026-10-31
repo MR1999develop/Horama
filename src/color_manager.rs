@@ -351,8 +351,10 @@ pub fn extract_icc_description(icc_bytes: &[u8]) -> Option<String> {
                 if rec_off + rec_len <= tag.len() {
                     let utf16_bytes = &tag[rec_off..rec_off + rec_len];
                     let u16s: Vec<u16> = utf16_bytes
-                        .chunks_exact(2)
-                        .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|c| u16::from_be_bytes(*c))
                         .take_while(|&c| c != 0)
                         .collect();
                     if let Ok(s) = String::from_utf16(&u16s) {

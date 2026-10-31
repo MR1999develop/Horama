@@ -223,7 +223,7 @@ pub fn handle_jsonrpc_request(req_str: &str, tx: &Sender<McpCommand>) -> Option<
                     },
                     "serverInfo": {
                         "name": "horama",
-                        "version": "0.5.0"
+                        "version": env!("CARGO_PKG_VERSION")
                     }
                 })),
                 error: None,
@@ -489,6 +489,10 @@ mod tests {
         assert_eq!(val["id"], 1);
         assert_eq!(val["result"]["protocolVersion"], "2024-11-05");
         assert_eq!(val["result"]["serverInfo"]["name"], "horama");
+        assert_eq!(
+            val["result"]["serverInfo"]["version"],
+            env!("CARGO_PKG_VERSION")
+        );
     }
 
     #[test]

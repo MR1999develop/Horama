@@ -22,8 +22,8 @@ slint::include_modules!();
 use crate::cache_manager::{PreloadController, PreloadLoader};
 use crate::color_manager::{rgb_to_hsl, ColorManager, ColorTransformInfo};
 use crate::config::{
-    normalize_path, path_key, same_path, scan_folder_and_subfolders, AppSettings, BUILTIN_PROFILES,
-    DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED, PROFILE_LOAD_CUSTOM,
+    normalize_path, path_key, same_path, scan_folder_and_subfolders, AppSettings, APP_NAME,
+    BUILTIN_PROFILES, DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED, PROFILE_LOAD_CUSTOM,
 };
 use crate::disk_ops::DiskQueue;
 use crate::image_loader::{load_thumbnail_rgba, DecodedImage};
@@ -1583,6 +1583,7 @@ fn apply_display_result(ui: &AppWindow, state: &mut ViewerState, res: DisplayRes
     ui.set_image_pixel_width(decoded.width as i32);
     ui.set_image_pixel_height(decoded.height as i32);
     ui.set_has_image(true);
+    ui.set_current_file_name(file_name_of(&decoded.path).into());
     ui.set_current_image_is_cropped(state.is_cropped(&decoded.path));
 
     if !res.preserve_view && !state.lock_zoom {
@@ -3421,6 +3422,22 @@ fn enable_windows_dpi_awareness() {
     }
 }
 
+/// Operating system and architecture shown in the About dialog, e.g. "Windows 64-bit".
+fn platform_label() -> String {
+    let os = match std::env::consts::OS {
+        "windows" => "Windows",
+        "linux" => "Linux",
+        "macos" => "macOS",
+        other => other,
+    };
+    let bits = if cfg!(target_pointer_width = "64") {
+        "64-bit"
+    } else {
+        "32-bit"
+    };
+    format!("{} {}", os, bits)
+}
+
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|panic_info| {
         let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
@@ -3453,12 +3470,14 @@ fn install_panic_hook() {
             return;
         }
         let msg = format!(
-            "Horama encountered an unhandled error and needs to close.\n\n\
+            "{app} encountered an unhandled error and needs to close.\n\n\
              Error Details:\n{}\n\n{}\n\n\
              If this error persists, please check your files or settings.",
-            payload, location
+            payload,
+            location,
+            app = APP_NAME
         );
-        show_fatal_error_dialog("Horama - Application Error", &msg);
+        show_fatal_error_dialog(&format!("{} - Application Error", APP_NAME), &msg);
     }));
 }
 
@@ -3700,6 +3719,9 @@ fn main() -> Result<(), slint::PlatformError> {
         let mut st = lock_state(&state);
         st.ui_weak = Some(ui.as_weak());
         st.self_weak = Some(Arc::downgrade(&state));
+        ui.set_app_name(APP_NAME.into());
+        ui.set_app_version(env!("CARGO_PKG_VERSION").into());
+        ui.set_platform_label(platform_label().into());
         st.display_scale = ui.window().scale_factor().max(0.25);
         ui.set_display_scale(st.display_scale);
         rebuild_profile_combobox_list(&ui, &st);
@@ -4978,6 +5000,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // --- MCP server (stdio) ---
     let args: Vec<String> = std::env::args().collect();
     let is_mcp_enabled = args.iter().any(|a| a == "--mcp" || a == "-mcp")
+        || std::env::var("HORAMA_MCP").is_ok()
+        // Name used before the program was renamed; still accepted.
         || std::env::var("HORAMA_MCP").is_ok();
     let _mcp_timer = if is_mcp_enabled {
         let (mcp_tx, mcp_rx) = crossbeam_channel::unbounded::<McpCommand>();
@@ -5103,8 +5127,8 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     if let Err(ref e) = res {
-        let msg = format!("Horama encountered a UI runtime error:\n\n{}", e);
-        show_fatal_error_dialog("Horama - Runtime Error", &msg);
+        let msg = format!("{} encountered a UI runtime error:\n\n{}", APP_NAME, e);
+        show_fatal_error_dialog(&format!("{} - Runtime Error", APP_NAME), &msg);
     }
     res
 }
@@ -5171,6 +5195,17 @@ mod tests {
         let (pw, ph, rgba) = render_loupe_patch_rgba(8.0, 8.0, 4.0, 16, 16, &rgb);
         assert_eq!((pw, ph), (320, 320));
         assert_eq!(rgba.len(), 320 * 320 * 4);
+    }
+
+    #[test]
+    fn platform_label_names_the_os_and_word_size() {
+        let label = platform_label();
+        assert!(
+            label.ends_with("64-bit") || label.ends_with("32-bit"),
+            "{}",
+            label
+        );
+        assert!(!label.starts_with(' '));
     }
 
     #[test]

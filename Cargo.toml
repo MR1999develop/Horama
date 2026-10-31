@@ -3,7 +3,7 @@ name = "horama"
 version = "0.5.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-description = "Horama - High-performance color-managed RAW & Image Viewer built with Rust and Slint"
+description = "Horama - color-managed RAW and image viewer built with Rust and Slint"
 authors = ["Horama Contributors"]
 
 [dependencies]

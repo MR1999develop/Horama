@@ -5,7 +5,7 @@
 [![Slint UI](https://img.shields.io/badge/GUI-Slint%20v1.9-purple.svg)](https://slint.dev/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
-**Horama** è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** e **Slint UI**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
+**Horama** (dal greco ὅραμα, "ciò che si vede"; in precedenza *Horama*) è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** e **Slint UI**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
 
 ---
 
@@ -67,6 +67,8 @@ horama.exe --mcp
 ```
 *(Vedi [`mcp_client_config.json`](mcp_client_config.json) per la configurazione con Claude Desktop: sostituire `C:\\path\\to\\horama.exe` con il percorso reale dell'eseguibile, ad es. `...\\target\\release\\horama.exe`).*
 
+In alternativa al flag si può impostare la variabile d'ambiente `HORAMA_MCP` (è ancora accettata la vecchia `HORAMA_MCP`).
+
 Strumenti MCP disponibili: `open_folder`, `select_image`, `rotate_image` (rotazione lossless come sopra), `set_zoom`, `set_rating` (0–5), `filter_images` (testo, valutazione minima, formato `JPG`/`PNG`/`TIFF`/`WEBP`/`RAW`), `get_current_image_info`, `list_images`.
 
 ---
@@ -91,6 +93,12 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 | **Apri Cartella...** | `Ctrl+Shift+O` |
 | **Salva / Esporta...** | `Ctrl+S` |
 | **Valutazione (Rating)**| Tasti numerici `0` - `5` |
+
+---
+
+## Aggiornamento da Horama
+
+Al primo avvio Horama copia le impostazioni della versione precedente (valutazioni, cartelle recenti, scorciatoie, dimensioni della finestra) dalla cartella `Horama` alla cartella `Horama` nelle impostazioni dell'utente (`%APPDATA%` su Windows, `~/.config` su Linux). I file vecchi restano dove sono. Nella configurazione MCP di Claude Desktop vanno aggiornati il nome del server (`horama`) e il percorso dell'eseguibile.
 
 ---
 

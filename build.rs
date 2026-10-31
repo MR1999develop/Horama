@@ -9,7 +9,7 @@ fn main() {
             res.set("ProductName", "Horama");
             res.set(
                 "FileDescription",
-                "Horama - Color-Managed RAW & Image Viewer",
+                "Horama - Color-Managed RAW and Image Viewer",
             );
             let _ = res.compile();
         }

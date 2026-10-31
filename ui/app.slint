@@ -218,7 +218,13 @@ component Win10CheckBox inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    title: "Horama v0.5.0 - Color-Managed RAW & Image Viewer";
+    // Program name, version and platform come from Rust (Cargo.toml is the single source).
+    in property <string> app-name;
+    in property <string> app-version;
+    in property <string> platform-label;
+    // File name of the image on the canvas, used in the window title ("photo.jpg — Horama").
+    in property <string> current-file-name;
+    title: root.has-image && root.current-file-name != "" ? root.current-file-name + " — " + root.app-name : root.app-name;
     icon: @image-url("../assets/icon.png");
     preferred-width: 1440px;
     preferred-height: 900px;
@@ -4764,7 +4770,7 @@ export component AppWindow inherits Window {
                             colorize: #CCCCCC;
                             y: (parent.height - self.height) / 2.0;
                         }
-                        Text { horizontal-stretch: 1; text: "About Horama..."; color: #FFFFFF; font-size: 13px; vertical-alignment: center; }
+                        Text { horizontal-stretch: 1; text: "About " + root.app-name + "…"; color: #FFFFFF; font-size: 13px; vertical-alignment: center; }
                     }
                     h-abt-touch := TouchArea {
                         clicked => {
@@ -5525,13 +5531,13 @@ export component AppWindow inherits Window {
                         VerticalLayout {
                             spacing: 4px;
                             Text {
-                                text: "Horama";
+                                text: root.app-name;
                                 color: #FFFFFF;
                                 font-size: 20px;
                                 font-weight: 700;
                             }
                             Text {
-                                text: "Version 0.5.0 (Windows 64-bit)";
+                                text: "Version " + root.app-version + " (" + root.platform-label + ")";
                                 color: #A0A0A0;
                                 font-size: 13px;
                             }

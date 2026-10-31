@@ -208,7 +208,7 @@ fn hash_bytes(b: &[u8]) -> u64 {
     h.finish()
 }
 
-/// Generate a valid ICC v2.4 RGB matrix/TRC profile in bytes (matching Horama).
+/// Generate a valid ICC v2.4 RGB matrix/TRC profile in bytes (as written by Horama).
 pub fn make_matrix_trc_icc(
     desc_name: &str,
     r_xyz: (f64, f64, f64),

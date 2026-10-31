@@ -1965,6 +1965,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "horama"
+version = "0.5.0"
+dependencies = [
+ "crossbeam-channel",
+ "dirs",
+ "image",
+ "imagepipe",
+ "imagesize",
+ "img-parts",
+ "kamadak-exif",
+ "notify",
+ "qcms",
+ "rawloader",
+ "rayon",
+ "rfd",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "sysinfo",
+ "tiff 0.9.1",
+ "walkdir",
+ "winres",
+]
+
+[[package]]
 name = "htmlparser"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3106,32 +3132,6 @@ checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
 dependencies = [
  "num-traits",
  "pxfm",
-]
-
-[[package]]
-name = "horama"
-version = "0.5.0"
-dependencies = [
- "crossbeam-channel",
- "dirs",
- "image",
- "imagepipe",
- "imagesize",
- "img-parts",
- "kamadak-exif",
- "notify",
- "qcms",
- "rawloader",
- "rayon",
- "rfd",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "sysinfo",
- "tiff 0.9.1",
- "walkdir",
- "winres",
 ]
 
 [[package]]

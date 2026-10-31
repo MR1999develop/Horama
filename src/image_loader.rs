@@ -315,6 +315,59 @@ fn decode_bytes(bytes: &[u8]) -> Option<DynamicImage> {
         .ok()
 }
 
+/// Largest sensor developed from raw data (pixels). Today's largest cameras have about 150 MP;
+/// anything far above is a corrupt or hostile header.
+const MAX_RAW_PIXELS: u64 = 200_000_000;
+/// Peak memory of rawloader + imagepipe per sensor pixel: 16-bit raw data plus two `f32`
+/// working buffers of up to 4 channels alive at the same time, plus the 8-bit output.
+const RAW_DEVELOP_BYTES_PER_PIXEL: u64 = 2 + 2 * 4 * 4 + 3;
+
+/// Only one RAW is developed at a time, so parallel preloads cannot add up their peaks.
+static RAW_DEVELOP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Reads only the RAW headers and refuses sensors that are implausibly large or would not fit
+/// in the free memory. A failed allocation aborts the whole program (it is not a panic that
+/// `catch_unwind` could stop), so the check must happen before decoding.
+fn check_raw_develop_size(path: &Path) -> Result<(), String> {
+    let file = File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+    let header = rawloader::decode_dummy(&mut BufReader::new(file))
+        .map_err(|e| format!("Failed to decode RAW file '{}': {}", path.display(), e))?;
+    let free = {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        sys.available_memory()
+    };
+    raw_develop_size_ok(header.width as u64, header.height as u64, free)
+}
+
+/// `free_bytes == 0` means "unknown" (no memory check, only the pixel limit).
+fn raw_develop_size_ok(width: u64, height: u64, free_bytes: u64) -> Result<(), String> {
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let pixels = width.saturating_mul(height);
+    if pixels == 0 {
+        return Err("RAW file declares an empty image".to_string());
+    }
+    if pixels > MAX_RAW_PIXELS {
+        return Err(format!(
+            "RAW sensor of {}×{} pixels ({} MP) exceeds the supported {} MP; the file is probably damaged",
+            width,
+            height,
+            pixels / 1_000_000,
+            MAX_RAW_PIXELS / 1_000_000
+        ));
+    }
+    let needed = pixels.saturating_mul(RAW_DEVELOP_BYTES_PER_PIXEL);
+    if free_bytes > 0 && needed > free_bytes {
+        return Err(format!(
+            "Not enough free memory to develop this RAW: about {:.1} GB needed, {:.1} GB free. \
+             Close other programs and try again",
+            needed as f64 / GB,
+            free_bytes as f64 / GB
+        ));
+    }
+    Ok(())
+}
+
 /// Decode a Camera RAW file using the embedded full-size preview or pure-Rust rawloader + imagepipe.
 fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String> {
     let ext = path
@@ -356,7 +409,10 @@ fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String>
         });
     }
 
-    // 2. Full sensor demosaicing via rawloader + imagepipe.
+    // 2. Full sensor demosaicing via rawloader + imagepipe: size checked before any large
+    // allocation, one at a time (each needs several GB for a large sensor).
+    check_raw_develop_size(path)?;
+    let _one_at_a_time = RAW_DEVELOP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let raw_image = rawloader::decode_file(path)
         .map_err(|e| format!("Failed to decode RAW file '{}': {}", path.display(), e))?;
     let sensor_bits = raw_image
@@ -623,6 +679,23 @@ pub fn probe_dimensions(path: &Path) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_develop_limits() {
+        const GB: u64 = 1024 * 1024 * 1024;
+        // 45 MP camera with plenty of memory.
+        assert!(raw_develop_size_ok(8192, 5464, 16 * GB).is_ok());
+        // Same file on a machine with 1 GB free: refused with a clear reason.
+        let e = raw_develop_size_ok(8192, 5464, GB).unwrap_err();
+        assert!(e.contains("Not enough free memory"), "{}", e);
+        // Unknown free memory: only the pixel limit applies.
+        assert!(raw_develop_size_ok(8192, 5464, 0).is_ok());
+        // Corrupt header: far beyond any sensor.
+        let e = raw_develop_size_ok(40_000, 40_000, 1024 * GB).unwrap_err();
+        assert!(e.contains("exceeds the supported"), "{}", e);
+        assert!(raw_develop_size_ok(0, 4000, 16 * GB).is_err());
+        assert!(raw_develop_size_ok(u64::MAX, u64::MAX, 16 * GB).is_err());
+    }
 
     fn sample(width: u32, height: u32, rgb_pixels: Vec<u8>) -> DecodedImage {
         DecodedImage {

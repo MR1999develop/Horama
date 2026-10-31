@@ -64,7 +64,7 @@ impl FolderWatcher {
                     let _ = raw_tx.send(ev);
                 }
             },
-            Config,
+            Config::default(),
         )
         .map_err(|e| format!("Failed to create filesystem watcher: {}", e))?;
 

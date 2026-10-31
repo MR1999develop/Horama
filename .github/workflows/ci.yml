@@ -30,15 +30,18 @@ jobs:
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run Cargo Check
-        run: cargo check --verbose
+      # The same single command used locally before every merge.
+      - name: Run all checks (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: scripts\check.bat
 
-      - name: Run Cargo Tests
-        run: cargo test --verbose
-
-      - name: Build Release Binary
-        run: cargo build --release --verbose
+      - name: Run all checks (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: scripts/check.sh

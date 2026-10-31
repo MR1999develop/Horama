@@ -1,0 +1,4 @@
+# Formatting-only commits, ignored by git blame:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# tidy: apply rustfmt to the whole code base
+e7697b3ee71d0e8827a9e7cc87ea322ed8501311

@@ -13,6 +13,7 @@ mod logging;
 mod mcp_server;
 mod metadata;
 mod open_with;
+mod pyramid;
 mod rename;
 
 use mcp_server::{run_mcp_stdio_server, McpCommand};
@@ -341,6 +342,10 @@ struct ViewerState {
     current_decoded: Option<Arc<DecodedImage>>,
     /// Pixels currently on screen (monitor color space); shared with the Slint image.
     rendered: Option<SharedPixelBuffer<Rgb8Pixel>>,
+    /// `rendered` and its reduced copies; the canvas shows the level that fits the zoom.
+    pyramid: Option<crate::pyramid::Pyramid>,
+    /// Pyramid level currently given to the canvas (`usize::MAX` = none yet).
+    shown_level: std::cell::Cell<usize>,
     /// Pixel values in the document color space (Convert mode); `None` = source pixels.
     document_rgb: Option<Arc<Vec<u8>>>,
     /// Incremented for every display request; stale background results are discarded.
@@ -465,6 +470,8 @@ impl ViewerState {
             display_probe_running: false,
             current_decoded: None,
             rendered: None,
+            pyramid: None,
+            shown_level: std::cell::Cell::new(usize::MAX),
             document_rgb: None,
             load_request_id: 0,
             scan_generation: 0,
@@ -884,10 +891,22 @@ fn update_cache_status_ui(ui: &AppWindow, state: &ViewerState) {
 }
 
 fn update_zoom_ui(ui: &AppWindow, state: &ViewerState) {
+    show_pyramid_level_for_zoom(ui, state);
     ui.set_zoom_factor(state.zoom_factor);
     ui.set_pan_x(state.pan_x);
     ui.set_pan_y(state.pan_y);
     ui.set_zoom_text(format!("{:.0}%", state.zoom_factor * 100.0).into());
+}
+
+/// Gives the canvas the pyramid level that fits the current zoom, if it is not shown already.
+/// The canvas element keeps the full image size, so only the pixel source changes.
+fn show_pyramid_level_for_zoom(ui: &AppWindow, state: &ViewerState) {
+    let Some(pyr) = &state.pyramid else { return };
+    let level = pyr.level_for_zoom(state.zoom_factor);
+    if state.shown_level.get() != level {
+        state.shown_level.set(level);
+        ui.set_current_image(Image::from_rgb8(pyr.level(level).clone()));
+    }
 }
 
 fn handle_filmstrip_click(
@@ -1471,6 +1490,7 @@ struct DisplayResult {
     profile: String,
     lock_insert: bool,
     rendered: SharedPixelBuffer<Rgb8Pixel>,
+    pyramid: crate::pyramid::Pyramid,
     document: Option<Vec<u8>>,
     info: ColorTransformInfo,
     histogram: SharedPixelBuffer<Rgba8Pixel>,
@@ -1513,6 +1533,7 @@ fn compute_display(
     let mut rendered = SharedPixelBuffer::<Rgb8Pixel>::new(decoded.width, decoded.height);
     rendered.make_mut_bytes().copy_from_slice(&r.display);
     drop(r.display);
+    let pyramid = crate::pyramid::Pyramid::build(rendered.clone());
     // The histogram describes the document values, not the monitor-specific display values.
     let (hw, hh, hist_rgba) =
         render_histogram_rgba(r.document.as_deref().unwrap_or(&decoded.rgb_pixels));
@@ -1525,6 +1546,7 @@ fn compute_display(
         profile,
         lock_insert,
         rendered,
+        pyramid,
         document: r.document,
         info: r.info,
         histogram,
@@ -1582,10 +1604,11 @@ fn apply_display_result(ui: &AppWindow, state: &mut ViewerState, res: DisplayRes
     ui.set_current_profile(res.profile.clone().into());
     state.current_decoded = Some(decoded.clone());
     state.document_rgb = res.document.map(Arc::new);
-    state.rendered = Some(res.rendered.clone());
+    state.rendered = Some(res.rendered);
+    state.pyramid = Some(res.pyramid);
+    state.shown_level.set(usize::MAX); // new picture: the canvas image is always replaced
 
     sync_display_scale(ui, state);
-    ui.set_current_image(Image::from_rgb8(res.rendered));
     ui.set_image_pixel_width(decoded.width as i32);
     ui.set_image_pixel_height(decoded.height as i32);
     ui.set_has_image(true);
@@ -1763,6 +1786,7 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
             state.current_decoded = Some(rotated);
             // Pixels on screen belong to the previous version until the new render arrives.
             state.rendered = None;
+            state.pyramid = None;
             state.document_rgb = None;
             request_render(state, false, true);
         }
@@ -1922,6 +1946,7 @@ fn apply_crop(ui: &AppWindow, state: &mut ViewerState) {
     state.current_decoded = Some(new_arc.clone());
     // Pixels on screen belong to the previous version until the new render arrives.
     state.rendered = None;
+    state.pyramid = None;
     state.document_rgb = None;
     ui.set_current_image_is_cropped(true);
     refresh_thumbnail_from_memory(ui, state, &path, &new_arc);
@@ -1965,6 +1990,7 @@ fn restore_edit_state(
         state.current_decoded = Some(image.clone());
         // Pixels on screen belong to the previous version until the new render arrives.
         state.rendered = None;
+        state.pyramid = None;
         state.document_rgb = None;
         request_render(state, true, true);
     }
@@ -2244,6 +2270,7 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
     }
     if !same_image_as_before {
         state.rendered = None;
+        state.pyramid = None;
         state.document_rgb = None;
     }
 
@@ -3412,6 +3439,7 @@ fn remove_files_from_view(ui: &AppWindow, st: &mut ViewerState, removed: &[Strin
     if st.visible_files.is_empty() {
         st.current_decoded = None;
         st.rendered = None;
+        st.pyramid = None;
         st.document_rgb = None;
         st.load_request_id += 1;
         ui.set_has_image(false);

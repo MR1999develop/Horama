@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod browse;
 mod cache_manager;
 mod color_manager;
 mod config;
@@ -22,6 +23,9 @@ use serde_json::{json, Value};
 
 slint::include_modules!();
 
+use crate::browse::{
+    dir_prefix_key, file_name_of, parse_aspect_ratio_str, ClickMods, FileFacts, Filters,
+};
 use crate::cache_manager::{PreloadController, PreloadLoader};
 use crate::color_manager::{rgb_to_hsl, ColorManager, ColorTransformInfo};
 use crate::config::{
@@ -550,24 +554,6 @@ fn weak_handles(state: &ViewerState) -> Option<(slint::Weak<AppWindow>, Weak<Mut
     Some((state.ui_weak.clone()?, state.self_weak.clone()?))
 }
 
-/// Comparison key for "is inside this folder" checks (`normalize_path` drops trailing
-/// separators, so the separator is appended after normalizing).
-fn dir_prefix_key(dir: &str) -> String {
-    let k = path_key(dir);
-    if k.ends_with(std::path::MAIN_SEPARATOR) {
-        k // drive root such as "C:\"
-    } else {
-        format!("{}{}", k, std::path::MAIN_SEPARATOR)
-    }
-}
-
-fn file_name_of(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.to_string())
-}
-
 pub fn validate_shortcut_combo(input: &str) -> (bool, String) {
     let raw = input.trim();
     if raw.is_empty() {
@@ -928,115 +914,24 @@ fn handle_filmstrip_click(
     is_ctrl: bool,
     is_shift: bool,
 ) {
-    let num_items = state.visible_files.len();
-    if idx >= num_items {
-        return;
+    let mods = ClickMods {
+        toggle: is_ctrl,
+        range: is_shift,
+    };
+    let len = state.visible_files.len();
+    let current = state.current_index;
+    let show = crate::browse::apply_click(
+        &mut state.selected_indices,
+        &mut state.selection_anchor,
+        current,
+        idx,
+        len,
+        mods,
+    );
+    if let Some(i) = show {
+        select_image_by_index(ui, state, i);
     }
-
-    if is_shift {
-        let anchor = state.selection_anchor.or(state.current_index).unwrap_or(0);
-        let start = anchor.min(idx);
-        let end = anchor.max(idx);
-        if !is_ctrl {
-            state.selected_indices.clear();
-        }
-        for i in start..=end {
-            state.selected_indices.insert(i);
-        }
-        select_image_by_index(ui, state, idx);
-    } else if is_ctrl {
-        if state.selected_indices.contains(&idx) {
-            if state.selected_indices.len() > 1 {
-                state.selected_indices.remove(&idx);
-            }
-        } else {
-            state.selected_indices.insert(idx);
-            state.selection_anchor = Some(idx);
-            select_image_by_index(ui, state, idx);
-        }
-    } else {
-        state.selected_indices.clear();
-        state.selected_indices.insert(idx);
-        state.selection_anchor = Some(idx);
-        select_image_by_index(ui, state, idx);
-    }
-
     sync_filmstrip_selection_ui(ui, state);
-}
-
-fn parse_aspect_ratio_str(s: &str) -> Option<f32> {
-    let clean = s.trim();
-    // Task 2: Strictly require 'x' / 'X' between two numbers, reject ':' and '/'
-    if clean.is_empty() || clean.contains(':') || clean.contains('/') {
-        return None;
-    }
-    if clean.contains('x') || clean.contains('X') {
-        let parts: Vec<&str> = clean.split(['x', 'X']).collect();
-        if parts.len() == 2 {
-            if let (Ok(w), Ok(h)) = (
-                parts[0].trim().parse::<f32>(),
-                parts[1].trim().parse::<f32>(),
-            ) {
-                if w > 0.0 && h > 0.0 {
-                    return Some(w.max(h) / w.min(h));
-                }
-            }
-        }
-    }
-    None
-}
-
-fn ratio_matches_target(ratio: f32, target: f32) -> bool {
-    let min_r = ratio.min(target);
-    let max_r = ratio.max(target);
-    if max_r <= 0.0 {
-        return false;
-    }
-    (min_r / max_r) >= 0.99
-}
-
-fn matches_aspect_ratio_filter(ratio: f32, filter: &str, saved_customs: &[String]) -> bool {
-    let standard_targets = [
-        ("1x1", 1.0f32),
-        ("3x2", 1.50f32),
-        ("4x3", 4.0f32 / 3.0f32),
-        ("5x4", 1.25f32),
-        ("16x9", 16.0f32 / 9.0f32),
-        ("21x9", 21.0f32 / 9.0f32),
-        ("65x24", 65.0f32 / 24.0f32),
-    ];
-
-    match filter {
-        "ALL" | "" => true,
-        "1x1" | "1:1" => ratio_matches_target(ratio, 1.0),
-        "3x2" | "3:2" => ratio_matches_target(ratio, 1.50),
-        "4x3" | "4:3" => ratio_matches_target(ratio, 4.0 / 3.0),
-        "5x4" | "5:4" => ratio_matches_target(ratio, 1.25),
-        "16x9" | "16:9" => ratio_matches_target(ratio, 16.0 / 9.0),
-        "21x9" | "21:9" => ratio_matches_target(ratio, 21.0 / 9.0),
-        "65x24" | "65:24" => ratio_matches_target(ratio, 65.0 / 24.0),
-        "CUSTOM" | "OTHER" => {
-            let matches_any_standard = standard_targets
-                .iter()
-                .any(|(_, t)| ratio_matches_target(ratio, *t));
-            if matches_any_standard {
-                return false;
-            }
-            let matches_any_saved = saved_customs.iter().any(|s| {
-                parse_aspect_ratio_str(s)
-                    .map(|t| ratio_matches_target(ratio, t))
-                    .unwrap_or(false)
-            });
-            !matches_any_saved
-        }
-        saved_str => {
-            if let Some(target) = parse_aspect_ratio_str(saved_str) {
-                ratio_matches_target(ratio, target)
-            } else {
-                true
-            }
-        }
-    }
 }
 
 /// Render a 320x320 RGBA8 buffer for the Middle-Click Magnifier Loupe at 4x current zoom.
@@ -2341,6 +2236,27 @@ fn get_image_aspect_ratio_norm(state: &ViewerState, path: &str) -> Option<f32> {
     ratio_of(dec.width, dec.height)
 }
 
+/// The application state as seen by the filters of [`crate::browse`].
+struct StateFacts<'a>(&'a ViewerState);
+
+impl FileFacts for StateFacts<'_> {
+    fn rating(&self, path: &str) -> u8 {
+        self.0.settings.get_rating(path)
+    }
+    fn is_cropped(&self, path: &str) -> bool {
+        self.0.is_cropped(path)
+    }
+    fn has_profile_override(&self, path: &str) -> bool {
+        self.0.image_profile_overrides.contains_key(path)
+    }
+    fn aspect_ratio(&self, path: &str) -> Option<f32> {
+        get_image_aspect_ratio_norm(self.0, path)
+    }
+    fn color_profile(&self, path: &str) -> (String, bool) {
+        get_file_color_profile_info(self.0, path)
+    }
+}
+
 fn get_file_color_profile_info(state: &ViewerState, path: &str) -> (String, bool) {
     if let Some(prof) = state.image_profile_overrides.get(path) {
         return (prof.clone(), true);
@@ -2358,23 +2274,6 @@ fn get_file_color_profile_info(state: &ViewerState, path: &str) -> (String, bool
         }
     }
     (DEFAULT_FALLBACK_PROFILE.to_string(), false)
-}
-
-fn matches_format_filter(path: &str, filter: &str) -> bool {
-    let ext = Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-    match filter.to_uppercase().as_str() {
-        "" | "ALL" => true,
-        "RAW" => crate::config::is_raw_extension(&ext),
-        "JPG" | "JPEG" => matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif"),
-        "PNG" => ext == "png",
-        "TIF" | "TIFF" => matches!(ext.as_str(), "tif" | "tiff"),
-        "WEBP" => ext == "webp",
-        other => ext.eq_ignore_ascii_case(other),
-    }
 }
 
 /// Worker threads that read image headers for the aspect-ratio filter: the work is disk-bound,
@@ -2473,112 +2372,33 @@ fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
         .current_index
         .and_then(|i| state.visible_files.get(i).cloned());
 
-    let mut visible: Vec<String> = if filter_key == "__ALL__" {
-        state.all_folder_files.clone()
-    } else if filter_key == "__ROOT_ONLY__" {
-        state
-            .all_folder_files
-            .iter()
-            .filter(|f| {
-                Path::new(f)
-                    .parent()
-                    .map(|p| same_path(&p.to_string_lossy(), &root_norm))
-                    .unwrap_or(false)
-            })
-            .cloned()
-            .collect()
-    } else {
-        let prefix = dir_prefix_key(&filter_key);
-        state
-            .all_folder_files
-            .iter()
-            .filter(|f| {
-                path_key(f).starts_with(&prefix)
-                    || Path::new(f)
-                        .parent()
-                        .map(|p| same_path(&p.to_string_lossy(), &filter_key))
-                        .unwrap_or(false)
-            })
-            .cloned()
-            .collect()
+    let filters = Filters {
+        tree: filter_key,
+        search: state.filter_search_text.clone(),
+        ratings_mask: state.filter_ratings_mask,
+        aspect: state.filter_aspect_ratio.clone(),
+        color_profile: state.filter_color_profile.clone(),
+        format: state.filter_format.clone(),
+        cropped_only: state.filter_is_cropped,
+        profile_modified_only: state.filter_is_profile_modified,
     };
-
-    let search_low = state.filter_search_text.trim().to_lowercase();
-    let r_mask = state.filter_ratings_mask;
-    let ar_filt = state.filter_aspect_ratio.clone();
-    let cp_filt = state.filter_color_profile.clone();
-    let fmt_filt = state.filter_format.clone();
-    let mut pending_ratios = Vec::new();
-
-    let needs_filtering = !search_low.is_empty()
-        || (r_mask != 0 && r_mask != 63)
-        || (ar_filt != "ALL" && !ar_filt.is_empty())
-        || (cp_filt != "ALL" && !cp_filt.is_empty())
-        || (fmt_filt != "ALL" && !fmt_filt.is_empty())
-        || state.filter_is_cropped
-        || state.filter_is_profile_modified;
-
-    if needs_filtering {
-        let saved_aspects = state.settings.saved_aspect_ratios.clone();
-        visible.retain(|fpath| {
-            if !search_low.is_empty() && !file_name_of(fpath).to_lowercase().contains(&search_low) {
-                return false;
-            }
-            if !matches_format_filter(fpath, &fmt_filt) {
-                return false;
-            }
-            if state.filter_is_cropped && !state.is_cropped(fpath) {
-                return false;
-            }
-            if state.filter_is_profile_modified
-                && !state.image_profile_overrides.contains_key(fpath)
-            {
-                return false;
-            }
-            if r_mask != 0 && r_mask != 63 {
-                let r = state.settings.get_rating(fpath);
-                if (r_mask & (1 << r)) == 0 {
-                    return false;
-                }
-            }
-            if ar_filt != "ALL" && !ar_filt.is_empty() {
-                match get_image_aspect_ratio_norm(state, fpath) {
-                    Some(ratio) if ratio.is_finite() => {
-                        if !matches_aspect_ratio_filter(ratio, &ar_filt, &saved_aspects) {
-                            return false;
-                        }
-                    }
-                    Some(_) => return false,
-                    None => {
-                        pending_ratios.push(fpath.clone());
-                        return false;
-                    }
-                }
-            }
-            if cp_filt != "ALL" && !cp_filt.is_empty() {
-                let (img_prof, has_embedded) = get_file_color_profile_info(state, fpath);
-                if cp_filt.eq_ignore_ascii_case("NONE") {
-                    if has_embedded {
-                        return false;
-                    }
-                } else if !img_prof.to_lowercase().contains(&cp_filt.to_lowercase()) {
-                    return false;
-                }
-            }
-            true
-        });
-    }
-    state.visible_files = visible;
+    let filtered = crate::browse::filter_files(
+        &state.all_folder_files,
+        &root_norm,
+        &filters,
+        &state.settings.saved_aspect_ratios,
+        &StateFacts(state),
+    );
+    let pending_ratios = filtered.unknown_ratio;
+    state.visible_files = filtered.visible;
     let pending_count = pending_ratios.len();
     start_aspect_ratio_job(ui, state, pending_ratios);
 
     refresh_folder_tree_ui(ui, state);
 
     // Keep the current image selected if it is still visible.
-    let new_index = previous_file
-        .as_ref()
-        .and_then(|p| state.visible_files.iter().position(|f| f == p))
-        .unwrap_or(0);
+    let new_index =
+        crate::browse::index_after_refilter(previous_file.as_deref(), &state.visible_files);
 
     let mut film_items = Vec::with_capacity(state.visible_files.len());
     for (i, fpath) in state.visible_files.iter().enumerate() {
@@ -5812,37 +5632,6 @@ mod tests {
         assert_eq!(pixel, MAX_PIXEL_HISTORY);
         state.edited_images.insert("a.jpg".into(), img);
         assert!(state.is_cropped("a.jpg"));
-    }
-
-    #[test]
-    fn format_filter_matches_extensions() {
-        assert!(matches_format_filter("x/a.JPG", "JPG"));
-        assert!(matches_format_filter("x/a.jpeg", "jpeg"));
-        assert!(matches_format_filter("x/a.cr3", "RAW"));
-        assert!(!matches_format_filter("x/a.png", "RAW"));
-        assert!(matches_format_filter("x/a.tif", "TIFF"));
-        assert!(matches_format_filter("x/a.png", "ALL"));
-    }
-
-    #[test]
-    fn test_aspect_ratio_filters() {
-        let empty: Vec<String> = Vec::new();
-        assert!(matches_aspect_ratio_filter(6000.0 / 4000.0, "3x2", &empty));
-        assert!(!matches_aspect_ratio_filter(
-            6000.0 / 4000.0,
-            "16x9",
-            &empty
-        ));
-        assert!(matches_aspect_ratio_filter(1920.0 / 1080.0, "16x9", &empty));
-        assert!(matches_aspect_ratio_filter(1.0, "1x1", &empty));
-        assert!(matches_aspect_ratio_filter(
-            2500.0 / 1200.0,
-            "OTHER",
-            &empty
-        ));
-        let saved = vec!["18x9".to_string()];
-        assert!(matches_aspect_ratio_filter(2.0, "18x9", &saved));
-        assert!(!matches_aspect_ratio_filter(2.0, "OTHER", &saved));
     }
 
     #[test]

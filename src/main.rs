@@ -17,6 +17,7 @@ mod metadata;
 mod open_with;
 mod pyramid;
 mod rename;
+mod view;
 
 use mcp_server::{run_mcp_stdio_server, McpCommand};
 use serde_json::{json, Value};
@@ -1270,14 +1271,12 @@ fn calculate_fit_zoom(ui: &AppWindow, img_width: u32, img_height: u32) -> f32 {
         };
         ((w - 530.0).max(400.0), (h - 252.0).max(300.0))
     };
-    let zx = (vw - 24.0).max(64.0) / (img_width.max(1) as f32);
-    let zy = (vh - 24.0).max(64.0) / (img_height.max(1) as f32);
-    (zx.min(zy) * scale).clamp(0.02, 32.0)
+    crate::view::fit_zoom(vw, vh, img_width, img_height, scale)
 }
 
 /// Image pixels per logical (UI) pixel.
 fn view_zoom(state: &ViewerState) -> f32 {
-    state.zoom_factor / state.display_scale.max(0.25)
+    crate::view::logical_zoom(state.zoom_factor, state.display_scale)
 }
 
 /// Keeps the UI's display scale in sync with the window (moving between monitors).
@@ -3251,24 +3250,13 @@ fn viewport_to_image_coords(
     state: &ViewerState,
 ) -> Option<(u32, u32)> {
     let decoded = state.current_decoded.as_ref()?;
-    let z = view_zoom(state);
-    let img_w = decoded.width as f32 * z;
-    let img_h = decoded.height as f32 * z;
-    let img_x0 = (vw - img_w) * 0.5 + state.pan_x;
-    let img_y0 = (vh - img_h) * 0.5 + state.pan_y;
-
-    let rel_x = (mx - img_x0) / z;
-    let rel_y = (my - img_y0) / z;
-
-    if rel_x < 0.0 || rel_y < 0.0 || rel_x >= decoded.width as f32 || rel_y >= decoded.height as f32
-    {
-        return None;
-    }
-
-    Some((
-        (rel_x.floor() as u32).min(decoded.width.saturating_sub(1)),
-        (rel_y.floor() as u32).min(decoded.height.saturating_sub(1)),
-    ))
+    crate::view::view_to_image(
+        (mx, my),
+        (vw, vh),
+        (decoded.width, decoded.height),
+        view_zoom(state),
+        (state.pan_x, state.pan_y),
+    )
 }
 
 /// Returns the on-screen pixels if they match the current image (a render may still be pending).
@@ -3894,7 +3882,7 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
             }
             "custom" => {
                 if let Some(f) = factor.filter(|f| f.is_finite() && *f > 0.0) {
-                    st.zoom_factor = f.clamp(0.02, 32.0);
+                    st.zoom_factor = crate::view::clamp_zoom(f);
                     st.is_fit_mode = false;
                     update_zoom_ui(ui, st);
                     let _ = resp.send(Ok(format!("Zoom set to {:.0}%", st.zoom_factor * 100.0)));
@@ -4341,7 +4329,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
             st.is_fit_mode = false;
-            st.zoom_factor = (st.zoom_factor * 1.25).clamp(0.02, 32.0);
+            st.zoom_factor = crate::view::clamp_zoom(st.zoom_factor * crate::view::ZOOM_STEP);
             update_zoom_ui(&ui, &st);
         });
     }
@@ -4352,7 +4340,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
             st.is_fit_mode = false;
-            st.zoom_factor = (st.zoom_factor / 1.25).clamp(0.02, 32.0);
+            st.zoom_factor = crate::view::clamp_zoom(st.zoom_factor / crate::view::ZOOM_STEP);
             update_zoom_ui(&ui, &st);
         });
     }
@@ -4394,7 +4382,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             let mut st = lock_state(&state);
             st.is_fit_mode = false;
-            st.zoom_factor = factor.clamp(0.02, 32.0);
+            st.zoom_factor = crate::view::clamp_zoom(factor);
             update_zoom_ui(&ui, &st);
         });
     }
@@ -5176,16 +5164,17 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_canvas_wheel(move |delta_y, mx, my, vw, vh| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            let old_zoom = st.zoom_factor;
-            let factor = if delta_y > 0.0 { 1.18 } else { 1.0 / 1.18 };
-            let new_zoom = (old_zoom * factor).clamp(0.02, 32.0);
-            let scale_ratio = new_zoom / old_zoom;
-            // Zoom anchored around the cursor position (pan is in logical pixels).
-            let cx = mx - vw * 0.5;
-            let cy = my - vh * 0.5;
-            st.pan_x = cx - (cx - st.pan_x) * scale_ratio;
-            st.pan_y = cy - (cy - st.pan_y) * scale_ratio;
-            st.zoom_factor = new_zoom;
+            let step = crate::view::WHEEL_STEP;
+            let factor = if delta_y > 0.0 { step } else { 1.0 / step };
+            let (zoom, pan) = crate::view::zoom_at_cursor(
+                st.zoom_factor,
+                (st.pan_x, st.pan_y),
+                factor,
+                (mx, my),
+                (vw, vh),
+            );
+            st.zoom_factor = zoom;
+            (st.pan_x, st.pan_y) = pan;
             st.is_fit_mode = false;
             update_zoom_ui(&ui, &st);
         });

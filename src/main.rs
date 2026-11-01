@@ -6,6 +6,7 @@ mod config;
 mod cr3_parser;
 mod disk_ops;
 mod exif_orient;
+mod file_drop;
 mod file_watcher;
 mod image_loader;
 mod image_saver;
@@ -3193,6 +3194,147 @@ fn start_folder_watcher(state: &mut ViewerState, folder: &str) {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Opening a file or folder from outside: command line ("Open with"), drag and drop
+// ----------------------------------------------------------------------------
+
+/// The file or folder Windows passes on the command line for "Open with" or a double-click:
+/// the first argument that is not an option such as `--mcp`.
+fn launch_path_from_args(args: &[String]) -> Option<String> {
+    args.iter()
+        .skip(1)
+        .find(|a| !a.starts_with('-') && !a.trim().is_empty())
+        .cloned()
+}
+
+/// Opens a folder as a folder, or an image in its folder with that image selected.
+fn open_external_path(ui: &AppWindow, st: &mut ViewerState, path: &str) {
+    let p = Path::new(path);
+    if p.is_dir() {
+        open_folder_path(ui, st, path, None, None);
+    } else if !p.is_file() {
+        show_notice(
+            ui,
+            st,
+            &format!("'{}' does not exist.", path),
+            true,
+            NoticeAction::None,
+        );
+    } else if !crate::config::is_supported_file(p) {
+        show_notice(
+            ui,
+            st,
+            &format!(
+                "'{}' is not an image format Horama can open.",
+                file_name_of(path)
+            ),
+            true,
+            NoticeAction::None,
+        );
+    } else {
+        open_image_file(ui, st, &normalize_path(path));
+    }
+}
+
+/// Shows `file` with its folder selected in the folder tree. If the file lies inside the
+/// folder already open, the tree stays and the file's subfolder is selected; otherwise the
+/// file's folder is opened.
+fn open_image_file(ui: &AppWindow, st: &mut ViewerState, file: &str) {
+    let parent = Path::new(file)
+        .parent()
+        .map(|p| normalize_path(&p.to_string_lossy()))
+        .unwrap_or_default();
+    let root = normalize_path(&st.current_folder);
+    let inside_open_tree = !st.is_files_mode
+        && !root.is_empty()
+        && (same_path(&parent, &root) || path_key(&parent).starts_with(&dir_prefix_key(&root)));
+    let wanted = file.to_string();
+    let select: ScanDone = Box::new(move |ui, st, res| {
+        if res.is_ok() {
+            select_opened_file(ui, st, &wanted);
+        }
+    });
+    if inside_open_tree {
+        // The folder itself (with its subfolders) is the tree selection that shows the file.
+        let sub = if same_path(&parent, &root) {
+            "__ALL__".to_string()
+        } else {
+            parent
+        };
+        st.settings.last_subfolder = sub.clone();
+        // Rescan: the file may be new, and the scan restores and expands the selection.
+        start_folder_scan(ui, st, None, Some(sub), Some(select));
+    } else {
+        open_folder_path(ui, st, &parent, None, Some(select));
+    }
+}
+
+fn select_opened_file(ui: &AppWindow, st: &mut ViewerState, file: &str) {
+    if let Some(i) = st.visible_files.iter().position(|f| same_path(f, file)) {
+        st.selected_indices.clear();
+        st.selected_indices.insert(i);
+        st.selection_anchor = Some(i);
+        select_image_by_index(ui, st, i);
+        sync_filmstrip_selection_ui(ui, st);
+        refresh_folder_tree_ui(ui, st);
+    } else if st.all_folder_files.iter().any(|f| same_path(f, file)) {
+        show_notice(
+            ui,
+            st,
+            &format!(
+                "'{}' is in this folder but hidden by the active filters.",
+                file_name_of(file)
+            ),
+            false,
+            NoticeAction::None,
+        );
+    } else {
+        show_notice(
+            ui,
+            st,
+            &format!(
+                "'{}' was not found in its folder (hidden or unreadable file).",
+                file_name_of(file)
+            ),
+            true,
+            NoticeAction::None,
+        );
+    }
+}
+
+/// Items dropped together on the window: one item opens like "Open with"; several images open
+/// as a selection of files; otherwise the first folder is opened.
+fn open_dropped_paths(ui: &AppWindow, st: &mut ViewerState, paths: Vec<PathBuf>) {
+    let paths: Vec<String> = paths
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    log::info!("Dropped on the window: {} item(s)", paths.len());
+    if paths.len() == 1 {
+        open_external_path(ui, st, &paths[0]);
+        return;
+    }
+    let images: Vec<String> = paths
+        .iter()
+        .filter(|p| Path::new(p).is_file() && crate::config::is_supported_file(Path::new(p)))
+        .map(|p| normalize_path(p))
+        .collect();
+    match images.len() {
+        0 => match paths.iter().find(|p| Path::new(p).is_dir()) {
+            Some(dir) => open_folder_path(ui, st, dir, None, None),
+            None => show_notice(
+                ui,
+                st,
+                "None of the dropped files is an image format Horama can open.",
+                true,
+                NoticeAction::None,
+            ),
+        },
+        1 => open_image_file(ui, st, &images[0]),
+        _ => open_specific_files(ui, st, images),
+    }
+}
+
 fn open_specific_files(ui: &AppWindow, state: &mut ViewerState, files: Vec<String>) {
     if files.is_empty() {
         return;
@@ -4082,7 +4224,11 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.set_saved_custom_aspect_ratios(ModelRc::new(VecModel::from(saved_aspects)));
 
         let last = st.settings.last_folder.clone();
-        if !last.is_empty() {
+        if let Some(target) = launch_path_from_args(&std::env::args().collect::<Vec<_>>()) {
+            // Started with a file or folder ("Open with", double-click): open that instead.
+            log::info!("Opening from the command line: {}", target);
+            open_external_path(&ui, &mut st, &target);
+        } else if !last.is_empty() {
             if Path::new(&last).is_dir() {
                 let sub = Some(st.settings.last_subfolder.clone()).filter(|s| !s.is_empty());
                 open_folder_path(&ui, &mut st, &last, sub, None);
@@ -4090,6 +4236,27 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_folder_path(last.into());
             }
         }
+    }
+
+    // --- Files and folders dropped on the window ---
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        let batch: std::rc::Rc<std::cell::RefCell<Vec<PathBuf>>> = Default::default();
+        crate::file_drop::on_dropped_path(ui.window(), move |path| {
+            let first = batch.borrow().is_empty();
+            batch.borrow_mut().push(path);
+            if !first {
+                return;
+            }
+            // Each dropped item arrives as its own event, all at once: handle them together.
+            let (ui_weak, state, batch) = (ui_weak.clone(), state.clone(), batch.clone());
+            slint::Timer::single_shot(Duration::from_millis(50), move || {
+                let paths = std::mem::take(&mut *batch.borrow_mut());
+                let Some(ui) = ui_weak.upgrade() else { return };
+                open_dropped_paths(&ui, &mut lock_state(&state), paths);
+            });
+        });
     }
 
     // Deferred refinement once the window layout pass is complete.
@@ -5520,6 +5687,21 @@ mod tests {
         let (pw, ph, rgba) = render_loupe_patch_rgba(8.0, 8.0, 4.0, 16, 16, &rgb);
         assert_eq!((pw, ph), (320, 320));
         assert_eq!(rgba.len(), 320 * 320 * 4);
+    }
+
+    #[test]
+    fn launch_path_skips_the_program_and_options() {
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(launch_path_from_args(&args(&["horama.exe"])), None);
+        assert_eq!(
+            launch_path_from_args(&args(&["horama.exe", r"D:\Foto\a.jpg"])),
+            Some(r"D:\Foto\a.jpg".to_string())
+        );
+        assert_eq!(
+            launch_path_from_args(&args(&["horama.exe", "--mcp", "/home/a/b c.png"])),
+            Some("/home/a/b c.png".to_string())
+        );
+        assert_eq!(launch_path_from_args(&args(&["horama.exe", "--mcp"])), None);
     }
 
     #[test]

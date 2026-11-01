@@ -30,6 +30,7 @@
   - Lente d'ingrandimento 4× (pressione tasto centrale del mouse) e Contagocce colore RGB/HSL (pressione tasto destro).
   - Ridenominazione file singola e multipla (F2) conforme agli standard di sistema: l'estensione originale viene sempre mantenuta, nessun file esistente viene mai sovrascritto e in caso di errore tutte le rinomine vengono annullate.
   - Eliminazione nel **Cestino** (Windows: Cestino di sistema; macOS: Finder; Linux: cestino freedesktop), senza conferma: un avviso nella vista offre "Undo" per qualche secondo; i dischi senza Cestino chiedono conferma prima di eliminare definitivamente.
+  - Apertura di un'immagine da Esplora file ("Apri con…") o trascinandola nella finestra: si apre la sua cartella, con l'immagine selezionata e la cartella evidenziata nell'albero a sinistra. Trascinando più immagini si apre solo quella selezione; trascinando una cartella si apre la cartella.
   - Menu contestuale nativo *"Apri con"* con le applicazioni registrate nel sistema operativo.
   - Istogramma in tempo reale (RGB e Luminanza) e metadati fotografici completi EXIF.
   - Filtri istantanei per testo/nome parziale e valutazione a stelle (★).

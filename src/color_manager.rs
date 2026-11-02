@@ -794,16 +794,28 @@ impl ColorManager {
     }
 
     /// Convert pixel data for saving when an image with an embedded profile is converted to a new profile.
+    /// Whether saving with `selected_profile_name` converts the pixel values (Convert mode:
+    /// the image has an embedded profile and another one is chosen). Otherwise the pixels are
+    /// saved as they are and only the ICC profile written with them may change.
+    pub fn converts_on_save(
+        &self,
+        selected_profile_name: &str,
+        embedded_icc: Option<&[u8]>,
+    ) -> bool {
+        let embedded_icc = embedded_icc.filter(|e| icc_color_space(e) == Some(*b"RGB "));
+        embedded_icc.and_then(extract_icc_description).is_some()
+            && selected_profile_name != PROFILE_EMBEDDED
+    }
+
     pub fn prepare_pixels_for_save(
         &self,
         raw_rgb: &[u8],
         selected_profile_name: &str,
         embedded_icc: Option<&[u8]>,
     ) -> Vec<u8> {
-        let embedded_icc = embedded_icc.filter(|e| icc_color_space(e) == Some(*b"RGB "));
-        let has_embedded = embedded_icc.and_then(extract_icc_description).is_some();
         let mut pixels = raw_rgb.to_vec();
-        if has_embedded && selected_profile_name != PROFILE_EMBEDDED {
+        if self.converts_on_save(selected_profile_name, embedded_icc) {
+            let embedded_icc = embedded_icc.filter(|e| icc_color_space(e) == Some(*b"RGB "));
             let emb_key = self.profile_key(PROFILE_EMBEDDED, embedded_icc);
             let target_key = self.profile_key(selected_profile_name, embedded_icc);
             if let Some(t) = self.transform(

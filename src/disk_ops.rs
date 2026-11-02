@@ -10,7 +10,7 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -25,11 +25,7 @@ fn registry() -> &'static Mutex<HashMap<String, Instant>> {
 
 fn reg_key(path: &Path) -> String {
     let s = crate::config::normalize_path(&path.to_string_lossy());
-    if cfg!(windows) {
-        s.to_lowercase()
-    } else {
-        s
-    }
+    if cfg!(windows) { s.to_lowercase() } else { s }
 }
 
 /// Records that this application is writing `path` right now.
@@ -187,7 +183,7 @@ pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<RotationOut
     let bytes = match fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(ShownOnly("the file is no longer on disk".into()))
+            return Ok(ShownOnly("the file is no longer on disk".into()));
         }
         Err(e) => return Err(format!("Cannot read '{}': {}", path.display(), e)),
     };
@@ -266,8 +262,8 @@ fn exif_with_normal_orientation(exif: &[u8]) -> Option<Vec<u8>> {
 
 fn reencode_png_rotated(bytes: &[u8], turns: u8) -> Result<Vec<u8>, String> {
     use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-    use img_parts::png::{Png, PngChunk};
     use img_parts::Bytes;
+    use img_parts::png::{Png, PngChunk};
 
     let o = exif_orientation_of(bytes);
     let img = decode(bytes)?;
@@ -852,12 +848,13 @@ mod tests {
         let e = exif::Reader::new()
             .read_from_container(&mut Cursor::new(fs::read(&w).unwrap()))
             .expect("EXIF kept");
-        assert!(e
-            .get_field(exif::Tag::Make, exif::In::PRIMARY)
-            .unwrap()
-            .display_value()
-            .to_string()
-            .contains("WebCam"));
+        assert!(
+            e.get_field(exif::Tag::Make, exif::In::PRIMARY)
+                .unwrap()
+                .display_value()
+                .to_string()
+                .contains("WebCam")
+        );
         let meta = exif_orient::webp_meta(&fs::read(&w).unwrap());
         assert_eq!(meta.xmp.as_deref(), Some(&b"<x:xmpmeta/>"[..]), "XMP kept");
         assert!(!meta.animated);

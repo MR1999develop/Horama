@@ -5,8 +5,8 @@
 //! changes them. A few keys are fixed: 0–5 ratings, F fit, I info panel, Ctrl+Shift+S Save As,
 //! F6 next panel, Enter/Esc in the crop.
 
-use super::i18n::{tr, trf};
 use super::HoramaApp;
+use super::i18n::{tr, trf};
 use crate::config::default_shortcuts;
 use egui::{Key, KeyboardShortcut, Modifiers};
 

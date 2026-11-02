@@ -7,7 +7,7 @@
 //! only when the notice closes, so Undo (or Ctrl+Z) can put them back until then.
 
 use super::i18n::{tr, trf};
-use super::{theme, HoramaApp, Msg};
+use super::{HoramaApp, Msg, theme};
 use crate::browse;
 use crate::config::{path_key, same_path};
 use crate::disk_ops::{self, RotationOutcome};

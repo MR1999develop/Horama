@@ -5,22 +5,22 @@
 mod file_drop;
 mod pyramid;
 
-use horama::mcp_server::{run_mcp_stdio_server, McpCommand};
-use serde_json::{json, Value};
+use horama::mcp_server::{McpCommand, run_mcp_stdio_server};
+use serde_json::{Value, json};
 
 slint::include_modules!();
 
 use horama::browse::{
-    dir_prefix_key, file_name_of, parse_aspect_ratio_str, ClickMods, FileFacts, Filters,
+    ClickMods, FileFacts, Filters, dir_prefix_key, file_name_of, parse_aspect_ratio_str,
 };
 use horama::cache_manager::{PreloadController, PreloadLoader};
-use horama::color_manager::{rgb_to_hsl, ColorManager, ColorTransformInfo};
+use horama::color_manager::{ColorManager, ColorTransformInfo, rgb_to_hsl};
 use horama::config::{
-    normalize_path, path_key, same_path, scan_folder_and_subfolders, AppSettings, APP_NAME,
-    BUILTIN_PROFILES, DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED, PROFILE_LOAD_CUSTOM,
+    APP_NAME, AppSettings, BUILTIN_PROFILES, DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED,
+    PROFILE_LOAD_CUSTOM, normalize_path, path_key, same_path, scan_folder_and_subfolders,
 };
 use horama::disk_ops::{DiskQueue, RotationOutcome};
-use horama::image_loader::{load_thumbnail_rgba, DecodedImage};
+use horama::image_loader::{DecodedImage, load_thumbnail_rgba};
 use horama::image_saver::{export_image, generate_next_sequential_path};
 use horama::metadata::{extract_metadata, render_histogram_rgba};
 #[cfg(test)]
@@ -199,9 +199,10 @@ fn action_for_shortcut(settings: &AppSettings, pressed: &str) -> String {
     // Historical behaviour: Space also fits the image when "Fit to Window" keeps its default key.
     if p_lower == "space"
         && let Some(fit) = settings.shortcuts.get("zoom_fit")
-            && fit.trim().eq_ignore_ascii_case("ctrl+0") {
-                return "zoom_fit".to_string();
-            }
+        && fit.trim().eq_ignore_ascii_case("ctrl+0")
+    {
+        return "zoom_fit".to_string();
+    }
     String::new()
 }
 
@@ -398,9 +399,9 @@ impl ViewerState {
                     .history_undo
                     .iter()
                     .position(|a| matches!(a, HistoryAction::ImageEdit { .. }))
-                {
-                    self.history_undo.remove(pos);
-                }
+            {
+                self.history_undo.remove(pos);
+            }
         }
         if self.history_undo.len() > MAX_HISTORY {
             self.history_undo.remove(0);
@@ -981,34 +982,35 @@ fn refresh_multi_selection_overview(ui: &AppWindow, state: &ViewerState) {
                 is_cropped: false,
             });
         } else if let Some(&file_idx) = sel_indices_vec.get(slot_idx)
-            && let Some(fpath) = state.visible_files.get(file_idx) {
-                let fname = Path::new(fpath)
-                    .file_name()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_else(|| fpath.clone());
-                let (thumb, has_thumb, b_text, b_type) = thumb_map
-                    .get(&file_idx)
-                    .cloned()
-                    .unwrap_or_else(|| (Image::default(), false, String::new(), String::new()));
-                let rating = state.settings.get_rating(fpath) as i32;
+            && let Some(fpath) = state.visible_files.get(file_idx)
+        {
+            let fname = Path::new(fpath)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| fpath.clone());
+            let (thumb, has_thumb, b_text, b_type) = thumb_map
+                .get(&file_idx)
+                .cloned()
+                .unwrap_or_else(|| (Image::default(), false, String::new(), String::new()));
+            let rating = state.settings.get_rating(fpath) as i32;
 
-                tiles.push(MultiSelectTileData {
-                    full_path: fpath.clone().into(),
-                    label: fname.into(),
-                    thumbnail: thumb,
-                    has_thumbnail: has_thumb,
-                    is_ellipsis: false,
-                    ellipsis_text: "".into(),
-                    rating,
-                    badge_text: b_text.into(),
-                    badge_type: b_type.into(),
-                    tile_x: tx,
-                    tile_y: ty,
-                    tile_w: eff_w,
-                    tile_h: eff_h,
-                    is_cropped: state.is_cropped(fpath),
-                });
-            }
+            tiles.push(MultiSelectTileData {
+                full_path: fpath.clone().into(),
+                label: fname.into(),
+                thumbnail: thumb,
+                has_thumbnail: has_thumb,
+                is_ellipsis: false,
+                ellipsis_text: "".into(),
+                rating,
+                badge_text: b_text.into(),
+                badge_type: b_type.into(),
+                tile_x: tx,
+                tile_y: ty,
+                tile_w: eff_w,
+                tile_h: eff_h,
+                is_cropped: state.is_cropped(fpath),
+            });
+        }
     }
 
     ui.set_multi_selection_tiles(ModelRc::new(VecModel::from(tiles)));
@@ -1048,9 +1050,10 @@ fn sync_filmstrip_selection_ui(ui: &AppWindow, state: &ViewerState) {
     ui.set_selected_files_count(count.max(if state.current_index.is_some() { 1 } else { 0 }) as i32);
 
     if let Some(cur_idx) = state.current_index
-        && let Some(p) = state.visible_files.get(cur_idx) {
-            ui.set_current_rating(state.settings.get_rating(p) as i32);
-        }
+        && let Some(p) = state.visible_files.get(cur_idx)
+    {
+        ui.set_current_rating(state.settings.get_rating(p) as i32);
+    }
 
     if count > 1 {
         refresh_multi_selection_overview(ui, state);
@@ -1158,14 +1161,15 @@ fn set_thumbnail_for_path(
         _ => (0..vm.row_count()).find(|&i| matches(i)),
     };
     if let Some(i) = row
-        && let Some(mut item) = vm.row_data(i) {
-            item.thumbnail = img;
-            item.has_thumbnail = true;
-            if let Some(c) = cropped {
-                item.is_cropped = c;
-            }
-            vm.set_row_data(i, item);
+        && let Some(mut item) = vm.row_data(i)
+    {
+        item.thumbnail = img;
+        item.has_thumbnail = true;
+        if let Some(c) = cropped {
+            item.is_cropped = c;
         }
+        vm.set_row_data(i, item);
+    }
 }
 
 /// Rebuilds the thumbnail of `path` from an in-memory image (after rotate/crop/undo).
@@ -1465,19 +1469,20 @@ fn start_neighborhood_preload(ui: &AppWindow, state: &ViewerState, index: usize)
             let c_ref = cache_ref.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_c.upgrade()
-                    && let Ok(guard) = c_ref.lock() {
-                        let (count, used, budget) = guard.stats();
-                        ui.set_status_cache_text(
-                            format!(
-                                "RAM Cache: {} / {} ({:.0} / {:.0} MB)",
-                                count,
-                                total_cnt,
-                                used as f64 / (1024.0 * 1024.0),
-                                budget as f64 / (1024.0 * 1024.0)
-                            )
-                            .into(),
-                        );
-                    }
+                    && let Ok(guard) = c_ref.lock()
+                {
+                    let (count, used, budget) = guard.stats();
+                    ui.set_status_cache_text(
+                        format!(
+                            "RAM Cache: {} / {} ({:.0} / {:.0} MB)",
+                            count,
+                            total_cnt,
+                            used as f64 / (1024.0 * 1024.0),
+                            budget as f64 / (1024.0 * 1024.0)
+                        )
+                        .into(),
+                    );
+                }
             });
         });
 }
@@ -1526,9 +1531,11 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
             state
                 .edited_images
                 .insert(path.to_string(), rotated.clone());
-        } else { if let Ok(mut g) = state.preloader.cache.lock() {
-            g.insert(path.to_string(), rotated.clone());
-        }}
+        } else {
+            if let Ok(mut g) = state.preloader.cache.lock() {
+                g.insert(path.to_string(), rotated.clone());
+            }
+        }
         refresh_thumbnail_from_memory(ui, state, path, &rotated);
         if current_matches {
             state.current_decoded = Some(rotated);
@@ -1888,10 +1895,11 @@ fn set_ratings(
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
         for i in 0..vm.row_count() {
             if let Some(mut item) = vm.row_data(i)
-                && paths.iter().any(|p| same_path(p, item.full_path.as_str())) {
-                    item.rating = rating as i32;
-                    vm.set_row_data(i, item);
-                }
+                && paths.iter().any(|p| same_path(p, item.full_path.as_str()))
+            {
+                item.rating = rating as i32;
+                vm.set_row_data(i, item);
+            }
         }
     }
     if let Some(cur) = state.current_index.and_then(|i| state.visible_files.get(i)) {
@@ -1954,12 +1962,13 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
     }
 
     if let Some(from) = state.current_index
-        && from != index {
-            state.push_undo(HistoryAction::ImageSelection {
-                from_idx: from,
-                to_idx: index,
-            });
-        }
+        && from != index
+    {
+        state.push_undo(HistoryAction::ImageSelection {
+            from_idx: from,
+            to_idx: index,
+        });
+    }
 
     let path = state.visible_files[index].clone();
     state.current_index = Some(index);
@@ -2142,20 +2151,22 @@ fn start_aspect_ratio_job(ui: &AppWindow, state: &mut ViewerState, pending: Vec<
             let cancelled = || generation.load(Ordering::SeqCst) != my_gen;
             std::thread::scope(|scope| {
                 for _ in 0..ASPECT_JOB_THREADS.min(total) {
-                    scope.spawn(|| loop {
-                        let i = next.fetch_add(1, Ordering::SeqCst);
-                        if i >= total || cancelled() {
-                            break;
+                    scope.spawn(|| {
+                        loop {
+                            let i = next.fetch_add(1, Ordering::SeqCst);
+                            if i >= total || cancelled() {
+                                break;
+                            }
+                            let p = &pending[i];
+                            let r = horama::image_loader::probe_dimensions(Path::new(p))
+                                .filter(|(w, h)| *w > 0 && *h > 0)
+                                .map(|(w, h)| w.max(h) as f32 / w.min(h) as f32)
+                                .unwrap_or(f32::NAN); // NaN = unknown: excluded from ratio filters
+                            if let Ok(mut c) = cache.lock() {
+                                c.insert(path_key(p), r);
+                            }
+                            done.fetch_add(1, Ordering::SeqCst);
                         }
-                        let p = &pending[i];
-                        let r = horama::image_loader::probe_dimensions(Path::new(p))
-                            .filter(|(w, h)| *w > 0 && *h > 0)
-                            .map(|(w, h)| w.max(h) as f32 / w.min(h) as f32)
-                            .unwrap_or(f32::NAN); // NaN = unknown: excluded from ratio filters
-                        if let Ok(mut c) = cache.lock() {
-                            c.insert(path_key(p), r);
-                        }
-                        done.fetch_add(1, Ordering::SeqCst);
                     });
                 }
                 // Progress, at most four times a second.
@@ -2331,24 +2342,28 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
             tx.clone(),
             state.thumbnail_generation.clone(),
         );
-        std::thread::spawn(move || loop {
-            if gen_arc.load(Ordering::SeqCst) != r#gen {
-                return;
-            }
-            let i = next.fetch_add(1, Ordering::SeqCst);
-            let Some(&idx) = order.get(i) else { return };
-            let path = &files[idx];
-            let thumb = match edits.get(path) {
-                Some(edit) => horama::image_loader::create_thumbnail_from_decoded(edit, Some(&cm)),
-                None => load_thumbnail_rgba(Path::new(path), Some(&cm)),
-            };
-            if gen_arc.load(Ordering::SeqCst) != r#gen {
-                return;
-            }
-            // Neutral placeholder so "Loading..." never hangs on unreadable files.
-            let (tw, th, rgba) = thumb.unwrap_or_else(|| (140, 98, vec![30u8; 140 * 98 * 4]));
-            if tx.send((idx, path.clone(), tw, th, rgba)).is_err() {
-                return;
+        std::thread::spawn(move || {
+            loop {
+                if gen_arc.load(Ordering::SeqCst) != r#gen {
+                    return;
+                }
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                let Some(&idx) = order.get(i) else { return };
+                let path = &files[idx];
+                let thumb = match edits.get(path) {
+                    Some(edit) => {
+                        horama::image_loader::create_thumbnail_from_decoded(edit, Some(&cm))
+                    }
+                    None => load_thumbnail_rgba(Path::new(path), Some(&cm)),
+                };
+                if gen_arc.load(Ordering::SeqCst) != r#gen {
+                    return;
+                }
+                // Neutral placeholder so "Loading..." never hangs on unreadable files.
+                let (tw, th, rgba) = thumb.unwrap_or_else(|| (140, 98, vec![30u8; 140 * 98 * 4]));
+                if tx.send((idx, path.clone(), tw, th, rgba)).is_err() {
+                    return;
+                }
             }
         });
     }
@@ -2566,10 +2581,11 @@ fn handle_filesystem_sync(
     let set_badge_for = |path: &str, badge: Badge| {
         for i in 0..vm.row_count() {
             if let Some(mut item) = vm.row_data(i)
-                && same_path(item.full_path.as_str(), path) {
-                    set_item_badge(&mut item, badge);
-                    vm.set_row_data(i, item);
-                }
+                && same_path(item.full_path.as_str(), path)
+            {
+                set_item_badge(&mut item, badge);
+                vm.set_row_data(i, item);
+            }
         }
     };
 
@@ -2603,11 +2619,11 @@ fn handle_filesystem_sync(
                 for i in 0..vm.row_count() {
                     if let Some(mut item) = vm.row_data(i)
                         && same_path(item.full_path.as_str(), &restored_path)
-                            && item.badge_type == "deleted"
-                        {
-                            set_item_badge(&mut item, Badge::None);
-                            vm.set_row_data(i, item);
-                        }
+                        && item.badge_type == "deleted"
+                    {
+                        set_item_badge(&mut item, Badge::None);
+                        vm.set_row_data(i, item);
+                    }
                 }
                 if cur_path
                     .as_deref()
@@ -2754,14 +2770,15 @@ fn migrate_renamed_path(
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
         for i in 0..vm.row_count() {
             if let Some(mut item) = vm.row_data(i)
-                && same_path(item.full_path.as_str(), old_path) {
-                    item.full_path = new_path.into();
-                    item.label = file_name_of(new_path).into();
-                    if show_badge {
-                        set_item_badge(&mut item, Badge::Renamed);
-                    }
-                    vm.set_row_data(i, item);
+                && same_path(item.full_path.as_str(), old_path)
+            {
+                item.full_path = new_path.into();
+                item.label = file_name_of(new_path).into();
+                if show_badge {
+                    set_item_badge(&mut item, Badge::Renamed);
                 }
+                vm.set_row_data(i, item);
+            }
         }
     }
     for f in state
@@ -2790,9 +2807,10 @@ fn migrate_renamed_path(
             .insert(new_path.to_string(), p);
     }
     if let Ok(mut c) = state.aspect_cache.lock()
-        && let Some(r) = c.remove(&path_key(old_path)) {
-            c.insert(path_key(new_path), r);
-        }
+        && let Some(r) = c.remove(&path_key(old_path))
+    {
+        c.insert(path_key(new_path), r);
+    }
     state.settings.rename_rating(old_path, new_path);
     for action in state
         .history_undo
@@ -3981,12 +3999,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 let mut st = lock_state(&state);
                 sync_display_scale(&ui, &mut st);
                 if !st.lock_zoom
-                    && let Some(dec) = st.current_decoded.clone() {
-                        st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
-                        st.pan_x = 0.0;
-                        st.pan_y = 0.0;
-                        update_zoom_ui(&ui, &st);
-                    }
+                    && let Some(dec) = st.current_decoded.clone()
+                {
+                    st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
+                    st.pan_x = 0.0;
+                    st.pan_y = 0.0;
+                    update_zoom_ui(&ui, &st);
+                }
             },
         );
         timer
@@ -4318,12 +4337,14 @@ fn main() -> Result<(), slint::PlatformError> {
             if st.selected_indices.len() > 1 {
                 refresh_multi_selection_overview(&ui, &st);
             } else if let Some(decoded) = st.current_decoded.clone()
-                && st.is_fit_mode && !st.lock_zoom {
-                    st.zoom_factor = calculate_fit_zoom(&ui, decoded.width, decoded.height);
-                    st.pan_x = 0.0;
-                    st.pan_y = 0.0;
-                    update_zoom_ui(&ui, &st);
-                }
+                && st.is_fit_mode
+                && !st.lock_zoom
+            {
+                st.zoom_factor = calculate_fit_zoom(&ui, decoded.width, decoded.height);
+                st.pan_x = 0.0;
+                st.pan_y = 0.0;
+                update_zoom_ui(&ui, &st);
+            }
         });
     }
 
@@ -4713,10 +4734,12 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let text = text.trim();
             if let Some(r) = parse_aspect_ratio_str(text)
-                && r > 0.01 && r < 100.0 {
-                    ui.invoke_set_aspect_ratio(format!("Custom ({text})").into(), r);
-                    ui.set_crop_custom_dialog_visible(false);
-                }
+                && r > 0.01
+                && r < 100.0
+            {
+                ui.invoke_set_aspect_ratio(format!("Custom ({text})").into(), r);
+                ui.set_crop_custom_dialog_visible(false);
+            }
         });
     }
     {
@@ -5222,11 +5245,13 @@ fn main() -> Result<(), slint::PlatformError> {
 
                 if sync_display_scale(&ui, &mut st) {
                     if let Some(dec) = st.current_decoded.clone()
-                        && st.is_fit_mode && !st.lock_zoom {
-                            st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
-                            st.pan_x = 0.0;
-                            st.pan_y = 0.0;
-                        }
+                        && st.is_fit_mode
+                        && !st.lock_zoom
+                    {
+                        st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
+                        st.pan_x = 0.0;
+                        st.pan_y = 0.0;
+                    }
                     update_zoom_ui(&ui, &st);
                 }
 
@@ -5242,26 +5267,26 @@ fn main() -> Result<(), slint::PlatformError> {
                 if cfg!(target_os = "windows")
                     && last_center != Some(center)
                     && !st.display_probe_running
-                    && let Some((ui_w, st_w)) = weak_handles(&st) {
-                        st.display_probe_running = true;
-                        last_center = Some(center);
-                        std::thread::spawn(move || {
-                            let profile =
-                                horama::color_manager::detect_display_profile(Some(center));
-                            post_to_ui(ui_w, st_w, move |ui, st| {
-                                st.display_probe_running = false;
-                                if st.color_manager.set_display_profile(profile) {
-                                    let name = st.color_manager.display_profile_name().to_string();
-                                    log::info!("Display profile changed: {}", name);
-                                    ui.set_status_file_text(
-                                        format!("Display profile: {}", name).into(),
-                                    );
-                                    request_render(st, true, false);
-                                    spawn_filmstrip_thumbnail_loader(ui, st);
-                                }
-                            });
+                    && let Some((ui_w, st_w)) = weak_handles(&st)
+                {
+                    st.display_probe_running = true;
+                    last_center = Some(center);
+                    std::thread::spawn(move || {
+                        let profile = horama::color_manager::detect_display_profile(Some(center));
+                        post_to_ui(ui_w, st_w, move |ui, st| {
+                            st.display_probe_running = false;
+                            if st.color_manager.set_display_profile(profile) {
+                                let name = st.color_manager.display_profile_name().to_string();
+                                log::info!("Display profile changed: {}", name);
+                                ui.set_status_file_text(
+                                    format!("Display profile: {}", name).into(),
+                                );
+                                request_render(st, true, false);
+                                spawn_filmstrip_thumbnail_loader(ui, st);
+                            }
                         });
-                    }
+                    });
+                }
 
                 // Window geometry is saved every 2 seconds at most.
                 if ticks_since_save >= 4 {

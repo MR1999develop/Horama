@@ -10,9 +10,10 @@ const CANON_PRVW_UUID: [u8; 16] = [
 
 pub fn is_cr3_file(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str())
-        && ext.eq_ignore_ascii_case("cr3") {
-            return true;
-        }
+        && ext.eq_ignore_ascii_case("cr3")
+    {
+        return true;
+    }
     if let Ok(mut f) = File::open(path) {
         let mut header = [0u8; 16];
         if f.read_exact(&mut header).is_ok()
@@ -230,9 +231,10 @@ pub fn jpeg_stream_end(buf: &[u8], start: usize) -> Option<usize> {
 pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
     let mut out: Vec<Vec<u8>> = Vec::new();
     if is_cr3_file(path)
-        && let Some(cr3) = extract_cr3_preview(path) {
-            out.push(cr3);
-        }
+        && let Some(cr3) = extract_cr3_preview(path)
+    {
+        out.push(cr3);
+    }
 
     let Ok(mut f) = File::open(path) else {
         return out;
@@ -257,18 +259,21 @@ pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
         let start = search_idx + rel;
         let next_byte = buf.get(start + 3).copied().unwrap_or(0);
         if matches!(next_byte, 0xE0 | 0xE1 | 0xE2 | 0xDB | 0xEE | 0xC0 | 0xC4)
-            && let Some(end) = jpeg_stream_end(&buf, start) {
-                let candidate = &buf[start..end];
-                if let Some((w, h)) = image::ImageReader::new(std::io::Cursor::new(candidate))
-                    .with_guessed_format()
-                    .ok()
-                    .and_then(|r| r.into_dimensions().ok())
-                    && w >= 640 && h >= 480 {
-                        found.push((w as u64 * h as u64, start, end));
-                    }
-                search_idx = end;
-                continue;
+            && let Some(end) = jpeg_stream_end(&buf, start)
+        {
+            let candidate = &buf[start..end];
+            if let Some((w, h)) = image::ImageReader::new(std::io::Cursor::new(candidate))
+                .with_guessed_format()
+                .ok()
+                .and_then(|r| r.into_dimensions().ok())
+                && w >= 640
+                && h >= 480
+            {
+                found.push((w as u64 * h as u64, start, end));
             }
+            search_idx = end;
+            continue;
+        }
         search_idx = start + 3;
     }
     found.sort_by_key(|f| std::cmp::Reverse(f.0));

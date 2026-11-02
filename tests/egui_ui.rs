@@ -2,8 +2,8 @@
 //! buttons a user presses, and what ends up on disk. They work on temporary files and keep
 //! the settings in a temporary folder (`HORAMA_CONFIG_DIR`).
 
-use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use horama::egui_app::HoramaApp;
 use horama::mcp_server::McpCommand;
 use std::path::{Path, PathBuf};

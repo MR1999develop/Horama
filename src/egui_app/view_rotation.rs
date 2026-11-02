@@ -5,7 +5,7 @@
 //! comparison and a saved copy show them, the file stays as it is.
 
 use super::i18n::trf;
-use super::{browse, HoramaApp};
+use super::{HoramaApp, browse};
 use crate::config::path_key;
 use crate::image_loader::DecodedImage;
 use std::sync::Arc;

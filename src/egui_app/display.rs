@@ -5,7 +5,7 @@
 use super::i18n::trf;
 use super::thumbs::ThumbnailLoader;
 use super::{HoramaApp, Msg};
-use crate::color_manager::{detect_display_profile, DisplayProfile};
+use crate::color_manager::{DisplayProfile, detect_display_profile};
 use std::sync::mpsc::channel;
 
 /// The window centre must move at least this far (physical pixels) to look again.
@@ -24,9 +24,10 @@ impl HoramaApp {
         });
         let Some(center) = center else { return };
         if let Some(last) = self.display_center
-            && (center - last).length() < MOVE_THRESHOLD {
-                return;
-            }
+            && (center - last).length() < MOVE_THRESHOLD
+        {
+            return;
+        }
         self.display_center = Some(center);
         self.display_probe_running = true;
         let (tx, ctx) = (self.tx.clone(), ctx.clone());

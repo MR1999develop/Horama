@@ -6,7 +6,7 @@
 //! [`PREVIEW_SIDE`]; a new selection replaces the work still to do.
 
 use super::i18n::trf;
-use super::{browse, filters, theme, HoramaApp, Msg};
+use super::{HoramaApp, Msg, browse, filters, theme};
 use crate::config::path_key;
 use egui::{Align2, Color32, ColorImage, Rect, Sense, TextureOptions, Vec2};
 
@@ -210,8 +210,9 @@ impl HoramaApp {
             );
         }
         if let Some(path) = clicked
-            && let Some(i) = self.visible.iter().position(|v| *v == path) {
-                self.select_only(i);
-            }
+            && let Some(i) = self.visible.iter().position(|v| *v == path)
+        {
+            self.select_only(i);
+        }
     }
 }

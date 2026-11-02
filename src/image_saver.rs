@@ -21,7 +21,7 @@ use img_parts::{Bytes, ImageEXIF, ImageICC};
 use std::fs::File;
 use std::io::{BufReader, Cursor};
 use std::path::{Path, PathBuf};
-use tiff::encoder::{colortype, TiffEncoder};
+use tiff::encoder::{TiffEncoder, colortype};
 use tiff::tags::Tag;
 
 /// Quality used when the source is not a JPEG (nothing to copy the settings from).
@@ -316,18 +316,20 @@ pub fn build_export_exif(source_path: &Path, width: u32, height: u32) -> Option<
 
 fn read_source_exif(path: &Path) -> Option<exif::Exif> {
     if let Ok(file) = File::open(path)
-        && let Ok(e) = exif::Reader::new().read_from_container(&mut BufReader::new(file)) {
-            return Some(e);
-        }
+        && let Ok(e) = exif::Reader::new().read_from_container(&mut BufReader::new(file))
+    {
+        return Some(e);
+    }
     if crate::config::is_raw_file(path) {
         if crate::cr3_parser::is_cr3_file(path) {
             // CMT1 holds IFD0 (camera, date); good enough for exports.
             if let Some(blob) = crate::cr3_parser::extract_cr3_exif_blocks(path)
                 .into_iter()
                 .next()
-                && let Ok(e) = exif::Reader::new().read_raw(blob) {
-                    return Some(e);
-                }
+                && let Ok(e) = exif::Reader::new().read_raw(blob)
+            {
+                return Some(e);
+            }
         }
         let jpeg = crate::cr3_parser::extract_largest_embedded_jpeg(path)?;
         return exif::Reader::new()
@@ -384,9 +386,10 @@ pub fn save_image_with_icc(
                 out = buf;
             }
             if let Some(exif) = exif_tiff
-                && let Ok(with_exif) = crate::exif_orient::replace_jpeg_exif(&out, exif) {
-                    out = with_exif;
-                }
+                && let Ok(with_exif) = crate::exif_orient::replace_jpeg_exif(&out, exif)
+            {
+                out = with_exif;
+            }
             out
         }
         "png" => {
@@ -456,7 +459,7 @@ pub fn save_image_with_icc(
             return Err(
                 "Please choose a file name with an extension (.jpg, .png, .tif, .webp, .bmp)"
                     .into(),
-            )
+            );
         }
         other => return Err(format!("Saving as '.{}' is not supported", other)),
     };
@@ -591,21 +594,24 @@ mod tests {
                     .unwrap();
                 let m = e.get_field(exif::Tag::Make, exif::In::PRIMARY).unwrap();
                 assert!(m.display_value().to_string().contains("TestCam"), "{}", ext);
-                assert!(e
-                    .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
-                    .is_none());
+                assert!(
+                    e.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                        .is_none()
+                );
             }
         }
-        assert!(save_image_with_icc(
-            &dir.join("x.dng"),
-            1,
-            1,
-            &[0, 0, 0],
-            None,
-            None,
-            &JpegCompression::default()
-        )
-        .is_err());
+        assert!(
+            save_image_with_icc(
+                &dir.join("x.dng"),
+                1,
+                1,
+                &[0, 0, 0],
+                None,
+                None,
+                &JpegCompression::default()
+            )
+            .is_err()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -151,12 +151,13 @@ pub fn extract_metadata(decoded: &DecodedImage) -> Vec<(String, String)> {
     let has = |rows: &Vec<(String, String)>, k: &str| rows.iter().any(|(key, _)| key == k);
     if decoded.is_raw
         && !(has(&rows, "Camera Model") && has(&rows, "ISO") && has(&rows, "Shutter Speed"))
-        && let Some(jpeg_bytes) = crate::cr3_parser::extract_largest_embedded_jpeg(path) {
-            let mut cur = std::io::Cursor::new(jpeg_bytes);
-            if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cur) {
-                extract_exif_tags_into(&exif_data, &mut rows);
-            }
+        && let Some(jpeg_bytes) = crate::cr3_parser::extract_largest_embedded_jpeg(path)
+    {
+        let mut cur = std::io::Cursor::new(jpeg_bytes);
+        if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cur) {
+            extract_exif_tags_into(&exif_data, &mut rows);
         }
+    }
 
     rows
 }

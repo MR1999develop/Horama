@@ -1,11 +1,11 @@
 //! RAM cache (LRU, memory-budgeted) and background neighbourhood preloader.
 
 use crate::config::CACHE_FREE_RAM_RATIO;
-use crate::image_loader::{load_image, DecodedImage};
+use crate::image_loader::{DecodedImage, load_image};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use sysinfo::System;
@@ -49,9 +49,10 @@ impl RamCache {
 
     fn touch(&mut self, path: &str) {
         if let Some(pos) = self.order.iter().position(|p| p == path)
-            && let Some(k) = self.order.remove(pos) {
-                self.order.push_back(k);
-            }
+            && let Some(k) = self.order.remove(pos)
+        {
+            self.order.push_back(k);
+        }
     }
 
     /// Returns a cached image and marks it as recently used.

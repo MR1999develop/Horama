@@ -2,7 +2,7 @@
 
 use crate::config::{
     DEFAULT_FALLBACK_PROFILE, PROFILE_ADOBE_RGB, PROFILE_APPLE_RGB, PROFILE_CIE_RGB,
-    PROFILE_DISPLAY_P3, PROFILE_EMBEDDED, PROFILE_PROPHOTO, PROFILE_REC2020, PROFILE_REC709,
+    PROFILE_DISPLAY_P3, PROFILE_EMBEDDED, PROFILE_PROPHOTO, PROFILE_REC709, PROFILE_REC2020,
     PROFILE_SRGB, PROFILE_WIDE_GAMUT,
 };
 use qcms::{DataType, Intent, Profile, Transform};
@@ -143,23 +143,25 @@ mod win_display {
 
     const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
-    unsafe fn icm_profile(hdc: *mut c_void) -> Option<PathBuf> { unsafe {
-        let mut size: u32 = 1024;
-        let mut buf: Vec<u16> = vec![0u16; size as usize];
-        if GetICMProfileW(hdc, &mut size, buf.as_mut_ptr()) == 0 {
-            if size as usize > buf.len() {
-                buf = vec![0u16; size as usize];
-                if GetICMProfileW(hdc, &mut size, buf.as_mut_ptr()) == 0 {
+    unsafe fn icm_profile(hdc: *mut c_void) -> Option<PathBuf> {
+        unsafe {
+            let mut size: u32 = 1024;
+            let mut buf: Vec<u16> = vec![0u16; size as usize];
+            if GetICMProfileW(hdc, &mut size, buf.as_mut_ptr()) == 0 {
+                if size as usize > buf.len() {
+                    buf = vec![0u16; size as usize];
+                    if GetICMProfileW(hdc, &mut size, buf.as_mut_ptr()) == 0 {
+                        return None;
+                    }
+                } else {
                     return None;
                 }
-            } else {
-                return None;
             }
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            let p = PathBuf::from(String::from_utf16_lossy(&buf[..len]));
+            p.is_file().then_some(p)
         }
-        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-        let p = PathBuf::from(String::from_utf16_lossy(&buf[..len]));
-        p.is_file().then_some(p)
-    }}
+    }
 
     pub fn profile_path(screen_point: Option<(i32, i32)>) -> Option<PathBuf> {
         unsafe {
@@ -692,9 +694,10 @@ impl ColorManager {
         }
         let cache_key = (src_key.to_string(), dst_key.to_string());
         if let Ok(cache) = self.transform_cache.lock()
-            && let Some(t) = cache.get(&cache_key) {
-                return t.clone();
-            }
+            && let Some(t) = cache.get(&cache_key)
+        {
+            return t.clone();
+        }
         let src = self.build_profile(src_key, src_name, src_emb);
         let dst = self.build_profile(dst_key, dst_name, dst_emb);
         let t = Transform::new(&src, &dst, DataType::RGB8, Intent::Perceptual).map(Arc::new);

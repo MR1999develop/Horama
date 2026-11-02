@@ -6,7 +6,7 @@
 //! rotations. Closing the window with unsaved crops asks what to do with them.
 
 use super::i18n::{tr, trf};
-use super::{browse, theme, HoramaApp};
+use super::{HoramaApp, browse, theme};
 use crate::config::{path_key, same_path};
 use crate::image_loader::DecodedImage;
 use crate::image_saver::{export_image, generate_next_sequential_path};
@@ -194,9 +194,10 @@ impl HoramaApp {
     /// Makes `path` the current image if it is in the list.
     fn show_path(&mut self, path: &str) {
         if let Some(i) = self.visible.iter().position(|v| same_path(v, path))
-            && self.current != Some(i) {
-                self.select_only(i);
-            }
+            && self.current != Some(i)
+        {
+            self.select_only(i);
+        }
     }
 
     /// Shows the current image again (another profile, crop or file content).
@@ -300,11 +301,12 @@ impl HoramaApp {
             b.grip = under;
         }
         if response.dragged()
-            && let Some(grip) = b.grip {
-                let d = response.drag_delta();
-                let delta = Vec2::new(d.x / image.width(), d.y / image.height());
-                b.rect = self.drag_box(&b, grip, delta);
-            }
+            && let Some(grip) = b.grip
+        {
+            let d = response.drag_delta();
+            let delta = Vec2::new(d.x / image.width(), d.y / image.height());
+            b.rect = self.drag_box(&b, grip, delta);
+        }
         if response.drag_stopped() {
             b.grip = None;
         }

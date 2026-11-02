@@ -3,7 +3,7 @@
 //! Slint has no API for external drops; the winit backend delivers them as
 //! `WindowEvent::DroppedFile`, one event per dropped item.
 
-use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
+use slint::winit_030::{EventResult, WinitWindowAccessor, winit::event::WindowEvent};
 use std::path::PathBuf;
 
 /// Calls `on_drop` with the path of every item dropped on `window`.

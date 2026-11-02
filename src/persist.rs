@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -70,9 +70,10 @@ fn worker(rx: Receiver<Job>) {
         let mut keep = vec![true; batch.len()];
         for (i, job) in batch.iter().enumerate().rev() {
             if let Job::Replace { path, .. } = job
-                && !newest.insert(path.clone()) {
-                    keep[i] = false;
-                }
+                && !newest.insert(path.clone())
+            {
+                keep[i] = false;
+            }
         }
         for (job, keep) in batch.into_iter().zip(keep) {
             match job {

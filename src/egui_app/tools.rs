@@ -6,7 +6,7 @@
 //! - context menu of a filmstrip cell, with "Open With" and the registered applications.
 
 use super::i18n::{tr, trf};
-use super::{browse, HoramaApp};
+use super::{HoramaApp, browse};
 use crate::color_manager::rgb_to_hsl;
 use crate::open_with::{self, OpenWithItem};
 use egui::{Color32, PointerButton, Pos2, Rect, Stroke, Vec2};

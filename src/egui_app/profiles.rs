@@ -5,10 +5,10 @@
 //! when it has an embedded profile ([`crate::color_manager::ColorManager::render`]). Custom
 //! ICC/ICM files are remembered in the settings, shared with the Slint interface.
 
-use super::i18n::{tr, trf};
 use super::HoramaApp;
+use super::i18n::{tr, trf};
 use crate::color_manager::ColorManager;
-use crate::config::{path_key, AppSettings, BUILTIN_PROFILES, PROFILE_EMBEDDED};
+use crate::config::{AppSettings, BUILTIN_PROFILES, PROFILE_EMBEDDED, path_key};
 use std::path::Path;
 
 /// Registers the custom profiles saved in the settings; files that disappeared or are no

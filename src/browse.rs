@@ -765,9 +765,11 @@ mod tests {
         toggle_expanded(&mut expanded, &root, TREE_ALL);
         assert!(tree_rows(&root, &subs, &all, &expanded, TREE_ALL).len() > 1);
         toggle_expanded(&mut expanded, &root, &subs[0]);
-        assert!(!tree_rows(&root, &subs, &all, &expanded, TREE_ALL)
-            .iter()
-            .any(|r| r.name == "day2"));
+        assert!(
+            !tree_rows(&root, &subs, &all, &expanded, TREE_ALL)
+                .iter()
+                .any(|r| r.name == "day2")
+        );
 
         // Root collapsed: only the root row.
         let collapsed: HashSet<String> = HashSet::from(["something-else".to_string()]);

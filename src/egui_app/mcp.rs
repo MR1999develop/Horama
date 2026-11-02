@@ -8,10 +8,10 @@
 use super::HoramaApp;
 use crate::browse;
 use crate::config::{normalize_path, path_key, same_path};
-use crate::mcp_server::{run_mcp_stdio_server, McpCommand};
-use serde_json::{json, Value};
+use crate::mcp_server::{McpCommand, run_mcp_stdio_server};
+use serde_json::{Value, json};
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 
 /// Starts the server and returns where its commands arrive; `ctx` is woken for each one.
 pub fn start(ctx: egui::Context) -> Receiver<McpCommand> {

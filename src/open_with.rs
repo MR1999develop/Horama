@@ -168,140 +168,146 @@ mod win_impl {
 
     type VTable = *const *const usize;
 
-    unsafe fn call_release(p: *mut c_void) { unsafe {
-        if !p.is_null() {
-            let vt = *(p as VTable);
-            let release_fn: extern "system" fn(*mut c_void) -> u32 =
-                std::mem::transmute(*vt.add(2));
-            release_fn(p);
+    unsafe fn call_release(p: *mut c_void) {
+        unsafe {
+            if !p.is_null() {
+                let vt = *(p as VTable);
+                let release_fn: extern "system" fn(*mut c_void) -> u32 =
+                    std::mem::transmute(*vt.add(2));
+                release_fn(p);
+            }
         }
-    }}
+    }
 
     /// Extract 16x16 32-bit RGBA pixels from an HICON.
-    unsafe fn hicon_to_rgba(h_icon: *mut c_void) -> Option<(u32, u32, Vec<u8>)> { unsafe {
-        if h_icon.is_null() {
-            return None;
-        }
+    unsafe fn hicon_to_rgba(h_icon: *mut c_void) -> Option<(u32, u32, Vec<u8>)> {
+        unsafe {
+            if h_icon.is_null() {
+                return None;
+            }
 
-        let mut ii = std::mem::zeroed::<ICONINFO>();
-        if GetIconInfo(h_icon, &mut ii) == 0 {
-            return None;
-        }
+            let mut ii = std::mem::zeroed::<ICONINFO>();
+            if GetIconInfo(h_icon, &mut ii) == 0 {
+                return None;
+            }
 
-        let hdc = GetDC(ptr::null_mut());
-        if hdc.is_null() {
+            let hdc = GetDC(ptr::null_mut());
+            if hdc.is_null() {
+                if !ii.hbm_color.is_null() {
+                    DeleteObject(ii.hbm_color);
+                }
+                if !ii.hbm_mask.is_null() {
+                    DeleteObject(ii.hbm_mask);
+                }
+                return None;
+            }
+
+            let target_bitmap = if !ii.hbm_color.is_null() {
+                ii.hbm_color
+            } else {
+                ii.hbm_mask
+            };
+            let mut bm: BITMAP = std::mem::zeroed();
+            let got = GetObjectW(
+                target_bitmap,
+                std::mem::size_of::<BITMAP>() as i32,
+                &mut bm as *mut BITMAP as *mut c_void,
+            );
+            let width = if got != 0 && bm.bm_width > 0 {
+                bm.bm_width.min(256)
+            } else {
+                16
+            };
+            let mut height = if got != 0 && bm.bm_height > 0 {
+                bm.bm_height.min(256)
+            } else {
+                16
+            };
+            if ii.hbm_color.is_null() {
+                // Monochrome icons store AND and XOR masks stacked vertically.
+                height = (height / 2).max(1);
+            }
+            let mut bmi = std::mem::zeroed::<BITMAPINFOHEADER>();
+            bmi.bi_size = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            bmi.bi_width = width;
+            bmi.bi_height = -height; // top-down
+            bmi.bi_planes = 1;
+            bmi.bi_bit_count = 32;
+            bmi.bi_compression = 0; // BI_RGB
+
+            let mut buf = vec![0u8; (width * height * 4) as usize];
+
+            let lines = GetDIBits(
+                hdc,
+                target_bitmap,
+                0,
+                height as u32,
+                buf.as_mut_ptr() as *mut c_void,
+                &mut bmi,
+                0,
+            );
+
+            ReleaseDC(ptr::null_mut(), hdc);
             if !ii.hbm_color.is_null() {
                 DeleteObject(ii.hbm_color);
             }
             if !ii.hbm_mask.is_null() {
                 DeleteObject(ii.hbm_mask);
             }
-            return None;
-        }
 
-        let target_bitmap = if !ii.hbm_color.is_null() {
-            ii.hbm_color
-        } else {
-            ii.hbm_mask
-        };
-        let mut bm: BITMAP = std::mem::zeroed();
-        let got = GetObjectW(
-            target_bitmap,
-            std::mem::size_of::<BITMAP>() as i32,
-            &mut bm as *mut BITMAP as *mut c_void,
-        );
-        let width = if got != 0 && bm.bm_width > 0 {
-            bm.bm_width.min(256)
-        } else {
-            16
-        };
-        let mut height = if got != 0 && bm.bm_height > 0 {
-            bm.bm_height.min(256)
-        } else {
-            16
-        };
-        if ii.hbm_color.is_null() {
-            // Monochrome icons store AND and XOR masks stacked vertically.
-            height = (height / 2).max(1);
-        }
-        let mut bmi = std::mem::zeroed::<BITMAPINFOHEADER>();
-        bmi.bi_size = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-        bmi.bi_width = width;
-        bmi.bi_height = -height; // top-down
-        bmi.bi_planes = 1;
-        bmi.bi_bit_count = 32;
-        bmi.bi_compression = 0; // BI_RGB
-
-        let mut buf = vec![0u8; (width * height * 4) as usize];
-
-        let lines = GetDIBits(
-            hdc,
-            target_bitmap,
-            0,
-            height as u32,
-            buf.as_mut_ptr() as *mut c_void,
-            &mut bmi,
-            0,
-        );
-
-        ReleaseDC(ptr::null_mut(), hdc);
-        if !ii.hbm_color.is_null() {
-            DeleteObject(ii.hbm_color);
-        }
-        if !ii.hbm_mask.is_null() {
-            DeleteObject(ii.hbm_mask);
-        }
-
-        if lines == 0 {
-            return None;
-        }
-
-        // Convert BGRA to RGBA. Icons without an alpha channel (all alpha = 0) are opaque.
-        let has_alpha = buf.as_chunks::<4>().0.iter().any(|c| c[3] != 0);
-        for chunk in buf.as_chunks_mut::<4>().0 {
-            chunk.swap(0, 2);
-            if !has_alpha {
-                chunk[3] = 255;
+            if lines == 0 {
+                return None;
             }
-        }
 
-        Some((width as u32, height as u32, buf))
-    }}
+            // Convert BGRA to RGBA. Icons without an alpha channel (all alpha = 0) are opaque.
+            let has_alpha = buf.as_chunks::<4>().0.iter().any(|c| c[3] != 0);
+            for chunk in buf.as_chunks_mut::<4>().0 {
+                chunk.swap(0, 2);
+                if !has_alpha {
+                    chunk[3] = 255;
+                }
+            }
+
+            Some((width as u32, height as u32, buf))
+        }
+    }
 
     /// Extract icon for a given file path or application name.
-    unsafe fn extract_app_icon(app_path: &str, icon_index: i32) -> Option<(u32, u32, Vec<u8>)> { unsafe {
-        let wide: Vec<u16> = app_path.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe fn extract_app_icon(app_path: &str, icon_index: i32) -> Option<(u32, u32, Vec<u8>)> {
+        unsafe {
+            let wide: Vec<u16> = app_path.encode_utf16().chain(std::iter::once(0)).collect();
 
-        // 1. Try ExtractIconExW
-        let mut h_small: *mut c_void = ptr::null_mut();
-        if ExtractIconExW(wide.as_ptr(), icon_index, ptr::null_mut(), &mut h_small, 1) > 0
-            && !h_small.is_null()
-        {
-            let res = hicon_to_rgba(h_small);
-            DestroyIcon(h_small);
-            if res.is_some() {
-                return res;
+            // 1. Try ExtractIconExW
+            let mut h_small: *mut c_void = ptr::null_mut();
+            if ExtractIconExW(wide.as_ptr(), icon_index, ptr::null_mut(), &mut h_small, 1) > 0
+                && !h_small.is_null()
+            {
+                let res = hicon_to_rgba(h_small);
+                DestroyIcon(h_small);
+                if res.is_some() {
+                    return res;
+                }
             }
+
+            // 2. Try SHGetFileInfoW
+            let mut sfi = std::mem::zeroed::<SHFILEINFOW>();
+            let res = SHGetFileInfoW(
+                wide.as_ptr(),
+                0,
+                &mut sfi,
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                0x101, // SHGFI_ICON | SHGFI_SMALLICON
+            );
+
+            if res != 0 && !sfi.h_icon.is_null() {
+                let res_rgba = hicon_to_rgba(sfi.h_icon);
+                DestroyIcon(sfi.h_icon);
+                return res_rgba;
+            }
+
+            None
         }
-
-        // 2. Try SHGetFileInfoW
-        let mut sfi = std::mem::zeroed::<SHFILEINFOW>();
-        let res = SHGetFileInfoW(
-            wide.as_ptr(),
-            0,
-            &mut sfi,
-            std::mem::size_of::<SHFILEINFOW>() as u32,
-            0x101, // SHGFI_ICON | SHGFI_SMALLICON
-        );
-
-        if res != 0 && !sfi.h_icon.is_null() {
-            let res_rgba = hicon_to_rgba(sfi.h_icon);
-            DestroyIcon(sfi.h_icon);
-            return res_rgba;
-        }
-
-        None
-    }}
+    }
 
     pub fn get_handlers_for_file(file_path: &str) -> Vec<OpenWithItem> {
         let mut results = Vec::new();

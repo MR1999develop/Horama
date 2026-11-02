@@ -8,8 +8,8 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
@@ -83,7 +83,10 @@ pub fn trf(en: &str, args: &[&dyn Display]) -> String {
 /// English → Italian.
 const IT: &[(&str, &str)] = &[
     // Window and menus
-    ("Open a folder to view images", "Apri una cartella per vedere le immagini"),
+    (
+        "Open a folder to view images",
+        "Apri una cartella per vedere le immagini",
+    ),
     ("Open Folder…", "Apri cartella…"),
     ("Recent Folders", "Cartelle recenti"),
     ("Clear List", "Svuota elenco"),
@@ -108,12 +111,24 @@ const IT: &[(&str, &str)] = &[
     ("Language", "Lingua"),
     ("System language", "Lingua di sistema"),
     // Browsing
-    ("'{}' is not an image format Horama can open.", "'{}' non è un formato d'immagine che Horama sa aprire."),
+    (
+        "'{}' is not an image format Horama can open.",
+        "'{}' non è un formato d'immagine che Horama sa aprire.",
+    ),
     ("'{}' does not exist.", "'{}' non esiste."),
     ("Scanning {}…", "Lettura di {}…"),
-    ("Could not scan the folder: {}", "Impossibile leggere la cartella: {}"),
-    ("'{}' was not found in its folder.", "'{}' non è stato trovato nella sua cartella."),
-    ("No supported images in this folder.", "Nessuna immagine supportata in questa cartella."),
+    (
+        "Could not scan the folder: {}",
+        "Impossibile leggere la cartella: {}",
+    ),
+    (
+        "'{}' was not found in its folder.",
+        "'{}' non è stato trovato nella sua cartella.",
+    ),
+    (
+        "No supported images in this folder.",
+        "Nessuna immagine supportata in questa cartella.",
+    ),
     ("Cannot display {}: {}", "Impossibile mostrare {}: {}"),
     ("Nothing to undo.", "Niente da annullare."),
     ("No folder open", "Nessuna cartella aperta"),
@@ -157,8 +172,14 @@ const IT: &[(&str, &str)] = &[
     ("All", "Tutti"),
     ("Other", "Altro"),
     ("Without embedded profile", "Senza profilo incorporato"),
-    ("Reading the size of {} image(s)…", "Lettura delle dimensioni di {} immagini…"),
-    ("Could not read the image sizes: {}", "Impossibile leggere le dimensioni delle immagini: {}"),
+    (
+        "Reading the size of {} image(s)…",
+        "Lettura delle dimensioni di {} immagini…",
+    ),
+    (
+        "Could not read the image sizes: {}",
+        "Impossibile leggere le dimensioni delle immagini: {}",
+    ),
     ("{}: {} star(s)", "{}: {} stelle"),
     ("{} images: {} star(s)", "{} immagini: {} stelle"),
     ("Filters", "Filtri"),
@@ -167,31 +188,61 @@ const IT: &[(&str, &str)] = &[
     ("Aspect ratio", "Proporzioni"),
     ("Color profile", "Profilo colore"),
     ("Clear filters", "Azzera filtri"),
-    ("The profile is known only for images already opened.", "Il profilo è noto solo per le immagini già aperte."),
+    (
+        "The profile is known only for images already opened.",
+        "Il profilo è noto solo per le immagini già aperte.",
+    ),
     ("Rating (keys 0–5)", "Valutazione (tasti 0–5)"),
     ("Rating", "Valutazione"),
     // File operations
     ("Rotated: {}", "Ruotata: {}"),
-    ("Rotation not saved for '{}': {}", "Rotazione non salvata per '{}': {}"),
-    ("'{}' moved to the Recycle Bin.", "'{}' spostato nel Cestino."),
-    ("{} files moved to the Recycle Bin.", "{} file spostati nel Cestino."),
+    (
+        "Rotation not saved for '{}': {}",
+        "Rotazione non salvata per '{}': {}",
+    ),
+    (
+        "'{}' moved to the Recycle Bin.",
+        "'{}' spostato nel Cestino.",
+    ),
+    (
+        "{} files moved to the Recycle Bin.",
+        "{} file spostati nel Cestino.",
+    ),
     ("Restored {} file(s).", "{} file ripristinati."),
-    ("{} file(s) could not be moved to the Recycle Bin and are back in the list. {}", "{} file non sono stati spostati nel Cestino e sono tornati nell'elenco. {}"),
+    (
+        "{} file(s) could not be moved to the Recycle Bin and are back in the list. {}",
+        "{} file non sono stati spostati nel Cestino e sono tornati nell'elenco. {}",
+    ),
     ("Rename", "Rinomina"),
     ("Rename {} files", "Rinomina {} file"),
-    ("The files become \"Name (1)\", \"Name (2)\"… keeping their extension.", "I file diventano \"Nome (1)\", \"Nome (2)\"… e mantengono l'estensione."),
+    (
+        "The files become \"Name (1)\", \"Name (2)\"… keeping their extension.",
+        "I file diventano \"Nome (1)\", \"Nome (2)\"… e mantengono l'estensione.",
+    ),
     ("New name", "Nuovo nome"),
     ("Cancel", "Annulla"),
     ("Not renamed: {}", "Non rinominato: {}"),
     ("Renamed to {}", "Rinominato in {}"),
     ("{} files renamed", "{} file rinominati"),
     ("Save a Copy As", "Salva una copia come"),
-    ("Choose another name: the original is never overwritten.", "Scegli un altro nome: l'originale non viene mai sovrascritto."),
+    (
+        "Choose another name: the original is never overwritten.",
+        "Scegli un altro nome: l'originale non viene mai sovrascritto.",
+    ),
     ("JPEG Quality", "Qualità JPEG"),
-    ("Same compression as the original", "Stessa compressione dell'originale"),
-    ("Reuses the tables of the original: repeated saves do not wear the image, and an unchanged image is copied without recompression.", "Riusa le tabelle dell'originale: i salvataggi ripetuti non consumano l'immagine e un'immagine non modificata viene copiata senza ricompressione."),
+    (
+        "Same compression as the original",
+        "Stessa compressione dell'originale",
+    ),
+    (
+        "Reuses the tables of the original: repeated saves do not wear the image, and an unchanged image is copied without recompression.",
+        "Riusa le tabelle dell'originale: i salvataggi ripetuti non consumano l'immagine e un'immagine non modificata viene copiata senza ricompressione.",
+    ),
     ("Quality", "Qualità"),
-    ("From 90 the color keeps full resolution (4:4:4).", "Da 90 il colore mantiene la piena risoluzione (4:4:4)."),
+    (
+        "From 90 the color keeps full resolution (4:4:4).",
+        "Da 90 il colore mantiene la piena risoluzione (4:4:4).",
+    ),
     ("Save", "Salva"),
     ("Saving {}…", "Salvataggio di {}…"),
     ("Saved '{}'.", "'{}' salvato."),
@@ -202,10 +253,22 @@ const IT: &[(&str, &str)] = &[
     ("Color Profile", "Profilo colore"),
     ("Color profile: {}", "Profilo colore: {}"),
     ("Embedded Profile", "Profilo incorporato"),
-    ("Load Custom ICC/ICM Profile", "Carica un profilo ICC/ICM personalizzato"),
-    ("Load Custom ICC/ICM Profile…", "Carica un profilo ICC/ICM personalizzato…"),
-    ("'{}' is not a valid RGB ICC profile.", "'{}' non è un profilo ICC RGB valido."),
-    ("Images with an embedded profile are converted; the others get it assigned.", "Le immagini con un profilo incorporato vengono convertite, alle altre viene assegnato."),
+    (
+        "Load Custom ICC/ICM Profile",
+        "Carica un profilo ICC/ICM personalizzato",
+    ),
+    (
+        "Load Custom ICC/ICM Profile…",
+        "Carica un profilo ICC/ICM personalizzato…",
+    ),
+    (
+        "'{}' is not a valid RGB ICC profile.",
+        "'{}' non è un profilo ICC RGB valido.",
+    ),
+    (
+        "Images with an embedded profile are converted; the others get it assigned.",
+        "Le immagini con un profilo incorporato vengono convertite, alle altre viene assegnato.",
+    ),
     // Crop and history
     ("Edit", "Modifica"),
     ("Redo", "Ripeti"),
@@ -214,13 +277,25 @@ const IT: &[(&str, &str)] = &[
     ("Free", "Libero"),
     ("Apply", "Applica"),
     ("Save Crop", "Salva ritaglio"),
-    ("Nothing to save: only cropped images are saved.", "Niente da salvare: si salvano solo le immagini ritagliate."),
-    ("Not rotated: {} (save or undo the crop first).", "Non ruotate: {} (prima salva o annulla il ritaglio)."),
+    (
+        "Nothing to save: only cropped images are saved.",
+        "Niente da salvare: si salvano solo le immagini ritagliate.",
+    ),
+    (
+        "Not rotated: {} (save or undo the crop first).",
+        "Non ruotate: {} (prima salva o annulla il ritaglio).",
+    ),
     ("Unsaved crops", "Ritagli non salvati"),
-    ("{} cropped image(s) are not saved. Save them as new files next to the originals?", "{} immagini ritagliate non sono salvate. Salvarle come nuovi file accanto agli originali?"),
+    (
+        "{} cropped image(s) are not saved. Save them as new files next to the originals?",
+        "{} immagini ritagliate non sono salvate. Salvarle come nuovi file accanto agli originali?",
+    ),
     ("Save and Close", "Salva e chiudi"),
     ("Close Without Saving", "Chiudi senza salvare"),
-    ("{} selected, the first {} shown", "{} selezionate, mostrate le prime {}"),
+    (
+        "{} selected, the first {} shown",
+        "{} selezionate, mostrate le prime {}",
+    ),
     // Keyboard
     ("Open File…", "Apri file…"),
     ("Open File", "Apri file"),
@@ -234,22 +309,37 @@ const IT: &[(&str, &str)] = &[
     ("Next Color Profile", "Profilo colore successivo"),
     ("Keyboard Shortcuts", "Scorciatoie da tastiera"),
     ("Keyboard Shortcuts…", "Scorciatoie da tastiera…"),
-    ("Press the new keys… (Esc cancels)", "Premi i nuovi tasti… (Esc annulla)"),
+    (
+        "Press the new keys… (Esc cancels)",
+        "Premi i nuovi tasti… (Esc annulla)",
+    ),
     ("Change", "Cambia"),
-    ("Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.", "Tasti fissi: 0–5 valutazione, F adatta, I pannello informazioni, Ctrl+Maiusc+S salva una copia, F6 pannello successivo."),
+    (
+        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.",
+        "Tasti fissi: 0–5 valutazione, F adatta, I pannello informazioni, Ctrl+Maiusc+S salva una copia, F6 pannello successivo.",
+    ),
     ("Reset to Defaults", "Ripristina i predefiniti"),
     ("{} is already used by \"{}\".", "{} è già usato da \"{}\"."),
     ("Next Panel", "Pannello successivo"),
     // Tools
     ("Pixel", "Pixel"),
     ("Display profile: {}", "Profilo del monitor: {}"),
-    ("None of the dropped files is an image format Horama can open.", "Nessuno dei file trascinati è un formato d'immagine che Horama sa aprire."),
+    (
+        "None of the dropped files is an image format Horama can open.",
+        "Nessuno dei file trascinati è un formato d'immagine che Horama sa aprire.",
+    ),
     ("{} selected files", "{} file selezionati"),
-    ("Rotation shown only: {} (this format is never modified).", "Rotazione solo a schermo: {} (questo formato non viene mai modificato)."),
+    (
+        "Rotation shown only: {} (this format is never modified).",
+        "Rotazione solo a schermo: {} (questo formato non viene mai modificato).",
+    ),
     ("Open With", "Apri con"),
     ("Choose Another App…", "Scegli un'altra app…"),
     ("'{}' not opened: {}", "'{}' non aperto: {}"),
-    ("Open a folder or an image (File menu), or drop one here", "Apri una cartella o un'immagine (menu File), o trascinala qui"),
+    (
+        "Open a folder or an image (File menu), or drop one here",
+        "Apri una cartella o un'immagine (menu File), o trascinala qui",
+    ),
 ];
 
 #[cfg(test)]

@@ -177,9 +177,10 @@ impl AppSettings {
             let path = Self::config_file_path();
             let backup = path.with_extension("json.before-ratings");
             if !backup.exists()
-                && let Err(e) = fs::copy(&path, &backup) {
-                    log::error!("Settings not copied to {}: {}", backup.display(), e);
-                }
+                && let Err(e) = fs::copy(&path, &backup)
+            {
+                log::error!("Settings not copied to {}: {}", backup.display(), e);
+            }
             let legacy = std::mem::take(&mut settings.legacy_ratings);
             let count = legacy.len();
             settings.ratings.import(legacy);
@@ -319,11 +320,7 @@ fn migrate_legacy_settings(base: &Path) -> Option<PathBuf> {
 /// because Linux/macOS file names are case-sensitive.
 pub fn path_key(p: &str) -> String {
     let n = normalize_path(p);
-    if cfg!(windows) {
-        n.to_lowercase()
-    } else {
-        n
-    }
+    if cfg!(windows) { n.to_lowercase() } else { n }
 }
 
 /// True if two paths refer to the same file name (case-insensitive on Windows only).

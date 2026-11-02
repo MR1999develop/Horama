@@ -6,7 +6,7 @@
 //! egui) uses these functions, and they are tested without a window.
 
 use crate::config::{path_key, same_path};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 /// Folder tree selection that shows every file of the open folder and its subfolders.
@@ -244,6 +244,163 @@ pub fn matches_aspect_ratio_filter(ratio: f32, filter: &str, saved_customs: &[St
         saved => parse_aspect_ratio_str(saved)
             .map(|t| ratio_matches_target(ratio, t))
             .unwrap_or(true),
+    }
+}
+
+/// One row of the folder tree, in display order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TreeRow {
+    /// Folder name, or `"[Direct Files]"` for [`TREE_ROOT_ONLY`].
+    pub name: String,
+    /// Number of files in the folder and its subfolders (direct files only for the
+    /// [`TREE_ROOT_ONLY`] row).
+    pub count: usize,
+    /// Value for [`Filters::tree`]: [`TREE_ALL`] (the open folder), [`TREE_ROOT_ONLY`] or the
+    /// folder path.
+    pub key: String,
+    /// 0 for the open folder, 1 for its direct subfolders, and so on.
+    pub depth: usize,
+    pub has_children: bool,
+    pub expanded: bool,
+    pub selected: bool,
+}
+
+/// Rows of the folder tree of the open folder `root`: the folder itself, then (if expanded and
+/// it has subfolders) a row for its direct files and the subfolders whose ancestors are all
+/// expanded. `subfolders` is in scan order (parents before children); `expanded` holds
+/// [`path_key`]s of expanded folders ([`TREE_ALL`] for the root); `selected` is the current
+/// [`Filters::tree`].
+pub fn tree_rows(
+    root: &str,
+    subfolders: &[String],
+    files: &[String],
+    expanded: &HashSet<String>,
+    selected: &str,
+) -> Vec<TreeRow> {
+    let root_key = path_key(root);
+    let is_expanded = |key: &str| expanded.contains(key);
+    // Files per folder, counted once for every ancestor up to the root.
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut direct = 0;
+    for f in files {
+        let mut dir = Path::new(f).parent();
+        if dir
+            .map(|d| path_key(&d.to_string_lossy()) == root_key)
+            .unwrap_or(false)
+        {
+            direct += 1;
+        }
+        while let Some(d) = dir {
+            let key = path_key(&d.to_string_lossy());
+            if key == root_key || key.len() < root_key.len() {
+                break;
+            }
+            *counts.entry(key).or_default() += 1;
+            dir = d.parent();
+        }
+    }
+    let parent_key = |p: &str| {
+        Path::new(p)
+            .parent()
+            .map(|d| path_key(&d.to_string_lossy()))
+    };
+    let with_children: HashSet<String> = subfolders.iter().filter_map(|s| parent_key(s)).collect();
+
+    let root_expanded = expanded.is_empty() || is_expanded(TREE_ALL) || is_expanded(&root_key);
+    let mut rows = vec![TreeRow {
+        name: file_name_of(root),
+        count: files.len(),
+        key: TREE_ALL.to_string(),
+        depth: 0,
+        has_children: !subfolders.is_empty(),
+        expanded: root_expanded,
+        selected: selected == TREE_ALL,
+    }];
+    if !root_expanded || subfolders.is_empty() {
+        return rows;
+    }
+    rows.push(TreeRow {
+        name: "[Direct Files]".to_string(),
+        count: direct,
+        key: TREE_ROOT_ONLY.to_string(),
+        depth: 1,
+        has_children: false,
+        expanded: false,
+        selected: selected == TREE_ROOT_ONLY,
+    });
+    for sub in subfolders {
+        let key = path_key(sub);
+        // Every folder between the root and this one must be expanded.
+        let mut visible = true;
+        let mut depth = 1;
+        let mut dir = Path::new(sub).parent();
+        while let Some(d) = dir {
+            let k = path_key(&d.to_string_lossy());
+            if k == root_key || k.len() < root_key.len() {
+                break;
+            }
+            visible &= is_expanded(&k);
+            depth += 1;
+            dir = d.parent();
+        }
+        if !visible {
+            continue;
+        }
+        rows.push(TreeRow {
+            name: file_name_of(sub),
+            count: counts.get(&key).copied().unwrap_or(0),
+            key: sub.clone(),
+            depth,
+            has_children: with_children.contains(&key),
+            expanded: is_expanded(&key),
+            selected: selected != TREE_ALL
+                && selected != TREE_ROOT_ONLY
+                && same_path(selected, sub),
+        });
+    }
+    rows
+}
+
+/// Marks `folder` and every folder between it and `root` as expanded, so the folder is
+/// visible in the tree.
+pub fn expand_to(expanded: &mut HashSet<String>, root: &str, folder: &str) {
+    let root_key = path_key(root);
+    expanded.insert(TREE_ALL.to_string());
+    let mut dir = Some(Path::new(folder));
+    while let Some(d) = dir {
+        let k = path_key(&d.to_string_lossy());
+        if k.len() < root_key.len() {
+            break;
+        }
+        expanded.insert(k.clone());
+        if k == root_key {
+            break;
+        }
+        dir = d.parent();
+    }
+}
+
+/// Expands a collapsed folder of the tree or collapses an expanded one. `key` is a
+/// [`TreeRow::key`].
+pub fn toggle_expanded(expanded: &mut HashSet<String>, root: &str, key: &str) {
+    let root_key = path_key(root);
+    if key == TREE_ALL {
+        let open =
+            expanded.is_empty() || expanded.contains(TREE_ALL) || expanded.contains(&root_key);
+        if open {
+            expanded.remove(TREE_ALL);
+            expanded.remove(&root_key);
+            // An empty set means "root expanded": keep a marker so it stays collapsed.
+            expanded.insert(String::new());
+        } else {
+            expanded.insert(TREE_ALL.to_string());
+            expanded.insert(root_key);
+        }
+    } else {
+        let k = path_key(key);
+        if !expanded.remove(&k) {
+            expanded.insert(k);
+        }
     }
 }
 
@@ -566,6 +723,55 @@ mod tests {
             None
         );
         assert_eq!(one.len(), 1);
+    }
+
+    #[test]
+    fn tree_rows_follow_expansion_and_count_nested_files() {
+        let (root, all) = files();
+        let subs = vec![
+            p(&["photos", "trip"]),
+            p(&["photos", "trip", "day2"]),
+            p(&["photos", "tripod"]),
+        ];
+        let mut expanded = HashSet::new();
+        let rows = tree_rows(&root, &subs, &all, &expanded, TREE_ALL);
+        let names: Vec<_> = rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.count, r.depth))
+            .collect();
+        // Empty expansion set = root expanded; "day2" hidden until "trip" is expanded.
+        assert_eq!(
+            names,
+            [
+                ("photos", 5, 0),
+                ("[Direct Files]", 2, 1),
+                ("trip", 2, 1),
+                ("tripod", 1, 1)
+            ]
+        );
+        assert!(rows[0].selected && rows[2].has_children && !rows[3].has_children);
+
+        expand_to(&mut expanded, &root, &p(&["photos", "trip", "day2"]));
+        let rows = tree_rows(&root, &subs, &all, &expanded, &subs[1]);
+        let day2 = rows
+            .iter()
+            .find(|r| r.name == "day2")
+            .expect("day2 visible");
+        assert_eq!((day2.count, day2.depth, day2.selected), (1, 2, true));
+        assert!(!rows[0].selected);
+
+        toggle_expanded(&mut expanded, &root, TREE_ALL);
+        assert_eq!(tree_rows(&root, &subs, &all, &expanded, TREE_ALL).len(), 1);
+        toggle_expanded(&mut expanded, &root, TREE_ALL);
+        assert!(tree_rows(&root, &subs, &all, &expanded, TREE_ALL).len() > 1);
+        toggle_expanded(&mut expanded, &root, &subs[0]);
+        assert!(!tree_rows(&root, &subs, &all, &expanded, TREE_ALL)
+            .iter()
+            .any(|r| r.name == "day2"));
+
+        // Root collapsed: only the root row.
+        let collapsed: HashSet<String> = HashSet::from(["something-else".to_string()]);
+        assert_eq!(tree_rows(&root, &subs, &all, &collapsed, TREE_ALL).len(), 1);
     }
 
     #[test]

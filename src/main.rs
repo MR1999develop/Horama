@@ -683,70 +683,9 @@ fn rebuild_profile_combobox_list(ui: &AppWindow, state: &ViewerState) {
     ui.set_profile_list(ModelRc::new(VecModel::from(list)));
 }
 
-fn relative_depth(root: &str, path: &str) -> i32 {
-    let p_root = Path::new(root);
-    let p_path = Path::new(path);
-    if let Ok(rel) = p_path.strip_prefix(p_root) {
-        return rel.components().count().max(1) as i32;
-    }
-    let root_comps: Vec<String> = p_root
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
-        .collect();
-    let path_comps: Vec<String> = p_path
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
-        .collect();
-    if path_comps.len() > root_comps.len() {
-        let is_prefix = root_comps
-            .iter()
-            .zip(path_comps.iter())
-            .all(|(rc, pc)| rc == pc);
-        if is_prefix {
-            return (path_comps.len() - root_comps.len()) as i32;
-        }
-    }
-    1
-}
-
-fn are_ancestors_expanded(
-    path: &str,
-    root_norm: &str,
-    expanded: &std::collections::HashSet<String>,
-) -> bool {
-    let mut current = Path::new(path);
-    while let Some(parent) = current.parent() {
-        let norm_parent = normalize_path(&parent.to_string_lossy());
-        if norm_parent.eq_ignore_ascii_case(root_norm) {
-            return true;
-        }
-        if !expanded
-            .iter()
-            .any(|e| e.eq_ignore_ascii_case(&norm_parent))
-        {
-            return false;
-        }
-        current = parent;
-    }
-    true
-}
-
 fn expand_ancestors_and_subfolder(state: &mut ViewerState, subfolder: &str) {
-    let norm_sub = normalize_path(subfolder);
-    let norm_root = normalize_path(&state.current_folder);
-    let mut cur = Path::new(&norm_sub);
-    while let Some(parent) = cur.parent() {
-        let p_norm = normalize_path(&parent.to_string_lossy());
-        if p_norm.len() < norm_root.len() {
-            break;
-        }
-        state.expanded_folders.insert(p_norm.clone());
-        if p_norm.eq_ignore_ascii_case(&norm_root) {
-            break;
-        }
-        cur = parent;
-    }
-    state.expanded_folders.insert(norm_sub);
+    let root = state.current_folder.clone();
+    horama::browse::expand_to(&mut state.expanded_folders, &root, subfolder);
 }
 
 fn refresh_folder_tree_ui(ui: &AppWindow, state: &ViewerState) {
@@ -757,103 +696,24 @@ fn refresh_folder_tree_ui(ui: &AppWindow, state: &ViewerState) {
     }
 
     ui.set_has_subfolders(true);
-    let root_norm = normalize_path(&state.current_folder);
-    let root_name = Path::new(&root_norm)
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| root_norm.clone());
-
-    let root_has_children = !state.subfolders.is_empty();
-    let root_is_expanded = state.expanded_folders.contains("__ALL__")
-        || state
-            .expanded_folders
-            .iter()
-            .any(|e| e.eq_ignore_ascii_case(&root_norm))
-        || state.expanded_folders.is_empty();
-
-    let mut items = Vec::new();
-    items.push(TreeItemData {
-        label: format!("{} ({})", root_name, state.all_folder_files.len()).into(),
-        path_key: "__ALL__".into(),
-        depth: 0,
-        selected: state.selected_tree_filter == "__ALL__",
-        has_children: root_has_children,
-        is_expanded: root_is_expanded,
-    });
-
-    if root_is_expanded && !state.subfolders.is_empty() {
-        let root_only_count = state
-            .all_folder_files
-            .iter()
-            .filter(|f| {
-                Path::new(f)
-                    .parent()
-                    .map(|p| normalize_path(&p.to_string_lossy()).eq_ignore_ascii_case(&root_norm))
-                    .unwrap_or(false)
-            })
-            .count();
-
-        items.push(TreeItemData {
-            label: format!("[Direct Files] ({})", root_only_count).into(),
-            path_key: "__ROOT_ONLY__".into(),
-            depth: 1,
-            selected: state.selected_tree_filter == "__ROOT_ONLY__",
-            has_children: false,
-            is_expanded: false,
-        });
-
-        for sub in &state.subfolders {
-            if !are_ancestors_expanded(sub, &root_norm, &state.expanded_folders) {
-                continue;
-            }
-
-            let sub_name = Path::new(sub)
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| sub.clone());
-            let depth = relative_depth(&root_norm, sub);
-            let prefix = format!("{}{}", sub, std::path::MAIN_SEPARATOR).to_lowercase();
-            let sub_low = sub.to_lowercase();
-            let count = state
-                .all_folder_files
-                .iter()
-                .filter(|f| {
-                    let fl = f.to_lowercase();
-                    fl.starts_with(&prefix)
-                        || Path::new(f)
-                            .parent()
-                            .map(|p| normalize_path(&p.to_string_lossy()).to_lowercase() == sub_low)
-                            .unwrap_or(false)
-                })
-                .count();
-
-            let has_children = state.subfolders.iter().any(|other| {
-                if other.eq_ignore_ascii_case(sub) {
-                    return false;
-                }
-                if let Some(par) = Path::new(other).parent() {
-                    normalize_path(&par.to_string_lossy()).eq_ignore_ascii_case(sub)
-                } else {
-                    false
-                }
-            });
-
-            let is_expanded = state
-                .expanded_folders
-                .iter()
-                .any(|e| e.eq_ignore_ascii_case(sub));
-
-            items.push(TreeItemData {
-                label: format!("{} ({})", sub_name, count).into(),
-                path_key: sub.clone().into(),
-                depth,
-                selected: state.selected_tree_filter.eq_ignore_ascii_case(sub),
-                has_children,
-                is_expanded,
-            });
-        }
-    }
-
+    let rows = horama::browse::tree_rows(
+        &normalize_path(&state.current_folder),
+        &state.subfolders,
+        &state.all_folder_files,
+        &state.expanded_folders,
+        &state.selected_tree_filter,
+    );
+    let items: Vec<TreeItemData> = rows
+        .into_iter()
+        .map(|r| TreeItemData {
+            label: format!("{} ({})", r.name, r.count).into(),
+            path_key: r.key.into(),
+            depth: r.depth as i32,
+            selected: r.selected,
+            has_children: r.has_children,
+            is_expanded: r.expanded,
+        })
+        .collect();
     ui.set_folder_tree_items(ModelRc::new(VecModel::from(items)));
 }
 
@@ -3214,7 +3074,7 @@ fn open_folder_path(
     state.selected_tree_filter = "__ALL__".to_string();
     state.expanded_folders.clear();
     state.expanded_folders.insert("__ALL__".to_string());
-    state.expanded_folders.insert(norm.clone());
+    state.expanded_folders.insert(path_key(&norm));
     state.all_folder_files.clear();
     state.subfolders.clear();
     state.visible_files.clear();
@@ -4701,35 +4561,8 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_tree_item_toggle_expand(move |key| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            let key = key.to_string();
-            let norm_root = normalize_path(&st.current_folder);
-            let root_expanded = st.expanded_folders.contains("__ALL__")
-                || st.expanded_folders.iter().any(|e| same_path(e, &norm_root))
-                || st.expanded_folders.is_empty();
-            if key == "__ALL__" {
-                if root_expanded {
-                    st.expanded_folders.remove("__ALL__");
-                    st.expanded_folders.retain(|e| !same_path(e, &norm_root));
-                } else {
-                    st.expanded_folders.insert("__ALL__".to_string());
-                    st.expanded_folders.insert(norm_root);
-                }
-            } else {
-                let norm_k = normalize_path(&key);
-                let existing = st
-                    .expanded_folders
-                    .iter()
-                    .find(|e| same_path(e, &norm_k))
-                    .cloned();
-                match existing {
-                    Some(ex) => {
-                        st.expanded_folders.remove(&ex);
-                    }
-                    None => {
-                        st.expanded_folders.insert(norm_k);
-                    }
-                }
-            }
+            let root = st.current_folder.clone();
+            horama::browse::toggle_expanded(&mut st.expanded_folders, &root, key.as_str());
             refresh_folder_tree_ui(&ui, &st);
         });
     }

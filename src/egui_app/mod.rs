@@ -26,6 +26,7 @@ mod shortcuts;
 mod theme;
 mod thumbs;
 mod tools;
+mod view_rotation;
 mod watch;
 
 use crate::browse::{self, ClickMods, Filters};
@@ -166,6 +167,8 @@ pub struct HoramaApp {
     show_info: bool,
     /// Color profiles chosen by the user, by [`crate::config::path_key`].
     profile_overrides: HashMap<String, String>,
+    /// Quarter turns shown on screen only, by path key ([`view_rotation`]).
+    view_turns: HashMap<String, u8>,
     /// Unsaved crops, by [`crate::config::path_key`] ([`edit`]).
     edited: HashMap<String, std::sync::Arc<crate::image_loader::DecodedImage>>,
     undo: Vec<edit::Action>,
@@ -190,6 +193,8 @@ pub struct HoramaApp {
     focus_panel: usize,
     /// The panel that takes the focus at its next drawing.
     pending_focus: Option<usize>,
+    /// The search box, whose focus means the keys are text.
+    search_id: Option<egui::Id>,
     /// The images of the comparison grid and their previews ([`compare`]).
     compare_paths: Vec<String>,
     compare_textures: HashMap<String, Option<TextureHandle>>,
@@ -261,6 +266,7 @@ impl HoramaApp {
             show_info: true,
             profile_overrides: HashMap::new(),
             edited: HashMap::new(),
+            view_turns: HashMap::new(),
             undo: Vec::new(),
             redo: Vec::new(),
             crop: None,
@@ -275,6 +281,7 @@ impl HoramaApp {
             display_probe_running: false,
             focus_panel: 2,
             pending_focus: None,
+            search_id: None,
             compare_paths: Vec::new(),
             compare_textures: HashMap::new(),
             compare_generation: 0,
@@ -499,6 +506,7 @@ impl HoramaApp {
             profile: self.profile_of(&path),
             color: self.color.clone(),
             edited: self.edited_pixels(&path),
+            turns: self.view_turns_of(&path),
             path,
         });
     }
@@ -952,7 +960,12 @@ impl HoramaApp {
             self.focus_next_panel();
         }
         // Keys go to text fields when one has the focus (the search box), and to the windows.
-        if ui.ctx().egui_wants_keyboard_input() || !self.no_window_open() {
+        // Only typing in the search box takes the keys: a focused thumbnail or image view
+        // (F6, a click) does not.
+        let typing = self
+            .search_id
+            .is_some_and(|id| ui.ctx().memory(|m| m.has_focus(id)));
+        if typing || !self.no_window_open() {
             return;
         }
         if self.crop.is_some() {
@@ -1151,6 +1164,7 @@ impl HoramaApp {
                 .hint_text(tr("Search file names"))
                 .desired_width(f32::INFINITY),
         );
+        self.search_id = Some(search.id);
         if self.pending_focus == Some(0) {
             self.pending_focus = None;
             search.request_focus();
@@ -1335,10 +1349,26 @@ impl HoramaApp {
         match self.thumbs.get(path) {
             Some(Some(tex)) => {
                 let size = tex.size_vec2();
-                let k = (THUMB_BOX.x / size.x).min(THUMB_BOX.y / size.y).min(1.0);
+                let turns = self.view_turns_of(path);
+                // A quarter turn swaps the sides of the space the thumbnail takes.
+                let shown = if turns % 2 == 1 {
+                    Vec2::new(size.y, size.x)
+                } else {
+                    size
+                };
+                let k = (THUMB_BOX.x / shown.x).min(THUMB_BOX.y / shown.y).min(1.0);
                 let r = Rect::from_center_size(thumb_area.center(), size * k);
-                let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-                painter.image(tex.id(), r, uv, Color32::WHITE);
+                if turns == 0 {
+                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    painter.image(tex.id(), r, uv, Color32::WHITE);
+                } else {
+                    egui::Image::from_texture((tex.id(), size))
+                        .rotate(
+                            std::f32::consts::FRAC_PI_2 * f32::from(turns),
+                            Vec2::splat(0.5),
+                        )
+                        .paint_at(ui, r);
+                }
             }
             Some(None) => {
                 painter.text(

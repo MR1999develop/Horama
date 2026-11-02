@@ -171,9 +171,7 @@ const IT: &[(&str, &str)] = &[
     ("Rating (keys 0–5)", "Valutazione (tasti 0–5)"),
     ("Rating", "Valutazione"),
     // File operations
-    ("Not rotated: {} (RAW and other formats are never modified).", "Non ruotate: {} (i RAW e gli altri formati non vengono mai modificati)."),
     ("Rotated: {}", "Ruotata: {}"),
-    ("'{}' not rotated: {}.", "'{}' non ruotata: {}."),
     ("Rotation not saved for '{}': {}", "Rotazione non salvata per '{}': {}"),
     ("'{}' moved to the Recycle Bin.", "'{}' spostato nel Cestino."),
     ("{} files moved to the Recycle Bin.", "{} file spostati nel Cestino."),
@@ -247,6 +245,7 @@ const IT: &[(&str, &str)] = &[
     ("Display profile: {}", "Profilo del monitor: {}"),
     ("None of the dropped files is an image format Horama can open.", "Nessuno dei file trascinati è un formato d'immagine che Horama sa aprire."),
     ("{} selected files", "{} file selezionati"),
+    ("Rotation shown only: {} (this format is never modified).", "Rotazione solo a schermo: {} (questo formato non viene mai modificato)."),
     ("Open With", "Apri con"),
     ("Choose Another App…", "Scegli un'altra app…"),
     ("'{}' not opened: {}", "'{}' non aperto: {}"),
@@ -305,6 +304,7 @@ mod tests {
             include_str!("shortcuts.rs"),
             include_str!("tools.rs"),
             include_str!("display.rs"),
+            include_str!("view_rotation.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

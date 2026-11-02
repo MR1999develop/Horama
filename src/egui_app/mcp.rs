@@ -127,12 +127,11 @@ impl HoramaApp {
                         return;
                     }
                 };
-                if !crate::disk_ops::rotation_format_supported(Path::new(&path)) {
-                    let _ = resp.send(Err(
-                        "RAW and unsupported formats are never modified".to_string()
-                    ));
-                    return;
-                }
+                let how = if crate::disk_ops::rotation_format_supported(Path::new(&path)) {
+                    "the file is being updated losslessly"
+                } else {
+                    "shown on screen only (RAW and unsupported formats are never modified)"
+                };
                 if turns == 3 {
                     self.rotate(false);
                 } else {
@@ -140,10 +139,7 @@ impl HoramaApp {
                         self.rotate(true);
                     }
                 }
-                let _ = resp.send(Ok(format!(
-                    "Image rotated {}°; the file is being updated losslessly",
-                    turns * 90
-                )));
+                let _ = resp.send(Ok(format!("Image rotated {}°; {}", turns * 90, how)));
             }
             McpCommand::SetZoom { mode, factor, resp } => {
                 if self.shown.is_none() {

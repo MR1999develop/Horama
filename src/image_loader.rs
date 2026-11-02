@@ -108,7 +108,6 @@ impl DecodedImage {
     }
 
     /// Rotate 180 degrees.
-    #[cfg(test)]
     pub fn rotate_180(&self) -> DecodedImage {
         let (w, h) = (self.width as usize, self.height as usize);
         self.remap(w, h, |x, y| (w - 1 - x, h - 1 - y))

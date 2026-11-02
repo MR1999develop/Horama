@@ -176,6 +176,16 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         .filter(|n| n.is_focused())
         .count();
     assert_eq!(focused, 1, "F6 focuses the search box");
+    // Two more F6: filmstrip, then the image again, where the keys drive the viewer.
+    harness.key_press(egui::Key::F6);
+    harness.step();
+    harness.key_press(egui::Key::F6);
+    harness.run_steps(2);
+    let focused = harness
+        .query_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.is_focused())
+        .count();
+    assert_eq!(focused, 0, "the search box let the focus go");
 
     // MCP: the commands of an AI client act on the viewer and answer through their channel.
     let (mcp_tx, mcp_rx) = std::sync::mpsc::channel();
@@ -231,6 +241,25 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     std::thread::sleep(Duration::from_millis(400));
     harness.run_steps(5);
     assert!(shows(&harness, "2 images shown"));
+
+    // A format Horama never rewrites (here GIF, as RAW) turns on screen only.
+    let gif = photos.join("g.gif");
+    write_jpeg(&gif);
+    let before = std::fs::read(&gif).unwrap();
+    harness.state_mut().open_path(&gif.to_string_lossy());
+    wait_for(&mut harness, "the GIF", |h| {
+        shows(h, "g.gif —") && shows(h, "64×48 px")
+    });
+    harness.key_press(egui::Key::R);
+    wait_for(&mut harness, "the turned GIF", |h| shows(h, "48×64 px"));
+    assert!(shows(&harness, "Rotation shown only"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    wait_for(&mut harness, "the GIF back", |h| shows(h, "64×48 px"));
+    assert_eq!(
+        std::fs::read(&gif).unwrap(),
+        before,
+        "the file is never written"
+    );
 
     drop(harness);
     let _ = std::fs::remove_dir_all(&photos);

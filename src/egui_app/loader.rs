@@ -23,6 +23,8 @@ pub(super) struct LoadJob {
     pub color: ColorManager,
     /// Pixels edited in memory (crop) to show instead of the file.
     pub edited: Option<Arc<DecodedImage>>,
+    /// Quarter turns shown on screen only ([`super::view_rotation`]); not for edited pixels.
+    pub turns: u8,
 }
 
 #[derive(Default)]
@@ -101,10 +103,13 @@ fn worker(
             profile,
             color,
             edited,
+            turns,
         } = job;
         let decoded = match edited {
             Some(d) => Ok(d),
-            None => loader.get_or_load(&path),
+            None => loader
+                .get_or_load(&path)
+                .map(|d| super::view_rotation::turned(d, turns)),
         };
         let rendered =
             decoded.and_then(|d| render_for_screen(&d, &color, &profile).map(|r| (d, r)));

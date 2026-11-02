@@ -51,6 +51,7 @@ pub(super) struct QualityDialog {
 pub(super) enum FileResult {
     Rotated {
         path: String,
+        clockwise: bool,
         result: Result<RotationOutcome, String>,
     },
     Trashed {
@@ -129,26 +130,33 @@ impl HoramaApp {
             return;
         }
         let turns = if clockwise { 1 } else { 3 };
-        let mut skipped = Vec::new();
+        let mut on_screen = Vec::new();
         let mut cropped = Vec::new();
         let mut rotated = Vec::new();
         for path in files.iter().cloned() {
-            if !disk_ops::rotation_format_supported(Path::new(&path)) {
-                skipped.push(browse::file_name_of(&path));
-                continue;
-            }
-            // The crop was drawn on the image as it is: rotating the file would misplace it.
+            // The crop was drawn on the image as it is: rotating would misplace it.
             if self.edited_pixels(&path).is_some() {
                 cropped.push(browse::file_name_of(&path));
                 continue;
             }
             rotated.push(path.clone());
+            if !disk_ops::rotation_format_supported(Path::new(&path)) {
+                on_screen.push(path);
+                continue;
+            }
             let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
             self.disk.submit(move || {
                 let result = disk_ops::persist_rotation(Path::new(&path), turns);
-                let _ = tx.send(Msg::File(FileResult::Rotated { path, result }));
+                let _ = tx.send(Msg::File(FileResult::Rotated {
+                    path,
+                    clockwise,
+                    result,
+                }));
                 ctx.request_repaint();
             });
+        }
+        if !on_screen.is_empty() {
+            self.rotate_on_screen(&on_screen, clockwise);
         }
         if record && !rotated.is_empty() {
             self.push_history(super::edit::Action::Rotate {
@@ -164,18 +172,10 @@ impl HoramaApp {
                 ),
                 false,
             );
-        } else if !skipped.is_empty() {
-            self.notify(
-                trf(
-                    "Not rotated: {} (RAW and other formats are never modified).",
-                    &[&skipped.join(", ")],
-                ),
-                false,
-            );
         }
     }
 
-    fn rotated(&mut self, path: String, result: Result<RotationOutcome, String>) {
+    fn rotated(&mut self, path: String, clockwise: bool, result: Result<RotationOutcome, String>) {
         let name = browse::file_name_of(&path);
         match result {
             Ok(RotationOutcome::Saved(_)) => {
@@ -183,7 +183,9 @@ impl HoramaApp {
                 self.notify(trf("Rotated: {}", &[&name]), false);
             }
             Ok(RotationOutcome::ShownOnly(reason)) => {
-                self.notify(trf("'{}' not rotated: {}.", &[&name, &reason]), false)
+                // Left untouched on purpose (e.g. animated): turned on screen instead.
+                log::info!("Rotation shown only for {}: {}", path, reason);
+                self.rotate_on_screen(std::slice::from_ref(&path), clockwise);
             }
             Err(e) => {
                 // The history no longer matches the file.
@@ -301,6 +303,7 @@ impl HoramaApp {
             self.thumbs.remove(f);
             self.settings.set_rating(f, 0);
             self.edited.remove(&path_key(f));
+            self.view_turns.remove(&path_key(f));
         }
         if failed.is_empty() {
             return;
@@ -430,6 +433,9 @@ impl HoramaApp {
                 *f = new.clone();
             }
             self.settings.rename_rating(old, new);
+            if let Some(t) = self.view_turns.remove(&path_key(old)) {
+                self.view_turns.insert(path_key(new), t);
+            }
             if let Some(d) = self.edited.remove(&path_key(old)) {
                 self.edited.insert(path_key(new), d);
             }
@@ -593,7 +599,11 @@ impl HoramaApp {
 
     pub(super) fn file_result(&mut self, result: FileResult) {
         match result {
-            FileResult::Rotated { path, result } => self.rotated(path, result),
+            FileResult::Rotated {
+                path,
+                clockwise,
+                result,
+            } => self.rotated(path, clockwise, result),
             FileResult::Trashed { removed, failed } => self.trashed(removed, failed),
             FileResult::Renamed { plan, result } => self.renamed(plan, result),
             FileResult::Saved {

@@ -494,6 +494,7 @@ impl HoramaApp {
     /// edited image is written, the edit is done.
     pub(super) fn save_copy(&mut self, source: String, dest: PathBuf, jpeg_quality: u8) {
         let edited = self.edited_pixels(&source);
+        let turns = self.view_turns_of(&source);
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         let (loader, color) = (self.preloader.loader(), self.color.clone());
         let profile = self.profile_of(&source);
@@ -502,10 +503,12 @@ impl HoramaApp {
             &[&browse::file_name_of(&dest.to_string_lossy())],
         );
         self.disk.submit(move || {
-            let is_edit = edited.is_some();
+            let is_edit = edited.is_some() || turns != 0;
             let pixels = match edited {
                 Some(d) => Ok(d),
-                None => loader.get_or_load(&source),
+                None => loader
+                    .get_or_load(&source)
+                    .map(|d| super::view_rotation::turned(d, turns)),
             };
             let result = pixels.and_then(|decoded| {
                 export_image(&color, &decoded, &profile, &dest, is_edit, jpeg_quality)

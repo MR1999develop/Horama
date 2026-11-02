@@ -55,7 +55,10 @@ impl HoramaApp {
         if missing.is_empty() {
             return;
         }
-        let edited: Vec<_> = missing.iter().map(|(p, _)| self.edited_pixels(p)).collect();
+        let edited: Vec<_> = missing
+            .iter()
+            .map(|(p, _)| (self.edited_pixels(p), self.view_turns_of(p)))
+            .collect();
         let (tx, ctx, color) = (self.tx.clone(), self.ctx.clone(), self.color.clone());
         let loader = self.preloader.loader();
         let latest = self.compare_latest.clone();
@@ -63,13 +66,15 @@ impl HoramaApp {
         let spawned = std::thread::Builder::new()
             .name("egui-compare".into())
             .spawn(move || {
-                for ((path, profile), edited) in missing.into_iter().zip(edited) {
+                for ((path, profile), (edited, turns)) in missing.into_iter().zip(edited) {
                     if latest.load(std::sync::atomic::Ordering::Relaxed) != generation {
                         return; // another selection replaced this one
                     }
                     let decoded = match edited {
                         Some(d) => Ok(d),
-                        None => loader.get_or_load(&path),
+                        None => loader
+                            .get_or_load(&path)
+                            .map(|d| super::view_rotation::turned(d, turns)),
                     };
                     let image = decoded.ok().and_then(|d| {
                         let rendered =

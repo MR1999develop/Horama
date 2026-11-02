@@ -216,6 +216,8 @@ impl HoramaApp {
         self.scan_generation += 1;
         let generation = self.scan_generation;
         self.folder = Some(folder.to_string());
+        // Shared with the Slint interface: last folder and recent folders.
+        self.settings.add_recent_folder(folder);
         self.filters.tree = browse::TREE_ALL.to_string();
         self.expanded = HashSet::from([browse::TREE_ALL.to_string()]);
         self.aspects.clear();
@@ -498,6 +500,20 @@ impl HoramaApp {
                 {
                     self.pick_folder();
                 }
+                let recent = self.settings.recent_folders.clone();
+                ui.add_enabled_ui(!recent.is_empty(), |ui| {
+                    ui.menu_button("Recent Folders", |ui| {
+                        for folder in &recent {
+                            if ui.button(folder.as_str()).clicked() {
+                                self.open_path(folder);
+                            }
+                        }
+                        ui.separator();
+                        if ui.button("Clear List").clicked() {
+                            self.settings.clear_recent_folders();
+                        }
+                    });
+                });
                 ui.separator();
                 if ui.button("Exit").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);

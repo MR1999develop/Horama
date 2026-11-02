@@ -1,38 +1,51 @@
 //! The egui interface, under construction next to the Slint one.
 //!
-//! First stage: open a folder (menu, command line or drag and drop), browse its images with
-//! the same filtering and selection rules as the Slint interface ([`crate::browse`]), and show
-//! the current image color-managed, with fit / 100% / zoom around the cursor / pan
-//! ([`crate::view`]). Ratings, editing, metadata and the other tools come in later stages.
+//! Done so far: open a folder (menu, command line or drag and drop); folder tree with the
+//! same rules as the Slint interface ([`crate::browse`]); filmstrip with thumbnails and
+//! Ctrl/Shift selection; the current image color-managed, with fit / 100% / zoom around the
+//! cursor / pan ([`crate::view`]); the neighbours of the current image preloaded into the
+//! shared RAM cache. Ratings, editing, metadata and the other tools come in later stages.
 //!
 //! Only `egui` is used here, not `eframe`: the `horama-egui` program puts [`HoramaApp`] in a
 //! native window. Disk reads and decoding run on worker threads; their results come back
 //! through a channel read at every frame, and stale results (an older folder or image) are
 //! dropped by generation number.
 
+mod thumbs;
+
 use crate::browse::{self, ClickMods, FileFacts, Filters};
+use crate::cache_manager::PreloadController;
 use crate::color_manager::ColorManager;
 use crate::config::{
     is_supported_file, normalize_path, scan_folder_and_subfolders, AppSettings,
     DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED,
 };
+use crate::image_loader::DecodedImage;
 use crate::view;
 use egui::{
-    Align2, Color32, ColorImage, Key, KeyboardShortcut, Modifiers, Pos2, Rect, Sense,
+    Align2, Color32, ColorImage, Key, KeyboardShortcut, Modifiers, Pos2, Rect, Sense, Stroke,
     TextureHandle, TextureOptions, Vec2,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use thumbs::{ThumbResult, ThumbnailLoader};
 
 /// Neutral grey behind the image, the same as the Slint interface.
 const CANVAS: Color32 = Color32::from_rgb(0x12, 0x12, 0x12);
+/// Accent of the selection, as in the Slint interface.
+const ACCENT: Color32 = Color32::from_rgb(0x00, 0x7A, 0xCC);
+/// Filmstrip cell (thumbnail, name and spacing) and thumbnail box, in points.
+const CELL_W: f32 = 132.0;
+const THUMB_BOX: Vec2 = Vec2::new(120.0, 84.0);
+const FILMSTRIP_H: f32 = 126.0;
 
 /// Results of the worker threads.
 enum Msg {
     Scanned {
         generation: u64,
         files: Vec<String>,
+        subfolders: Vec<String>,
         select: Option<String>,
     },
     Loaded {
@@ -72,7 +85,21 @@ pub struct HoramaApp {
     scan_generation: u64,
     load_generation: u64,
 
+    preloader: PreloadController,
+    thumb_loader: ThumbnailLoader,
+    thumb_rx: Receiver<ThumbResult>,
+    /// Thumbnails by path; `None` = the file could not be read.
+    thumbs: HashMap<String, Option<TextureHandle>>,
+    /// Thumbnail results older than this generation belong to a previous folder.
+    thumb_folder_generation: u64,
+    thumb_generation: u64,
+    /// Scroll the filmstrip to the current image on the next frame.
+    scroll_to_current: bool,
+
     folder: Option<String>,
+    subfolders: Vec<String>,
+    /// Expanded folders of the tree ([`browse::tree_rows`]).
+    expanded: HashSet<String>,
     all_files: Vec<String>,
     filters: Filters,
     visible: Vec<String>,
@@ -112,15 +139,29 @@ impl HoramaApp {
     pub fn new(ctx: egui::Context) -> Self {
         ctx.set_visuals(egui::Visuals::dark());
         let (tx, rx) = channel();
+        let color = ColorManager::new();
+        let (thumb_tx, thumb_rx) = channel();
+        let repaint = ctx.clone();
+        let thumb_loader =
+            ThumbnailLoader::start(color.clone(), thumb_tx, move || repaint.request_repaint());
         HoramaApp {
             ctx,
-            color: ColorManager::new(),
+            color,
             settings: AppSettings::load(),
             tx,
             rx,
             scan_generation: 0,
             load_generation: 0,
+            preloader: PreloadController::new(),
+            thumb_loader,
+            thumb_rx,
+            thumbs: HashMap::new(),
+            thumb_folder_generation: 0,
+            thumb_generation: 0,
+            scroll_to_current: false,
             folder: None,
+            subfolders: Vec::new(),
+            expanded: HashSet::new(),
             all_files: Vec::new(),
             filters: Filters::default(),
             visible: Vec::new(),
@@ -174,15 +215,23 @@ impl HoramaApp {
         let generation = self.scan_generation;
         self.folder = Some(folder.to_string());
         self.filters.tree = browse::TREE_ALL.to_string();
+        self.expanded = HashSet::from([browse::TREE_ALL.to_string()]);
+        // Thumbnails of the previous folder are dropped, and its late results ignored.
+        self.thumbs.clear();
+        self.thumb_folder_generation = self.thumb_loader.request(Vec::new());
+        if let Ok(mut cache) = self.preloader.cache.lock() {
+            cache.clear();
+        }
         self.status = format!("Scanning {}…", folder);
         let (tx, ctx, folder) = (self.tx.clone(), self.ctx.clone(), folder.to_string());
         let spawned = std::thread::Builder::new()
             .name("egui-scan".into())
             .spawn(move || {
-                let (files, _subfolders) = scan_folder_and_subfolders(&folder);
+                let (files, subfolders) = scan_folder_and_subfolders(&folder);
                 let _ = tx.send(Msg::Scanned {
                     generation,
                     files,
+                    subfolders,
                     select,
                 });
                 ctx.request_repaint();
@@ -211,6 +260,14 @@ impl HoramaApp {
             let i = browse::index_after_refilter(previous.as_deref(), &self.visible);
             self.select_only(i);
         }
+        self.request_thumbs();
+    }
+
+    /// Asks for the missing thumbnails, closest to the current image first.
+    fn request_thumbs(&mut self) {
+        let order =
+            thumbs::priority_order(&self.visible, self.current, |p| self.thumbs.contains_key(p));
+        self.thumb_generation = self.thumb_loader.request(order);
     }
 
     fn current_path(&self) -> Option<String> {
@@ -229,16 +286,23 @@ impl HoramaApp {
         let Some(path) = self.visible.get(i).cloned() else {
             return;
         };
+        let moved = self.current != Some(i);
         self.current = Some(i);
+        self.scroll_to_current = true;
         if !self.selected.contains(&i) {
             self.selected.clear();
             self.selected.insert(i);
             self.anchor = Some(i);
         }
+        if moved {
+            self.request_thumbs();
+        }
         if self.shown.as_ref().map(|s| s.path == path).unwrap_or(false) {
             return;
         }
         self.load(path);
+        // Neighbours are decoded into the RAM cache, so the next arrow press is instant.
+        self.preloader.preload_neighborhood(i, &self.visible, || {});
     }
 
     /// Decodes and color-manages `path` on a worker thread; the previous image stays on screen
@@ -248,10 +312,12 @@ impl HoramaApp {
         let generation = self.load_generation;
         self.loading = Some(path.clone());
         let (tx, ctx, color) = (self.tx.clone(), self.ctx.clone(), self.color.clone());
+        let loader = self.preloader.loader();
         let spawned = std::thread::Builder::new()
             .name("egui-load".into())
             .spawn(move || {
-                let msg = match decode_for_screen(&path, &color) {
+                let decoded = loader.get_or_load(&path);
+                let msg = match decoded.and_then(|d| render_for_screen(&d, &color)) {
                     Ok((image, details)) => Msg::Loaded {
                         generation,
                         path,
@@ -275,14 +341,26 @@ impl HoramaApp {
 
     /// Applies the results the workers sent since the last frame.
     fn receive(&mut self) {
+        while let Ok(t) = self.thumb_rx.try_recv() {
+            if t.generation <= self.thumb_folder_generation {
+                continue; // requested for a previous folder
+            }
+            let texture = t.image.map(|img| {
+                self.ctx
+                    .load_texture(format!("thumb:{}", t.path), img, TextureOptions::LINEAR)
+            });
+            self.thumbs.insert(t.path, texture);
+        }
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
                 Msg::Scanned {
                     generation,
                     files,
+                    subfolders,
                     select,
                 } if generation == self.scan_generation => {
                     self.all_files = files;
+                    self.subfolders = subfolders;
                     self.current = None;
                     self.refilter();
                     if let Some(file) = select {
@@ -352,11 +430,15 @@ impl HoramaApp {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.label(self.status_text());
         });
-        egui::Panel::left("files")
+        egui::Panel::bottom("filmstrip")
+            .resizable(false)
+            .exact_size(FILMSTRIP_H)
+            .show(ui, |ui| self.filmstrip(ui));
+        egui::Panel::left("folders")
             .resizable(true)
-            .default_size(300.0)
-            .size_range(200.0..=600.0)
-            .show(ui, |ui| self.file_list(ui));
+            .default_size(280.0)
+            .size_range(180.0..=600.0)
+            .show(ui, |ui| self.folder_tree(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(CANVAS))
             .show(ui, |ui| self.image_view(ui));
@@ -486,16 +568,13 @@ impl HoramaApp {
         }
     }
 
-    fn file_list(&mut self, ui: &mut egui::Ui) {
-        match &self.folder {
-            Some(f) => {
-                ui.label(egui::RichText::new(browse::file_name_of(f)).strong())
-                    .on_hover_text(f.as_str());
-            }
-            None => {
-                ui.label("No folder open");
-            }
-        }
+    fn folder_tree(&mut self, ui: &mut egui::Ui) {
+        let Some(root) = self.folder.clone() else {
+            ui.label("No folder open");
+            return;
+        };
+        ui.label(egui::RichText::new(browse::file_name_of(&root)).strong())
+            .on_hover_text(root.as_str());
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.filters.search)
                 .hint_text("Search file names")
@@ -504,23 +583,71 @@ impl HoramaApp {
         if search.changed() {
             self.refilter();
         }
-        ui.label(format!("{} images", self.visible.len()));
+        ui.label(format!("{} images shown", self.visible.len()));
         ui.separator();
 
-        let row_height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
-        let len = self.visible.len();
-        let mut clicked: Option<(usize, ClickMods)> = None;
+        let rows = browse::tree_rows(
+            &root,
+            &self.subfolders,
+            &self.all_files,
+            &self.expanded,
+            &self.filters.tree,
+        );
+        let mut chosen: Option<String> = None;
+        let mut toggled: Option<String> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .show_rows(ui, row_height, len, |ui, rows| {
-                for i in rows {
-                    let name = browse::file_name_of(&self.visible[i]);
-                    let selected = self.selected.contains(&i);
-                    let r = ui.add_sized(
-                        [ui.available_width(), row_height],
-                        egui::Button::selectable(selected, name),
-                    );
-                    if r.clicked() {
+            .show(ui, |ui| {
+                for row in &rows {
+                    ui.horizontal(|ui| {
+                        ui.add_space(row.depth as f32 * 14.0);
+                        if expander(ui, row.has_children, row.expanded).clicked() {
+                            toggled = Some(row.key.clone());
+                        }
+                        let label = format!("{} ({})", row.name, row.count);
+                        if ui.selectable_label(row.selected, label).clicked() {
+                            chosen = Some(row.key.clone());
+                        }
+                    });
+                }
+            });
+        // Changes are applied after the rows are drawn, never while iterating them.
+        if let Some(key) = toggled {
+            browse::toggle_expanded(&mut self.expanded, &root, &key);
+        }
+        if let Some(key) = chosen {
+            if key != self.filters.tree {
+                self.filters.tree = key;
+                self.refilter();
+            }
+        }
+    }
+
+    /// Horizontal strip of thumbnails; only the cells in view are drawn.
+    fn filmstrip(&mut self, ui: &mut egui::Ui) {
+        let n = self.visible.len();
+        let cell = Vec2::new(CELL_W, ui.available_height());
+        let scroll_target = if std::mem::take(&mut self.scroll_to_current) {
+            self.current
+        } else {
+            None
+        };
+        let mut clicked: Option<(usize, ClickMods)> = None;
+        egui::ScrollArea::horizontal()
+            .auto_shrink([false, false])
+            .show_viewport(ui, |ui, viewport| {
+                let origin = ui.max_rect().min;
+                ui.set_min_size(Vec2::new(n as f32 * CELL_W, cell.y));
+                let cell_rect = |i: usize| {
+                    Rect::from_min_size(origin + Vec2::new(i as f32 * CELL_W, 0.0), cell)
+                };
+                let first = (viewport.min.x / CELL_W).floor().max(0.0) as usize;
+                let last = ((viewport.max.x / CELL_W).ceil() as usize + 1).min(n);
+                for i in first..last {
+                    let rect = cell_rect(i).shrink(3.0);
+                    let response = ui.interact(rect, ui.id().with(("cell", i)), Sense::click());
+                    self.paint_cell(ui, i, rect, response.hovered());
+                    if response.clicked() {
                         let m = ui.input(|inp| inp.modifiers);
                         clicked = Some((
                             i,
@@ -531,20 +658,78 @@ impl HoramaApp {
                         ));
                     }
                 }
+                if let Some(c) = scroll_target.filter(|c| *c < n) {
+                    ui.scroll_to_rect(cell_rect(c), Some(egui::Align::Center));
+                }
             });
-        // Actions are applied after the list is drawn, never while iterating it.
         if let Some((i, mods)) = clicked {
             let show = browse::apply_click(
                 &mut self.selected,
                 &mut self.anchor,
                 self.current,
                 i,
-                len,
+                n,
                 mods,
             );
             if let Some(i) = show {
                 self.show_index(i);
             }
+        }
+    }
+
+    fn paint_cell(&self, ui: &mut egui::Ui, i: usize, rect: Rect, hovered: bool) {
+        let path = &self.visible[i];
+        let painter = ui.painter_at(rect);
+        let selected = self.selected.contains(&i);
+        let fill = if hovered {
+            Color32::from_gray(0x33)
+        } else {
+            Color32::from_gray(0x24)
+        };
+        painter.rect_filled(rect, 4.0, fill);
+        let thumb_area = Rect::from_min_size(
+            rect.min + Vec2::new((rect.width() - THUMB_BOX.x) / 2.0, 4.0),
+            THUMB_BOX,
+        );
+        match self.thumbs.get(path) {
+            Some(Some(tex)) => {
+                let size = tex.size_vec2();
+                let k = (THUMB_BOX.x / size.x).min(THUMB_BOX.y / size.y).min(1.0);
+                let r = Rect::from_center_size(thumb_area.center(), size * k);
+                let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                painter.image(tex.id(), r, uv, Color32::WHITE);
+            }
+            Some(None) => {
+                painter.text(
+                    thumb_area.center(),
+                    Align2::CENTER_CENTER,
+                    "⚠",
+                    egui::FontId::proportional(18.0),
+                    Color32::from_gray(0x99),
+                );
+            }
+            None => {
+                painter.rect_filled(thumb_area.shrink(8.0), 2.0, Color32::from_gray(0x2E));
+            }
+        }
+        let label_rect = Rect::from_min_max(
+            Pos2::new(rect.min.x + 4.0, thumb_area.max.y + 2.0),
+            Pos2::new(rect.max.x - 4.0, rect.max.y - 2.0),
+        );
+        ui.put(
+            label_rect,
+            egui::Label::new(egui::RichText::new(browse::file_name_of(path)).small())
+                .truncate()
+                .selectable(false),
+        );
+        if selected {
+            let width = if self.current == Some(i) { 2.5 } else { 1.5 };
+            painter.rect_stroke(
+                rect,
+                4.0,
+                Stroke::new(width, ACCENT),
+                egui::StrokeKind::Inside,
+            );
         }
     }
 
@@ -638,10 +823,44 @@ impl HoramaApp {
     }
 }
 
-/// Decodes `path` and converts it to the monitor profile, as the Slint interface does.
-/// Returns the screen pixels and a short description (format and profile).
-fn decode_for_screen(path: &str, color: &ColorManager) -> Result<(ColorImage, String), String> {
-    let decoded = crate::image_loader::load_image(Path::new(path))?;
+/// Expand / collapse arrow of a tree row (an empty space of the same width if `enabled` is
+/// false, so names stay aligned).
+fn expander(ui: &mut egui::Ui, enabled: bool, expanded: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::click());
+    if enabled {
+        let c = rect.center();
+        let color = if response.hovered() {
+            Color32::from_gray(0xEE)
+        } else {
+            Color32::from_gray(0xAA)
+        };
+        let points = if expanded {
+            vec![
+                c + Vec2::new(-4.0, -2.0),
+                c + Vec2::new(4.0, -2.0),
+                c + Vec2::new(0.0, 3.0),
+            ]
+        } else {
+            vec![
+                c + Vec2::new(-2.0, -4.0),
+                c + Vec2::new(3.0, 0.0),
+                c + Vec2::new(-2.0, 4.0),
+            ]
+        };
+        ui.painter()
+            .add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+        response.on_hover_text(if expanded { "Collapse" } else { "Expand" })
+    } else {
+        response
+    }
+}
+
+/// Converts a decoded image to the monitor profile, as the Slint interface does. Returns the
+/// screen pixels and a short description (format and profile).
+fn render_for_screen(
+    decoded: &DecodedImage,
+    color: &ColorManager,
+) -> Result<(ColorImage, String), String> {
     let profile = if decoded.embedded_icc_name.is_some() {
         PROFILE_EMBEDDED
     } else {

@@ -28,7 +28,6 @@ pub const PROFILE_REC709: &str = "Rec.709";
 pub const PROFILE_WIDE_GAMUT: &str = "Wide Gamut RGB";
 pub const PROFILE_CIE_RGB: &str = "CIE RGB";
 pub const PROFILE_APPLE_RGB: &str = "Apple RGB";
-pub const PROFILE_LOAD_CUSTOM: &str = "Load Custom ICC/ICM Profile...";
 
 pub const DEFAULT_FALLBACK_PROFILE: &str = PROFILE_SRGB;
 
@@ -380,33 +379,6 @@ pub fn is_raw_file(path: &Path) -> bool {
     }
 }
 
-#[allow(dead_code)]
-pub fn scan_folder_recursive(folder: &str) -> Vec<String> {
-    let root = Path::new(folder);
-    if !root.is_dir() {
-        return Vec::new();
-    }
-    let mut files = Vec::new();
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|e| {
-            e.depth() == 0
-                || e.file_name()
-                    .to_str()
-                    .map(|s| !s.starts_with('.'))
-                    .unwrap_or(true)
-        })
-        .flatten()
-    {
-        if entry.file_type().is_file() && is_supported_file(entry.path()) {
-            files.push(normalize_path(&entry.path().to_string_lossy()));
-        }
-    }
-    files.sort_by_key(|a| a.to_lowercase());
-    files
-}
-
 /// Hierarchical depth-first path comparator.
 /// Compares two subdirectory paths component-by-component so that children stay directly under their parent.
 pub fn compare_paths_hierarchical(root: &str, a: &str, b: &str) -> std::cmp::Ordering {
@@ -450,49 +422,6 @@ pub fn compare_paths_hierarchical(root: &str, a: &str, b: &str) -> std::cmp::Ord
         }
     }
     rel_a.len().cmp(&rel_b.len())
-}
-
-/// Discover all subdirectories under root_folder for the Folder Tree view.
-#[allow(dead_code)]
-pub fn discover_subfolders(root_folder: &str, all_files: &[String]) -> Vec<String> {
-    let root = Path::new(root_folder);
-    let norm_root = normalize_path(root_folder);
-    let mut subdirs: HashSet<String> = HashSet::new();
-
-    for f in all_files {
-        let mut curr = Path::new(f).parent();
-        while let Some(p) = curr {
-            let norm_p = normalize_path(&p.to_string_lossy());
-            if norm_p.to_lowercase() == norm_root.to_lowercase() || norm_p.len() <= norm_root.len()
-            {
-                break;
-            }
-            subdirs.insert(norm_p);
-            curr = p.parent();
-        }
-    }
-
-    for entry in WalkDir::new(root)
-        .min_depth(1)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|e| {
-            e.depth() == 0
-                || e.file_name()
-                    .to_str()
-                    .map(|s| !s.starts_with('.'))
-                    .unwrap_or(true)
-        })
-        .flatten()
-    {
-        if entry.file_type().is_dir() {
-            subdirs.insert(normalize_path(&entry.path().to_string_lossy()));
-        }
-    }
-
-    let mut sorted: Vec<String> = subdirs.into_iter().collect();
-    sorted.sort_by(|a, b| compare_paths_hierarchical(&norm_root, a, b));
-    sorted
 }
 
 /// Single-pass high-speed scanner that collects all supported image files and subdirectories simultaneously.

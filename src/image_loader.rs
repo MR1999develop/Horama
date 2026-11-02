@@ -113,13 +113,6 @@ impl DecodedImage {
         self.remap(w, h, |x, y| (w - 1 - x, h - 1 - y))
     }
 
-    /// Flip horizontally.
-    #[allow(dead_code)]
-    pub fn flip_horizontal(&self) -> DecodedImage {
-        let (w, h) = (self.width as usize, self.height as usize);
-        self.remap(w, h, |x, y| (w - 1 - x, y))
-    }
-
     /// Crop image to the given rectangle; the rectangle is clamped to the image bounds.
     pub fn crop(&self, crop_x: u32, crop_y: u32, crop_w: u32, crop_h: u32) -> DecodedImage {
         let w = self.width;
@@ -636,20 +629,6 @@ pub fn load_thumbnail_rgba(
     catch_unwind(AssertUnwindSafe(|| load_thumbnail_inner(path, cm)))
         .ok()
         .flatten()
-}
-
-/// Creates a filmstrip thumbnail from an in-memory DecodedImage (used e.g. after rotation).
-pub fn create_thumbnail_from_decoded(
-    decoded: &DecodedImage,
-    cm: Option<&crate::color_manager::ColorManager>,
-) -> Option<(u32, u32, Vec<u8>)> {
-    let rgb_img =
-        image::RgbImage::from_raw(decoded.width, decoded.height, decoded.rgb_pixels.clone())?;
-    Some(finish_thumbnail(
-        DynamicImage::ImageRgb8(rgb_img),
-        decoded.embedded_icc.clone(),
-        cm,
-    ))
 }
 
 /// Pixel dimensions of an image file without decoding it (header only where possible).

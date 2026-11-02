@@ -264,9 +264,6 @@ pub fn is_jpeg(p: &Path) -> bool {
     )
 }
 
-/// Formats the export dialog offers (all 8-bit; the viewer works on 8-bit display data).
-pub const EXPORT_EXTENSIONS: &[&str] = &["jpg", "jpeg", "jpe", "png", "tif", "tiff", "webp", "bmp"];
-
 /// Builds an EXIF block (raw TIFF structure) for an exported image from the source file's
 /// metadata: camera, lens, exposure, dates, GPS, copyright... Orientation is reset (the
 /// exported pixels are already upright), pixel dimensions are updated, and maker notes,

@@ -163,7 +163,7 @@ impl HoramaApp {
 
     /// Drops the cached pixels and thumbnail of a file changed on disk, and reloads it if it
     /// is on screen.
-    fn forget_pixels(&mut self, path: &str) {
+    pub(super) fn forget_pixels(&mut self, path: &str) {
         if let Ok(mut cache) = self.preloader.cache.lock() {
             cache.remove(path);
         }
@@ -384,7 +384,7 @@ impl HoramaApp {
         }
     }
 
-    fn renamed(&mut self, plan: Vec<(String, String)>, result: Result<(), String>) {
+    pub(super) fn renamed(&mut self, plan: Vec<(String, String)>, result: Result<(), String>) {
         if let Err(e) = result {
             self.notify(trf("Not renamed: {}", &[&e]), true);
             return;

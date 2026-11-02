@@ -19,6 +19,7 @@ mod i18n;
 mod loader;
 mod theme;
 mod thumbs;
+mod watch;
 
 use crate::browse::{self, ClickMods, Filters};
 use crate::cache_manager::PreloadController;
@@ -69,6 +70,11 @@ enum Msg {
     },
     /// Outcome of a file operation on the disk queue ([`files`]).
     File(files::FileResult),
+    /// Changes on disk in the open folder ([`watch`]).
+    Disk {
+        generation: u64,
+        actions: Vec<crate::file_watcher::FileSyncAction>,
+    },
 }
 
 /// The image on screen.
@@ -116,6 +122,10 @@ pub struct HoramaApp {
     scroll_to_current: bool,
 
     folder: Option<String>,
+    /// Watches the open folder for changes made by other programs.
+    watcher: Option<crate::file_watcher::FolderWatcher>,
+    /// Changes reported for an older folder carry an older generation.
+    watch_generation: u64,
     subfolders: Vec<String>,
     /// Expanded folders of the tree ([`browse::tree_rows`]).
     expanded: HashSet<String>,
@@ -174,6 +184,8 @@ impl HoramaApp {
             thumb_center: 0,
             scroll_to_current: false,
             folder: None,
+            watcher: None,
+            watch_generation: 0,
             subfolders: Vec::new(),
             expanded: HashSet::new(),
             all_files: Vec::new(),
@@ -232,8 +244,6 @@ impl HoramaApp {
     /// Scans `folder` (with subfolders) on a worker thread; `select` is shown when done.
     fn open_folder(&mut self, folder: &str, select: Option<String>) {
         self.close_notice();
-        self.scan_generation += 1;
-        let generation = self.scan_generation;
         self.folder = Some(folder.to_string());
         // Shared with the Slint interface: last folder and recent folders.
         self.settings.add_recent_folder(folder);
@@ -247,6 +257,23 @@ impl HoramaApp {
             cache.clear();
         }
         self.status = trf("Scanning {}…", &[&folder]);
+        self.watch_folder(folder);
+        self.start_scan(folder, select);
+    }
+
+    /// Reads the open folder again, keeping filters, tree, thumbnails and the current image
+    /// (used when folders change on disk).
+    pub(super) fn rescan_folder(&mut self) {
+        if let Some(folder) = self.folder.clone() {
+            let current = self.current_path();
+            self.start_scan(&folder, current);
+        }
+    }
+
+    /// Lists the images of `folder` on a worker thread; `select` is shown when done.
+    fn start_scan(&mut self, folder: &str, select: Option<String>) {
+        self.scan_generation += 1;
+        let generation = self.scan_generation;
         let (tx, ctx, folder) = (self.tx.clone(), self.ctx.clone(), folder.to_string());
         let spawned = std::thread::Builder::new()
             .name("egui-scan".into())
@@ -467,6 +494,10 @@ impl HoramaApp {
                     );
                 }
                 Msg::File(result) => self.file_result(result),
+                Msg::Disk {
+                    generation,
+                    actions,
+                } if generation == self.watch_generation => self.disk_changed(actions),
                 _ => {} // result of an older request
             }
         }

@@ -122,6 +122,12 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         shows(h, "renamed.jpg —")
     });
 
+    // Files added or deleted by another program appear and disappear by themselves.
+    write_jpeg(&photos.join("d.jpg"));
+    wait_for(&mut harness, "the new file", |h| shows(h, "4 images shown"));
+    std::fs::remove_file(photos.join("d.jpg")).unwrap();
+    wait_for(&mut harness, "the deleted file", |h| shows(h, "3 images shown"));
+
     drop(harness);
     let _ = std::fs::remove_dir_all(&photos);
     let _ = std::fs::remove_dir_all(&config);

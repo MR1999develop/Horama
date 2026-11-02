@@ -56,14 +56,16 @@ pub(super) struct Facts<'a> {
     pub aspects: &'a HashMap<String, f32>,
     /// Decoded images in the RAM cache, for their size and embedded profile.
     pub cache: Option<&'a crate::cache_manager::RamCache>,
+    /// Unsaved crops, by path key.
+    pub edited: &'a HashMap<String, std::sync::Arc<crate::image_loader::DecodedImage>>,
 }
 
 impl FileFacts for Facts<'_> {
     fn rating(&self, path: &str) -> u8 {
         self.settings.get_rating(path)
     }
-    fn is_cropped(&self, _path: &str) -> bool {
-        false // no editing in the egui interface yet
+    fn is_cropped(&self, path: &str) -> bool {
+        self.edited.contains_key(&crate::config::path_key(path))
     }
     fn has_profile_override(&self, path: &str) -> bool {
         self.overrides.contains_key(&crate::config::path_key(path))
@@ -141,9 +143,18 @@ impl HoramaApp {
         if targets.is_empty() {
             return;
         }
+        let before = targets
+            .iter()
+            .map(|p| self.settings.get_rating(p))
+            .collect();
         for p in &targets {
             self.settings.set_rating(p, stars.min(5));
         }
+        self.push_history(super::edit::Action::Rating {
+            paths: targets.clone(),
+            before,
+            after: stars.min(5),
+        });
         self.status = match targets.len() {
             1 => trf(
                 "{}: {} star(s)",

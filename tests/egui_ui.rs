@@ -126,7 +126,31 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     write_jpeg(&photos.join("d.jpg"));
     wait_for(&mut harness, "the new file", |h| shows(h, "4 images shown"));
     std::fs::remove_file(photos.join("d.jpg")).unwrap();
-    wait_for(&mut harness, "the deleted file", |h| shows(h, "3 images shown"));
+    wait_for(&mut harness, "the deleted file", |h| {
+        shows(h, "3 images shown")
+    });
+
+    // C crops the current image in memory (Enter applies); Ctrl+Z / Ctrl+Y undo and redo
+    // it; Ctrl+S writes it next to the original, which stays as it was.
+    harness.key_press(egui::Key::C);
+    harness.step();
+    harness.key_press(egui::Key::Enter);
+    wait_for(&mut harness, "the crop", |h| shows(h, "58×43 px"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    wait_for(&mut harness, "the undo", |h| shows(h, "64×48 px"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    wait_for(&mut harness, "the redo", |h| shows(h, "58×43 px"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    wait_for(&mut harness, "the saved crop", |_| {
+        photos.join("renamed_1.jpg").exists()
+    });
+    assert_eq!(
+        image::image_dimensions(photos.join("renamed.jpg")).unwrap(),
+        (64, 48)
+    );
+    wait_for(&mut harness, "the saved file", |_| {
+        image::image_dimensions(photos.join("renamed_1.jpg")).ok() == Some((58, 43))
+    });
 
     drop(harness);
     let _ = std::fs::remove_dir_all(&photos);

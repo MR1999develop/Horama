@@ -13,6 +13,7 @@
 //! through a channel read at every frame, and stale results (an older folder or image) are
 //! dropped by generation number.
 
+mod edit;
 mod files;
 mod filters;
 mod i18n;
@@ -63,6 +64,7 @@ enum Msg {
         image: ColorImage,
         details: String,
         info: loader::ImageInfo,
+        decoded: std::sync::Arc<crate::image_loader::DecodedImage>,
     },
     Failed {
         generation: u64,
@@ -87,6 +89,8 @@ struct Shown {
     /// Metadata rows (label, value) for the info panel.
     metadata: Vec<(String, String)>,
     histogram: TextureHandle,
+    /// The pixels on screen (edited ones included), for the crop.
+    decoded: std::sync::Arc<crate::image_loader::DecodedImage>,
 }
 
 /// Zoom and pan of the image view; `zoom` in screen pixels per image pixel (see [`view`]).
@@ -147,6 +151,17 @@ pub struct HoramaApp {
     show_info: bool,
     /// Color profiles chosen by the user, by [`crate::config::path_key`].
     profile_overrides: HashMap<String, String>,
+    /// Unsaved crops, by [`crate::config::path_key`] ([`edit`]).
+    edited: HashMap<String, std::sync::Arc<crate::image_loader::DecodedImage>>,
+    undo: Vec<edit::Action>,
+    redo: Vec<edit::Action>,
+    /// The crop box while cropping (C).
+    crop: Option<edit::CropBox>,
+    /// Aspect ratio of the crop, kept between crops.
+    crop_ratio: Option<f32>,
+    close_prompt: Option<edit::ClosePrompt>,
+    /// The user chose how to close: the next close request is let through.
+    closing: bool,
     notice: Option<files::Notice>,
     rename: Option<files::RenameDialog>,
     quality: Option<files::QualityDialog>,
@@ -208,6 +223,13 @@ impl HoramaApp {
             },
             show_info: true,
             profile_overrides: HashMap::new(),
+            edited: HashMap::new(),
+            undo: Vec::new(),
+            redo: Vec::new(),
+            crop: None,
+            crop_ratio: None,
+            close_prompt: None,
+            closing: false,
             notice: None,
             rename: None,
             quality: None,
@@ -307,6 +329,7 @@ impl HoramaApp {
                 overrides: &self.profile_overrides,
                 aspects: &self.aspects,
                 cache: cache.as_deref(),
+                edited: &self.edited,
             };
             browse::filter_files(
                 &self.all_files,
@@ -402,7 +425,7 @@ impl HoramaApp {
             generation: self.load_generation,
             profile: self.profile_of(&path),
             color: self.color.clone(),
-            edited: None,
+            edited: self.edited_pixels(&path),
             path,
         });
     }
@@ -468,6 +491,7 @@ impl HoramaApp {
                     image,
                     details,
                     info,
+                    decoded,
                 } if generation == self.load_generation => {
                     let size = (image.size[0] as u32, image.size[1] as u32);
                     let options = TextureOptions {
@@ -490,6 +514,7 @@ impl HoramaApp {
                         size,
                         details,
                         metadata: info.metadata,
+                        decoded,
                         histogram,
                     });
                     self.loading = None;
@@ -525,6 +550,8 @@ impl HoramaApp {
         self.ctx = ui.ctx().clone();
         self.receive();
         self.expire_notice();
+        let ctx = ui.ctx().clone();
+        self.check_close(&ctx);
         self.handle_keys(ui);
         self.handle_dropped_files(ui);
 
@@ -563,9 +590,10 @@ impl HoramaApp {
             .show(ui, |ui| {
                 let rect = ui.max_rect();
                 self.image_view(ui);
+                self.crop_bar(ui, rect);
                 self.notice_overlay(ui, rect);
             });
-        let ctx = ui.ctx().clone();
+        self.close_window(&ctx);
         self.rename_window(&ctx);
         self.quality_window(&ctx);
     }
@@ -648,6 +676,48 @@ impl HoramaApp {
                     .clicked()
                 {
                     self.rotate(false);
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(has_image, egui::Button::new(tr("Crop")).shortcut_text("C"))
+                    .clicked()
+                {
+                    self.toggle_crop();
+                }
+                let edited = self
+                    .current_path()
+                    .map(|p| self.edited_pixels(&p).is_some())
+                    .unwrap_or(false);
+                if ui
+                    .add_enabled(
+                        edited,
+                        egui::Button::new(tr("Save Crop")).shortcut_text("Ctrl+S"),
+                    )
+                    .clicked()
+                {
+                    let targets = self.targets();
+                    self.save_edits(targets);
+                }
+            });
+            ui.menu_button(tr("Edit"), |ui| {
+                if ui
+                    .add_enabled(
+                        !self.undo.is_empty()
+                            || self.notice.as_ref().is_some_and(|n| !n.trash.is_empty()),
+                        egui::Button::new(tr("Undo")).shortcut_text("Ctrl+Z"),
+                    )
+                    .clicked()
+                {
+                    self.undo_last();
+                }
+                if ui
+                    .add_enabled(
+                        !self.redo.is_empty(),
+                        egui::Button::new(tr("Redo")).shortcut_text("Ctrl+Y"),
+                    )
+                    .clicked()
+                {
+                    self.redo_last();
                 }
             });
             ui.menu_button(tr("View"), |ui| {
@@ -741,8 +811,42 @@ impl HoramaApp {
 
     fn handle_keys(&mut self, ui: &mut egui::Ui) {
         // Keys go to text fields when one has the focus (the search box), and to the windows.
-        if ui.ctx().egui_wants_keyboard_input() || self.rename.is_some() || self.quality.is_some() {
+        if ui.ctx().egui_wants_keyboard_input()
+            || self.rename.is_some()
+            || self.quality.is_some()
+            || self.close_prompt.is_some()
+        {
             return;
+        }
+        if self.crop.is_some() {
+            let (apply, cancel) =
+                ui.input_mut(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+            if apply {
+                self.apply_crop();
+            } else if cancel {
+                self.crop = None;
+            }
+        }
+        let (redo, save, crop) = ui.input_mut(|i| {
+            (
+                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Y))
+                    || i.consume_shortcut(&KeyboardShortcut::new(
+                        Modifiers::COMMAND | Modifiers::SHIFT,
+                        Key::Z,
+                    )),
+                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)),
+                i.key_pressed(Key::C) && !i.modifiers.any(),
+            )
+        });
+        if redo {
+            self.redo_last();
+        }
+        if save {
+            let targets = self.targets();
+            self.save_edits(targets);
+        }
+        if crop {
+            self.toggle_crop();
         }
         let commands = ui.input_mut(|i| {
             (
@@ -762,8 +866,8 @@ impl HoramaApp {
         if cycle && self.current.is_some() {
             self.cycle_profile();
         }
-        if undo && !self.undo_trash() {
-            self.status = tr("Nothing to undo.").to_string();
+        if undo {
+            self.undo_last();
         }
         if self.current.is_some() {
             if save_as {
@@ -1016,6 +1120,16 @@ impl HoramaApp {
                 painter.rect_filled(thumb_area.shrink(8.0), 2.0, theme::placeholder(visuals));
             }
         }
+        if self.edited.contains_key(&crate::config::path_key(path)) {
+            // Cropped, not saved yet.
+            painter.text(
+                thumb_area.right_top() + Vec2::new(-4.0, 4.0),
+                Align2::RIGHT_TOP,
+                "✂",
+                egui::FontId::proportional(14.0),
+                theme::ACCENT,
+            );
+        }
         let stars = self.settings.get_rating(path);
         if stars > 0 {
             let size = 9.0;
@@ -1102,7 +1216,7 @@ impl HoramaApp {
                 }
             }
         }
-        if response.dragged() {
+        if response.dragged() && self.crop.is_none() {
             self.view.pan += response.drag_delta();
             self.view.fit = false;
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -1119,6 +1233,9 @@ impl HoramaApp {
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         ui.painter_at(rect)
             .image(shown.texture.id(), image_rect, uv, Color32::WHITE);
+        if self.crop.is_some() {
+            self.crop_overlay(ui, &response, image_rect);
+        }
     }
 
     /// Histogram and metadata of the image on screen.

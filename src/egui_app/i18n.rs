@@ -209,6 +209,20 @@ const IT: &[(&str, &str)] = &[
     ("Load Custom ICC/ICM Profile…", "Carica un profilo ICC/ICM personalizzato…"),
     ("'{}' is not a valid RGB ICC profile.", "'{}' non è un profilo ICC RGB valido."),
     ("Images with an embedded profile are converted; the others get it assigned.", "Le immagini con un profilo incorporato vengono convertite, alle altre viene assegnato."),
+    // Crop and history
+    ("Edit", "Modifica"),
+    ("Redo", "Ripeti"),
+    ("Nothing to redo.", "Niente da ripetere."),
+    ("Crop", "Ritaglia"),
+    ("Free", "Libero"),
+    ("Apply", "Applica"),
+    ("Save Crop", "Salva ritaglio"),
+    ("Nothing to save: only cropped images are saved.", "Niente da salvare: si salvano solo le immagini ritagliate."),
+    ("Not rotated: {} (save or undo the crop first).", "Non ruotate: {} (prima salva o annulla il ritaglio)."),
+    ("Unsaved crops", "Ritagli non salvati"),
+    ("{} cropped image(s) are not saved. Save them as new files next to the originals?", "{} immagini ritagliate non sono salvate. Salvarle come nuovi file accanto agli originali?"),
+    ("Save and Close", "Salva e chiudi"),
+    ("Close Without Saving", "Chiudi senza salvare"),
 ];
 
 #[cfg(test)]
@@ -258,6 +272,7 @@ mod tests {
             include_str!("files.rs"),
             include_str!("profiles.rs"),
             include_str!("watch.rs"),
+            include_str!("edit.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

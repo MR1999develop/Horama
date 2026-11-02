@@ -50,7 +50,17 @@ impl HoramaApp {
 
     /// Gives `profile` to the selected images and shows the current one again with it.
     pub(super) fn set_profile(&mut self, profile: &str) {
-        for path in self.targets() {
+        let paths = self.targets();
+        let before = paths
+            .iter()
+            .map(|p| self.profile_overrides.get(&path_key(p)).cloned())
+            .collect();
+        self.push_history(super::edit::Action::Profile {
+            paths: paths.clone(),
+            before,
+            after: (profile != PROFILE_EMBEDDED).then(|| profile.to_string()),
+        });
+        for path in paths {
             if profile == PROFILE_EMBEDDED {
                 self.profile_overrides.remove(&path_key(&path));
             } else {

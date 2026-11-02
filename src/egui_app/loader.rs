@@ -115,6 +115,7 @@ fn worker(
                 image,
                 details,
                 info: image_info(&decoded),
+                decoded,
             },
             Err(error) => Msg::Failed {
                 generation,

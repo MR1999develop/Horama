@@ -11,7 +11,7 @@ use super::{theme, HoramaApp, Msg};
 use crate::browse;
 use crate::config::{path_key, same_path};
 use crate::disk_ops::{self, RotationOutcome};
-use crate::image_saver::{export_image, generate_next_sequential_path, is_jpeg};
+use crate::image_saver::{generate_next_sequential_path, is_jpeg};
 use crate::rename::{compute_batch_rename_plan, execute_batch_rename};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -62,6 +62,7 @@ pub(super) enum FileResult {
         result: Result<(), String>,
     },
     Saved {
+        source: String,
         dest: PathBuf,
         result: Result<(), String>,
     },
@@ -119,16 +120,29 @@ impl HoramaApp {
     /// Rotates the selected files by 90° on disk, without quality loss.
     pub(super) fn rotate(&mut self, clockwise: bool) {
         let files = self.targets();
+        self.rotate_paths(&files, clockwise, true);
+    }
+
+    /// Rotates `files` on disk; `record` adds the step to the Undo history.
+    pub(super) fn rotate_paths(&mut self, files: &[String], clockwise: bool, record: bool) {
         if files.is_empty() {
             return;
         }
         let turns = if clockwise { 1 } else { 3 };
         let mut skipped = Vec::new();
-        for path in files {
+        let mut cropped = Vec::new();
+        let mut rotated = Vec::new();
+        for path in files.iter().cloned() {
             if !disk_ops::rotation_format_supported(Path::new(&path)) {
                 skipped.push(browse::file_name_of(&path));
                 continue;
             }
+            // The crop was drawn on the image as it is: rotating the file would misplace it.
+            if self.edited_pixels(&path).is_some() {
+                cropped.push(browse::file_name_of(&path));
+                continue;
+            }
+            rotated.push(path.clone());
             let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
             self.disk.submit(move || {
                 let result = disk_ops::persist_rotation(Path::new(&path), turns);
@@ -136,7 +150,21 @@ impl HoramaApp {
                 ctx.request_repaint();
             });
         }
-        if !skipped.is_empty() {
+        if record && !rotated.is_empty() {
+            self.push_history(super::edit::Action::Rotate {
+                paths: rotated,
+                clockwise,
+            });
+        }
+        if !cropped.is_empty() {
+            self.notify(
+                trf(
+                    "Not rotated: {} (save or undo the crop first).",
+                    &[&cropped.join(", ")],
+                ),
+                false,
+            );
+        } else if !skipped.is_empty() {
             self.notify(
                 trf(
                     "Not rotated: {} (RAW and other formats are never modified).",
@@ -157,7 +185,12 @@ impl HoramaApp {
             Ok(RotationOutcome::ShownOnly(reason)) => {
                 self.notify(trf("'{}' not rotated: {}.", &[&name, &reason]), false)
             }
-            Err(e) => self.notify(trf("Rotation not saved for '{}': {}", &[&name, &e]), true),
+            Err(e) => {
+                // The history no longer matches the file.
+                self.undo.retain(|a| !a.rotates(&path));
+                self.redo.retain(|a| !a.rotates(&path));
+                self.notify(trf("Rotation not saved for '{}': {}", &[&name, &e]), true)
+            }
         }
     }
 
@@ -267,6 +300,7 @@ impl HoramaApp {
         for f in &removed {
             self.thumbs.remove(f);
             self.settings.set_rating(f, 0);
+            self.edited.remove(&path_key(f));
         }
         if failed.is_empty() {
             return;
@@ -396,6 +430,9 @@ impl HoramaApp {
                 *f = new.clone();
             }
             self.settings.rename_rating(old, new);
+            if let Some(d) = self.edited.remove(&path_key(old)) {
+                self.edited.insert(path_key(new), d);
+            }
             if let Some(p) = self.profile_overrides.remove(&path_key(old)) {
                 self.profile_overrides.insert(path_key(new), p);
             }
@@ -467,7 +504,7 @@ impl HoramaApp {
                 quality: if last == 0 { FIRST_JPEG_QUALITY } else { last },
             });
         } else {
-            self.start_save(source, dest, 0);
+            self.save_copy(source, dest, 0);
         }
     }
 
@@ -524,33 +561,16 @@ impl HoramaApp {
             self.quality = None;
             self.settings.jpeg_quality = quality;
             self.settings.save();
-            self.start_save(source, dest, quality);
+            self.save_copy(source, dest, quality);
         }
     }
 
-    /// Writes the copy on the disk queue, with the profile shown on screen.
-    fn start_save(&mut self, source: String, dest: PathBuf, jpeg_quality: u8) {
-        let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
-        let (loader, color) = (self.preloader.loader(), self.color.clone());
-        let profile = self.profile_of(&source);
-        self.status = trf(
-            "Saving {}…",
-            &[&browse::file_name_of(&dest.to_string_lossy())],
-        );
-        self.disk.submit(move || {
-            let result = loader.get_or_load(&source).and_then(|decoded| {
-                export_image(&color, &decoded, &profile, &dest, false, jpeg_quality)
-            });
-            let _ = tx.send(Msg::File(FileResult::Saved { dest, result }));
-            ctx.request_repaint();
-        });
-    }
-
-    fn saved(&mut self, dest: PathBuf, result: Result<(), String>) {
+    fn saved(&mut self, source: String, dest: PathBuf, result: Result<(), String>) {
         let name = browse::file_name_of(&dest.to_string_lossy());
         match result {
             Ok(()) => {
                 log::info!("Saved {}", dest.display());
+                self.edit_saved(&source);
                 self.notify(trf("Saved '{}'.", &[&name]), false);
                 // A copy saved inside the open folder joins the list.
                 let dest_s = crate::config::normalize_path(&dest.to_string_lossy());
@@ -576,7 +596,11 @@ impl HoramaApp {
             FileResult::Rotated { path, result } => self.rotated(path, result),
             FileResult::Trashed { removed, failed } => self.trashed(removed, failed),
             FileResult::Renamed { plan, result } => self.renamed(plan, result),
-            FileResult::Saved { dest, result } => self.saved(dest, result),
+            FileResult::Saved {
+                source,
+                dest,
+                result,
+            } => self.saved(source, dest, result),
         }
     }
 

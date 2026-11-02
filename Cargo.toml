@@ -54,5 +54,5 @@ panic = "unwind"
 strip = true
 
 [dev-dependencies]
-egui_kittest = "0.37"
+egui_kittest = { version = "0.37", features = ["wgpu"] }
 

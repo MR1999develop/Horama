@@ -10,6 +10,44 @@ pub struct OpenWithItem {
     pub icon_height: u32,
 }
 
+/// Shows `path_str` selected in the file manager (Explorer, Finder) or, elsewhere, opens its
+/// folder.
+pub fn reveal_in_file_manager(path_str: &str) {
+    let p = std::path::Path::new(path_str);
+    if !p.exists() {
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        unsafe extern "system" {
+            fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
+        }
+        // Let Explorer bring its window to the front (ASFW_ANY).
+        unsafe {
+            AllowSetForegroundWindow(0xFFFF_FFFF);
+        }
+        // explorer.exe needs the /select argument as one token: /select,"C:\path\file.jpg"
+        let win_path = path_str.replace('/', "\\");
+        let _ = std::process::Command::new("explorer.exe")
+            .raw_arg(format!("/select,\"{}\"", win_path))
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("-R")
+            .arg(path_str)
+            .spawn();
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        if let Some(parent) = p.parent() {
+            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod win_impl {
     // Win32 structures keep their SDK names so they can be checked against the documentation.

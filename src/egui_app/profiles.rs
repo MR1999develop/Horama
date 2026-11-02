@@ -24,16 +24,18 @@ pub(super) fn register_saved(color: &mut ColorManager, settings: &mut AppSetting
 }
 
 impl HoramaApp {
-    /// The profile of `path`: the one chosen by the user, or the embedded one.
+    /// The profile of `path`: the one chosen for it, the locked one (toolbar), or the
+    /// embedded one.
     pub(super) fn profile_of(&self, path: &str) -> String {
         self.profile_overrides
             .get(&path_key(path))
+            .or(self.locked_profile.as_ref())
             .cloned()
             .unwrap_or_else(|| PROFILE_EMBEDDED.to_string())
     }
 
     /// Every profile the user can choose, in menu order.
-    fn profile_choices(&self) -> Vec<String> {
+    pub(super) fn profile_choices(&self) -> Vec<String> {
         let mut custom: Vec<String> = self
             .color
             .get_custom_profiles()

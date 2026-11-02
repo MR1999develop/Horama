@@ -3546,42 +3546,6 @@ fn remove_files_from_view(ui: &AppWindow, st: &mut ViewerState, removed: &[Strin
     update_cache_status_ui(ui, st);
 }
 
-fn reveal_in_file_manager(path_str: &str) {
-    let p = Path::new(path_str);
-    if !p.exists() {
-        return;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        unsafe extern "system" {
-            fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
-        }
-        // Let Explorer bring its window to the front (ASFW_ANY).
-        unsafe {
-            AllowSetForegroundWindow(0xFFFF_FFFF);
-        }
-        // explorer.exe needs the /select argument as one token: /select,"C:\path\file.jpg"
-        let win_path = path_str.replace('/', "\\");
-        let _ = std::process::Command::new("explorer.exe")
-            .raw_arg(format!("/select,\"{}\"", win_path))
-            .spawn();
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open")
-            .arg("-R")
-            .arg(path_str)
-            .spawn();
-    }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    {
-        if let Some(parent) = p.parent() {
-            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
-        }
-    }
-}
-
 fn enable_windows_dpi_awareness() {
     #[cfg(target_os = "windows")]
     unsafe {
@@ -4441,7 +4405,7 @@ fn main() -> Result<(), slint::PlatformError> {
         horama::open_with::launch_open_with_dialog(file_path.as_str());
     });
     ui.on_open_containing_folder_explorer(move |file_path| {
-        reveal_in_file_manager(file_path.as_str())
+        horama::open_with::reveal_in_file_manager(file_path.as_str())
     });
     {
         let ui_weak = ui.as_weak();

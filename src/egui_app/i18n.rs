@@ -336,6 +336,62 @@ const IT: &[(&str, &str)] = &[
     ("Open With", "Apri con"),
     ("Choose Another App…", "Scegli un'altra app…"),
     ("'{}' not opened: {}", "'{}' non aperto: {}"),
+    // Windows, toolbar and menus
+    ("Remove from the list", "Togli dall'elenco"),
+    ("Preferences…", "Preferenze…"),
+    ("Preferences", "Preferenze"),
+    ("Help", "Aiuto"),
+    ("About {}", "Informazioni su {}"),
+    ("Version {}", "Versione {}"),
+    (
+        "Color-managed RAW and image viewer.",
+        "Visualizzatore di immagini e RAW con gestione del colore.",
+    ),
+    (
+        "Free software under the GNU General Public License v3.0 only (GPL-3.0-only), without any warranty.",
+        "Software libero con licenza GNU General Public License v3.0 only (GPL-3.0-only), senza alcuna garanzia.",
+    ),
+    (
+        "Settings, ratings and shortcuts are saved as you change them.",
+        "Impostazioni, valutazioni e scorciatoie si salvano mentre le cambi.",
+    ),
+    ("[This folder]", "[Questa cartella]"),
+    ("Add", "Aggiungi"),
+    (
+        "Save this aspect ratio among the filters",
+        "Salva queste proporzioni tra i filtri",
+    ),
+    ("Remove", "Togli"),
+    (
+        "Remove this aspect ratio from the filters",
+        "Togli queste proporzioni dai filtri",
+    ),
+    ("Show in Folder", "Mostra nella cartella"),
+    ("{} star(s)", "{} stelle"),
+    ("Zoom", "Zoom"),
+    (
+        "Keep the zoom when changing image",
+        "Mantieni lo zoom cambiando immagine",
+    ),
+    (
+        "Keep this profile for the other images",
+        "Usa questo profilo anche per le altre immagini",
+    ),
+    // Metadata values written by the library
+    ("None (Untagged)", "Nessuno (senza profilo)"),
+    (
+        "8-bit per channel (embedded JPEG preview)",
+        "8 bit per canale (anteprima JPEG incorporata)",
+    ),
+    (
+        "{}-bit per channel (shown at 8-bit)",
+        "{} bit per canale (mostrata a 8 bit)",
+    ),
+    (
+        "{}-bit sensor data (shown at 8-bit)",
+        "Dati del sensore a {} bit (mostrati a 8 bit)",
+    ),
+    ("{}-bit per channel", "{} bit per canale"),
     (
         "Open a folder or an image (File menu), or drop one here",
         "Apri una cartella o un'immagine (menu File), o trascinala qui",
@@ -393,6 +449,8 @@ mod tests {
             include_str!("compare.rs"),
             include_str!("shortcuts.rs"),
             include_str!("tools.rs"),
+            include_str!("toolbar.rs"),
+            include_str!("prefs.rs"),
             include_str!("display.rs"),
             include_str!("view_rotation.rs"),
         ];

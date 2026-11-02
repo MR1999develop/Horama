@@ -21,11 +21,13 @@ mod filters;
 mod i18n;
 mod loader;
 mod mcp;
+mod prefs;
 mod profiles;
 mod shortcuts;
 mod symbol;
 mod theme;
 mod thumbs;
+mod toolbar;
 mod tools;
 mod view_rotation;
 mod watch;
@@ -169,6 +171,14 @@ pub struct HoramaApp {
     view: ViewState,
     /// The info panel (histogram and metadata) on the right.
     show_info: bool,
+    show_prefs: bool,
+    show_about: bool,
+    /// Toolbar locks: the zoom and position stay when the image changes; the profile is
+    /// given to every image without one of its own.
+    lock_zoom: bool,
+    locked_profile: Option<String>,
+    /// The custom aspect ratio being typed in the filters ("16:10").
+    ratio_input: String,
     /// Color profiles chosen by the user, by [`crate::config::path_key`].
     profile_overrides: HashMap<String, String>,
     /// Quarter turns shown on screen only, by path key ([`view_rotation`]).
@@ -270,6 +280,11 @@ impl HoramaApp {
                 fit: true,
             },
             show_info: true,
+            show_prefs: false,
+            show_about: false,
+            lock_zoom: false,
+            locked_profile: None,
+            ratio_input: String::new(),
             profile_overrides: HashMap::new(),
             edited: HashMap::new(),
             view_turns: HashMap::new(),
@@ -320,6 +335,43 @@ impl HoramaApp {
             );
         } else {
             self.status = trf("'{}' does not exist.", &[&path]);
+        }
+    }
+
+    /// Gives the window the size it had last time (shared with the Slint interface, which
+    /// stores it in physical pixels).
+    fn restore_window_size(&self) {
+        if self.settings.window_maximized {
+            self.ctx
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            return;
+        }
+        let ppp = self
+            .ctx
+            .input(|i| i.viewport().native_pixels_per_point)
+            .unwrap_or(1.0);
+        let size = Vec2::new(
+            self.settings.window_width as f32,
+            self.settings.window_height as f32,
+        ) / ppp;
+        if size.x >= 640.0 && size.y >= 400.0 {
+            self.ctx
+                .send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+        }
+    }
+
+    /// Keeps the window size in the settings (written at exit).
+    fn remember_window_size(&mut self) {
+        let (rect, maximized, ppp) = self.ctx.input(|i| {
+            let v = i.viewport();
+            (v.inner_rect, v.maximized, v.native_pixels_per_point)
+        });
+        if let Some(m) = maximized {
+            self.settings.window_maximized = m;
+        }
+        if let (Some(r), Some(false), Some(ppp)) = (rect, maximized, ppp) {
+            self.settings.window_width = (r.width() * ppp).round() as u32;
+            self.settings.window_height = (r.height() * ppp).round() as u32;
         }
     }
 
@@ -619,7 +671,7 @@ impl HoramaApp {
                         histogram,
                     });
                     self.loading = None;
-                    if !same {
+                    if !same && !self.lock_zoom {
                         self.view.fit = true;
                         self.view.pan = Vec2::ZERO;
                     }
@@ -659,7 +711,9 @@ impl HoramaApp {
             self.styled = true;
             self.ctx.set_theme(theme::preference(self.settings.theme));
             theme::apply(&self.ctx);
+            self.restore_window_size();
         }
+        self.remember_window_size();
         self.receive();
         self.serve_mcp();
         self.expire_notice();
@@ -671,6 +725,7 @@ impl HoramaApp {
         self.handle_dropped_files(ui);
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
+        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(self.status_text());
@@ -713,6 +768,8 @@ impl HoramaApp {
                 self.notice_overlay(ui, rect);
             });
         self.close_window(&ctx);
+        self.preferences_window(&ctx);
+        self.about_window(&ctx);
         self.shortcuts_window(&ctx);
         self.rename_window(&ctx);
         self.quality_window(&ctx);
@@ -743,9 +800,21 @@ impl HoramaApp {
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
                     ui.menu_button(tr("Recent Folders"), |ui| {
                         for folder in &recent {
-                            if ui.button(folder.as_str()).clicked() {
-                                self.open_path(folder);
-                            }
+                            ui.horizontal(|ui| {
+                                if ui.button(folder.as_str()).clicked() {
+                                    self.open_path(folder);
+                                    ui.close();
+                                }
+                                if widgets::icon_button(
+                                    ui,
+                                    symbol::close(),
+                                    tr("Remove from the list"),
+                                )
+                                .clicked()
+                                {
+                                    self.settings.remove_recent_folder(folder);
+                                }
+                            });
                         }
                         ui.separator();
                         if ui.button(tr("Clear List")).clicked() {
@@ -784,6 +853,13 @@ impl HoramaApp {
                     .clicked()
                 {
                     self.trash_selected();
+                }
+                ui.separator();
+                if ui
+                    .add(egui::Button::new(tr("Preferences…")).shortcut_text("Ctrl+,"))
+                    .clicked()
+                {
+                    self.show_prefs = true;
                 }
                 ui.separator();
                 if ui.button(tr("Exit")).clicked() {
@@ -874,37 +950,6 @@ impl HoramaApp {
                 {
                     self.show_info = info;
                 }
-                ui.menu_button(tr("Theme"), |ui| {
-                    for choice in crate::config::ThemeChoice::ALL {
-                        if ui
-                            .radio(self.settings.theme == choice, tr(choice.label()))
-                            .clicked()
-                        {
-                            self.settings.theme = choice;
-                            self.settings.save();
-                            ui.ctx().set_theme(theme::preference(choice));
-                        }
-                    }
-                });
-                ui.menu_button(tr("Language"), |ui| {
-                    for (value, name) in i18n::CHOICES {
-                        let label = if value.is_empty() { tr(name) } else { name };
-                        if ui.radio(self.settings.language == value, label).clicked() {
-                            self.settings.language = value.to_string();
-                            self.settings.save();
-                            i18n::set_language(value);
-                        }
-                    }
-                });
-                if ui
-                    .add(
-                        egui::Button::new(tr("Keyboard Shortcuts…"))
-                            .shortcut_text(self.shortcut_text(shortcuts::Command::OpenShortcuts)),
-                    )
-                    .clicked()
-                {
-                    self.run(shortcuts::Command::OpenShortcuts);
-                }
                 ui.separator();
                 if ui
                     .add_enabled(
@@ -946,6 +991,24 @@ impl HoramaApp {
                     .clicked()
                 {
                     self.set_zoom(self.view.zoom / view::ZOOM_STEP);
+                }
+            });
+            ui.menu_button(tr("Help"), |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(tr("Keyboard Shortcuts…"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::OpenShortcuts)),
+                    )
+                    .clicked()
+                {
+                    self.run(shortcuts::Command::OpenShortcuts);
+                }
+                ui.separator();
+                if ui
+                    .button(trf("About {}", &[&crate::config::APP_NAME]))
+                    .clicked()
+                {
+                    self.show_about = true;
                 }
             });
         });
@@ -1030,6 +1093,7 @@ impl HoramaApp {
             }
             C::ToggleInfo => self.show_info = !self.show_info,
             C::NextPanel => self.focus_next_panel(),
+            C::Preferences => self.show_prefs = true,
             C::Next | C::Prev | C::Forward10 | C::Back10 => {
                 if let Some(last) = self.visible.len().checked_sub(1) {
                     let cur = self.current.unwrap_or(0);
@@ -1206,7 +1270,12 @@ impl HoramaApp {
                         if expander(ui, row.has_children, row.expanded).clicked() {
                             toggled = Some(row.key.clone());
                         }
-                        let label = format!("{} ({})", row.name, row.count);
+                        let name = if row.key == browse::TREE_ROOT_ONLY {
+                            tr("[This folder]").to_string()
+                        } else {
+                            row.name.clone()
+                        };
+                        let label = format!("{} ({})", name, row.count);
                         let item = widgets::list_item(ui, row.selected, label.into(), 0.0);
                         if item.clicked() {
                             chosen = Some(row.key.clone());
@@ -1554,7 +1623,7 @@ impl HoramaApp {
                     .show(ui, |ui| {
                         for (label, value) in &shown.metadata {
                             ui.label(egui::RichText::new(tr(label)).weak());
-                            ui.add(egui::Label::new(value).wrap());
+                            ui.add(egui::Label::new(metadata_value(value)).wrap());
                             ui.end_row();
                         }
                     });
@@ -1626,4 +1695,24 @@ fn expander(ui: &mut egui::Ui, enabled: bool, expanded: bool) -> egui::Response 
     } else {
         response
     }
+}
+
+/// A metadata value as the library writes it, in the language of the interface.
+fn metadata_value(value: &str) -> String {
+    const PATTERNS: [&str; 3] = [
+        "{}-bit per channel (shown at 8-bit)",
+        "{}-bit sensor data (shown at 8-bit)",
+        "{}-bit per channel",
+    ];
+    for pattern in PATTERNS {
+        let (before, after) = pattern.split_once("{}").unwrap_or((pattern, ""));
+        if let Some(n) = value
+            .strip_prefix(before)
+            .and_then(|v| v.strip_suffix(after))
+            .filter(|n| n.chars().all(|c| c.is_ascii_digit()) && !n.is_empty())
+        {
+            return trf(pattern, &[&n]);
+        }
+    }
+    tr(value).to_string()
 }

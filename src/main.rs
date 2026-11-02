@@ -34,12 +34,16 @@ fn main() -> eframe::Result {
     // MCP server for AI clients.
     let mcp = std::env::args().any(|a| a == "--mcp" || a == "-mcp")
         || std::env::var_os("HORAMA_MCP").is_some();
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title(APP_NAME)
+        .with_inner_size([1280.0, 800.0])
+        .with_min_inner_size([960.0, 520.0])
+        .with_drag_and_drop(true);
+    if let Some(icon) = window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(APP_NAME)
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([960.0, 520.0])
-            .with_drag_and_drop(true),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -57,4 +61,16 @@ fn main() -> eframe::Result {
             Ok(Box::new(Shell(app)))
         }),
     )
+}
+
+/// The program icon (assets/icon.png, built into the program) for the window and the
+/// taskbar.
+fn window_icon() -> Option<egui::IconData> {
+    let image = image::load_from_memory(include_bytes!("../assets/icon.png")).ok()?;
+    let rgba = image.thumbnail(256, 256).to_rgba8();
+    Some(egui::IconData {
+        width: rgba.width(),
+        height: rgba.height(),
+        rgba: rgba.into_raw(),
+    })
 }

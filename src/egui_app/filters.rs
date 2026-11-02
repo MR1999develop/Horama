@@ -168,6 +168,54 @@ impl HoramaApp {
         }
     }
 
+    /// Adds a custom aspect ratio ("16:10") to the saved ones, or removes the one chosen in
+    /// the filter. Saved ratios are shared with the Slint interface. True if the filter
+    /// changed.
+    fn custom_ratio_row(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut self.ratio_input)
+                    .hint_text("16:10")
+                    .desired_width(70.0),
+            );
+            let value = self.ratio_input.trim().replace([':', '/'], "x");
+            let valid = browse::parse_aspect_ratio_str(&value).is_some();
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if ui
+                .add_enabled(valid, egui::Button::new(tr("Add")))
+                .on_hover_text(tr("Save this aspect ratio among the filters"))
+                .clicked()
+                || (enter && valid)
+            {
+                if !self.settings.saved_aspect_ratios.contains(&value) {
+                    self.settings.saved_aspect_ratios.push(value.clone());
+                    self.settings.save();
+                }
+                self.filters.aspect = value;
+                self.ratio_input.clear();
+                changed = true;
+            }
+            let custom = self
+                .settings
+                .saved_aspect_ratios
+                .iter()
+                .position(|r| *r == self.filters.aspect);
+            if let Some(i) = custom
+                && ui
+                    .button(tr("Remove"))
+                    .on_hover_text(tr("Remove this aspect ratio from the filters"))
+                    .clicked()
+            {
+                self.settings.saved_aspect_ratios.remove(i);
+                self.settings.save();
+                self.filters.aspect = "ALL".to_string();
+                changed = true;
+            }
+        });
+        changed
+    }
+
     pub(super) fn filters_panel(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
         egui::CollapsingHeader::new(super::widgets::section_text(tr("Filters")))
@@ -200,6 +248,7 @@ impl HoramaApp {
                     aspects.push((custom.clone(), custom.replace(['x', 'X'], ":")));
                 }
                 changed |= combo_owned(ui, tr("Aspect ratio"), &mut self.filters.aspect, &aspects);
+                changed |= self.custom_ratio_row(ui);
                 changed |= combo(
                     ui,
                     tr("Color profile"),

@@ -22,6 +22,8 @@ pub(super) enum CellAction {
     Rename,
     Trash,
     Rotate(bool),
+    ShowInFolder,
+    Rating(u8),
 }
 
 impl HoramaApp {
@@ -139,7 +141,22 @@ impl HoramaApp {
                 action = Some(CellAction::ChooseApp);
             }
         });
+        if ui.button(tr("Show in Folder")).clicked() {
+            action = Some(CellAction::ShowInFolder);
+        }
         ui.separator();
+        ui.menu_button(tr("Rating"), |ui| {
+            for stars in 0..=5u8 {
+                let label = if stars == 0 {
+                    tr("Unrated").to_string()
+                } else {
+                    trf("{} star(s)", &[&stars])
+                };
+                if ui.button(label).clicked() {
+                    action = Some(CellAction::Rating(stars));
+                }
+            }
+        });
         if ui.button(tr("Rotate Right")).clicked() {
             action = Some(CellAction::Rotate(true));
         }
@@ -171,6 +188,8 @@ impl HoramaApp {
             CellAction::Rename => self.start_rename(),
             CellAction::Trash => self.trash_selected(),
             CellAction::Rotate(cw) => self.rotate(cw),
+            CellAction::ShowInFolder => open_with::reveal_in_file_manager(path),
+            CellAction::Rating(stars) => self.set_rating(stars),
         }
     }
 }

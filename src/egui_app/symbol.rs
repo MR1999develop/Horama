@@ -44,3 +44,68 @@ pub fn with(icon: &str, text: impl std::fmt::Display) -> String {
 pub fn edited() -> &'static str {
     pick("\u{E70F}", "*")
 }
+
+/// Open a folder.
+pub fn open_folder() -> &'static str {
+    pick("\u{F12B}", "Open")
+}
+
+/// Save.
+pub fn save() -> &'static str {
+    pick("\u{E74E}", "Save")
+}
+
+/// Undo.
+pub fn undo() -> &'static str {
+    pick("\u{E7A7}", "<-")
+}
+
+/// Redo.
+pub fn redo() -> &'static str {
+    pick("\u{E7A6}", "->")
+}
+
+/// Previous image.
+pub fn previous() -> &'static str {
+    pick("\u{E72B}", "<")
+}
+
+/// Next image.
+pub fn next() -> &'static str {
+    pick("\u{E72A}", ">")
+}
+
+/// Crop.
+pub fn crop() -> &'static str {
+    pick("\u{E7A8}", "Crop")
+}
+
+/// Zoom out.
+pub fn zoom_out() -> &'static str {
+    pick("\u{E71F}", "-")
+}
+
+/// Zoom in.
+pub fn zoom_in() -> &'static str {
+    pick("\u{E8A3}", "+")
+}
+
+/// Fit to the window.
+pub fn fit() -> &'static str {
+    pick("\u{E9A6}", "Fit")
+}
+
+/// Locked (kept for the next images).
+pub fn locked() -> &'static str {
+    pick("\u{E72E}", "[x]")
+}
+
+/// Not locked.
+pub fn unlocked() -> &'static str {
+    pick("\u{E785}", "[ ]")
+}
+
+/// Actual size (100%): the same text everywhere, no icon reads better.
+pub fn actual_size() -> &'static str {
+    "1:1"
+}

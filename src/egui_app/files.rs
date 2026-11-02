@@ -678,6 +678,8 @@ impl HoramaApp {
     /// the file operations still queued are given time to finish.
     pub fn on_exit(&mut self) {
         self.commit_trash();
+        // The window size, kept while the window was open.
+        self.settings.save();
         if !self.disk.flush(Duration::from_secs(10)) {
             log::warn!("Some file operations did not finish before exit");
         }

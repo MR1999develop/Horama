@@ -93,3 +93,71 @@ pub fn list_item(ui: &mut Ui, selected: bool, title: RichText, indent: f32) -> R
     }
     resp
 }
+
+/// An icon button that stays highlighted while its option is on (locks, panels).
+pub fn toggle_button(ui: &mut Ui, on: bool, icon: &str, hint: impl Into<String>) -> Response {
+    let t = Tokens::current(ui);
+    let hint = hint.into();
+    let text = RichText::new(icon)
+        .size(theme::FONT_BODY)
+        .color(if on { t.accent } else { t.text });
+    let mut button = Button::new(text).frame_when_inactive(on);
+    if on {
+        button = button.fill(t.selected);
+    }
+    let resp = ui.add(button).on_hover_text(&hint);
+    resp.widget_info(|| WidgetInfo::selected(Role::Switch, true, on, &hint));
+    resp
+}
+
+/// An icon button whose icon is drawn by `paint` (for icons no system font has), with the
+/// size and behaviour of [`icon_button`].
+pub fn painted_icon_button(
+    ui: &mut Ui,
+    hint: impl Into<String>,
+    paint: impl FnOnce(&egui::Painter, egui::Rect, egui::Color32),
+) -> Response {
+    let hint = hint.into();
+    let size = ui.spacing().interact_size.y;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(size, size), Sense::click());
+    resp.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &hint));
+    if ui.is_rect_visible(rect) {
+        let t = Tokens::current(ui);
+        if resp.hovered() && ui.is_enabled() {
+            ui.painter()
+                .rect_filled(rect, theme::RADIUS, t.control_hover);
+        }
+        let color = if ui.is_enabled() { t.text } else { t.text_weak };
+        paint(ui.painter(), rect.shrink(size * 0.28), color);
+    }
+    resp.on_hover_text(hint)
+}
+
+/// A circular arrow, turning clockwise or counter-clockwise, inside `r`.
+pub fn paint_rotate(p: &egui::Painter, r: egui::Rect, color: egui::Color32, clockwise: bool) {
+    use std::f32::consts::PI;
+    let c = r.center();
+    let radius = r.width().min(r.height()) / 2.0;
+    let dir = if clockwise { 1.0 } else { -1.0 };
+    // A 270° arc open at the top, ending in an arrow head.
+    let (start, end) = (-PI / 2.0 + dir * 0.6, -PI / 2.0 + dir * (0.6 + 1.5 * PI));
+    let n = 24;
+    let point = |a: f32| c + egui::vec2(a.cos(), a.sin()) * radius;
+    let arc: Vec<egui::Pos2> = (0..=n)
+        .map(|k| point(start + (end - start) * k as f32 / n as f32))
+        .collect();
+    p.add(egui::Shape::line(arc, Stroke::new(1.5, color)));
+    let tip = point(end);
+    let along = egui::vec2(-end.sin(), end.cos()) * dir;
+    let out = egui::vec2(end.cos(), end.sin());
+    let head = radius * 0.6;
+    p.add(egui::Shape::convex_polygon(
+        vec![
+            tip + along * head,
+            tip + out * head * 0.6,
+            tip - out * head * 0.6,
+        ],
+        color,
+        Stroke::NONE,
+    ));
+}

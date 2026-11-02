@@ -39,6 +39,7 @@ pub(super) enum Command {
     Fit,
     ToggleInfo,
     NextPanel,
+    Preferences,
 }
 
 /// The customizable commands: (command, settings id, English name), in the editor's order.
@@ -71,7 +72,7 @@ pub(super) const CUSTOM: [(Command, &str, &str); 21] = [
 ];
 
 /// Keys that are not customizable.
-const FIXED: [(Command, KeyboardShortcut); 4] = [
+const FIXED: [(Command, KeyboardShortcut); 5] = [
     (
         Command::SaveAs,
         KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::S),
@@ -84,6 +85,10 @@ const FIXED: [(Command, KeyboardShortcut); 4] = [
     (
         Command::NextPanel,
         KeyboardShortcut::new(Modifiers::NONE, Key::F6),
+    ),
+    (
+        Command::Preferences,
+        KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma),
     ),
 ];
 

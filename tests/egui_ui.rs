@@ -216,6 +216,22 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         4
     );
 
+    // Several dropped images open by themselves: the rest of the folder stays out, also
+    // when new files appear in it.
+    let two = vec![
+        photos.join("a.jpg").to_string_lossy().to_string(),
+        photos.join("b.jpg").to_string_lossy().to_string(),
+    ];
+    harness.state_mut().open_files(two);
+    wait_for(&mut harness, "the dropped images", |h| {
+        shows(h, "2 selected files") && shows(h, "2 images shown")
+    });
+    write_jpeg(&photos.join("e.jpg"));
+    harness.run_steps(40);
+    std::thread::sleep(Duration::from_millis(400));
+    harness.run_steps(5);
+    assert!(shows(&harness, "2 images shown"));
+
     drop(harness);
     let _ = std::fs::remove_dir_all(&photos);
     let _ = std::fs::remove_dir_all(&config);

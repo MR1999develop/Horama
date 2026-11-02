@@ -140,6 +140,8 @@ pub struct HoramaApp {
     scroll_to_current: bool,
 
     folder: Option<String>,
+    /// Only some dropped images are listed, not their whole folder.
+    files_mode: bool,
     /// Watches the open folder for changes made by other programs.
     watcher: Option<crate::file_watcher::FolderWatcher>,
     /// Changes reported for an older folder carry an older generation.
@@ -236,6 +238,7 @@ impl HoramaApp {
             thumb_center: 0,
             scroll_to_current: false,
             folder: None,
+            files_mode: false,
             watcher: None,
             watch_generation: 0,
             subfolders: Vec::new(),
@@ -333,6 +336,7 @@ impl HoramaApp {
     /// Scans `folder` (with subfolders) on a worker thread; `select` is shown when done.
     fn open_folder(&mut self, folder: &str, select: Option<String>) {
         self.close_notice();
+        self.files_mode = false;
         self.folder = Some(folder.to_string());
         // Shared with the Slint interface: last folder and recent folders.
         self.settings.add_recent_folder(folder);
@@ -353,6 +357,12 @@ impl HoramaApp {
     /// Reads the open folder again, keeping filters, tree, thumbnails and the current image
     /// (used when folders change on disk).
     pub(super) fn rescan_folder(&mut self) {
+        if self.files_mode {
+            // Only the dropped images: keep those still on disk.
+            self.all_files.retain(|f| Path::new(f).exists());
+            self.refilter();
+            return;
+        }
         if let Some(folder) = self.folder.clone() {
             let current = self.current_path();
             self.start_scan(&folder, current);
@@ -1058,14 +1068,70 @@ impl HoramaApp {
     }
 
     /// Files or folders dragged from the file manager: the first one is opened.
+    /// Files or folders dragged from the file manager: one item opens as usual; several
+    /// images open by themselves, without the rest of their folder.
     fn handle_dropped_files(&mut self, ui: &egui::Ui) {
-        let dropped = ui.input(|i| i.raw.dropped_files.clone());
-        if let Some(first) = dropped.first() {
-            let path = first.path().to_string_lossy().to_string();
-            if !path.is_empty() {
-                self.open_path(&path);
-            }
+        let dropped: Vec<String> = ui.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_string_lossy().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        });
+        if dropped.is_empty() {
+            return;
         }
+        log::info!("Dropped on the window: {} item(s)", dropped.len());
+        if dropped.len() == 1 {
+            self.open_path(&dropped[0]);
+            return;
+        }
+        let images: Vec<String> = dropped
+            .iter()
+            .filter(|p| Path::new(p).is_file() && is_supported_file(Path::new(p)))
+            .map(|p| normalize_path(p))
+            .collect();
+        match images.len() {
+            0 => match dropped.iter().find(|p| Path::new(p).is_dir()) {
+                Some(dir) => self.open_path(dir),
+                None => self.notify(
+                    tr("None of the dropped files is an image format Horama can open."),
+                    true,
+                ),
+            },
+            1 => self.open_path(&images[0]),
+            _ => self.open_files(images),
+        }
+    }
+
+    /// Lists only `files` (several dropped images), watched in their folder.
+    pub fn open_files(&mut self, mut files: Vec<String>) {
+        let Some(parent) = Path::new(&files[0])
+            .parent()
+            .map(|p| normalize_path(&p.to_string_lossy()))
+        else {
+            return;
+        };
+        self.close_notice();
+        self.scan_generation += 1; // a folder scan still running is ignored
+        self.files_mode = true;
+        self.folder = Some(parent.clone());
+        self.settings.add_recent_folder(&parent);
+        self.filters.tree = browse::TREE_ALL.to_string();
+        self.expanded = HashSet::from([browse::TREE_ALL.to_string()]);
+        self.aspects.clear();
+        self.thumbs.clear();
+        self.thumb_folder_generation = self.thumb_loader.request(Vec::new());
+        if let Ok(mut cache) = self.preloader.cache.lock() {
+            cache.clear();
+        }
+        files.sort_by_key(|a| a.to_lowercase());
+        self.all_files = files;
+        self.subfolders = Vec::new();
+        self.current = None;
+        self.watch_folder(&parent);
+        self.refilter();
     }
 
     fn folder_tree(&mut self, ui: &mut egui::Ui) {
@@ -1073,7 +1139,12 @@ impl HoramaApp {
             ui.label(tr("No folder open"));
             return;
         };
-        ui.label(egui::RichText::new(browse::file_name_of(&root)).strong())
+        let title = if self.files_mode {
+            trf("{} selected files", &[&self.all_files.len()])
+        } else {
+            browse::file_name_of(&root)
+        };
+        ui.label(egui::RichText::new(title).strong())
             .on_hover_text(root.as_str());
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.filters.search)

@@ -245,6 +245,8 @@ const IT: &[(&str, &str)] = &[
     // Tools
     ("Pixel", "Pixel"),
     ("Display profile: {}", "Profilo del monitor: {}"),
+    ("None of the dropped files is an image format Horama can open.", "Nessuno dei file trascinati è un formato d'immagine che Horama sa aprire."),
+    ("{} selected files", "{} file selezionati"),
     ("Open With", "Apri con"),
     ("Choose Another App…", "Scegli un'altra app…"),
     ("'{}' not opened: {}", "'{}' non aperto: {}"),

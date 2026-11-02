@@ -101,7 +101,8 @@ impl HoramaApp {
             .as_ref()
             .map(|n| n.trash.iter().any(|t| same_path(t, &p)))
             .unwrap_or(false);
-        if self.knows(&p) || pending_trash || !Path::new(&p).is_file() {
+        // Dropped images: new files of their folder do not join the list.
+        if self.files_mode || self.knows(&p) || pending_trash || !Path::new(&p).is_file() {
             return false;
         }
         if !is_supported_file(Path::new(&p)) {

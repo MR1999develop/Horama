@@ -4,16 +4,18 @@
 //! same rules as the Slint interface ([`crate::browse`]); filmstrip with thumbnails and
 //! Ctrl/Shift selection; the current image color-managed, with fit / 100% / zoom around the
 //! cursor / pan ([`crate::view`]); the neighbours of the current image preloaded into the
-//! shared RAM cache. Ratings, editing, metadata and the other tools come in later stages.
+//! shared RAM cache; ratings (keys 0–5 or the stars in the status bar) and all the filters
+//! ([`filters`]). Editing, metadata and the other tools come in later stages.
 //!
 //! Only `egui` is used here, not `eframe`: the `horama-egui` program puts [`HoramaApp`] in a
 //! native window. Disk reads and decoding run on worker threads; their results come back
 //! through a channel read at every frame, and stale results (an older folder or image) are
 //! dropped by generation number.
 
+mod filters;
 mod thumbs;
 
-use crate::browse::{self, ClickMods, FileFacts, Filters};
+use crate::browse::{self, ClickMods, Filters};
 use crate::cache_manager::PreloadController;
 use crate::color_manager::ColorManager;
 use crate::config::{
@@ -47,6 +49,10 @@ enum Msg {
         files: Vec<String>,
         subfolders: Vec<String>,
         select: Option<String>,
+    },
+    Aspects {
+        generation: u64,
+        results: Vec<(String, f32)>,
     },
     Loaded {
         generation: u64,
@@ -102,6 +108,9 @@ pub struct HoramaApp {
     expanded: HashSet<String>,
     all_files: Vec<String>,
     filters: Filters,
+    /// Aspect ratios measured for the aspect-ratio filter (NaN = unreadable).
+    aspects: HashMap<String, f32>,
+    aspect_job_running: bool,
     visible: Vec<String>,
     selected: BTreeSet<usize>,
     anchor: Option<usize>,
@@ -111,27 +120,6 @@ pub struct HoramaApp {
     loading: Option<String>,
     view: ViewState,
     status: String,
-}
-
-/// What the filters know about a file in the egui interface (for now: ratings only).
-struct Facts<'a>(&'a AppSettings);
-
-impl FileFacts for Facts<'_> {
-    fn rating(&self, path: &str) -> u8 {
-        self.0.get_rating(path)
-    }
-    fn is_cropped(&self, _path: &str) -> bool {
-        false
-    }
-    fn has_profile_override(&self, _path: &str) -> bool {
-        false
-    }
-    fn aspect_ratio(&self, _path: &str) -> Option<f32> {
-        None
-    }
-    fn color_profile(&self, _path: &str) -> (String, bool) {
-        (DEFAULT_FALLBACK_PROFILE.to_string(), false)
-    }
 }
 
 impl HoramaApp {
@@ -164,6 +152,8 @@ impl HoramaApp {
             expanded: HashSet::new(),
             all_files: Vec::new(),
             filters: Filters::default(),
+            aspects: HashMap::new(),
+            aspect_job_running: false,
             visible: Vec::new(),
             selected: BTreeSet::new(),
             anchor: None,
@@ -216,6 +206,7 @@ impl HoramaApp {
         self.folder = Some(folder.to_string());
         self.filters.tree = browse::TREE_ALL.to_string();
         self.expanded = HashSet::from([browse::TREE_ALL.to_string()]);
+        self.aspects.clear();
         // Thumbnails of the previous folder are dropped, and its late results ignored.
         self.thumbs.clear();
         self.thumb_folder_generation = self.thumb_loader.request(Vec::new());
@@ -245,14 +236,23 @@ impl HoramaApp {
     fn refilter(&mut self) {
         let previous = self.current_path();
         let root = self.folder.clone().unwrap_or_default();
-        self.visible = browse::filter_files(
-            &self.all_files,
-            &root,
-            &self.filters,
-            &self.settings.saved_aspect_ratios,
-            &Facts(&self.settings),
-        )
-        .visible;
+        let filtered = {
+            let cache = self.preloader.cache.lock().ok();
+            let facts = filters::Facts {
+                settings: &self.settings,
+                aspects: &self.aspects,
+                cache: cache.as_deref(),
+            };
+            browse::filter_files(
+                &self.all_files,
+                &root,
+                &self.filters,
+                &self.settings.saved_aspect_ratios,
+                &facts,
+            )
+        };
+        self.visible = filtered.visible;
+        self.measure_aspects(filtered.unknown_ratio);
         self.selected.clear();
         self.anchor = None;
         self.current = None;
@@ -383,6 +383,16 @@ impl HoramaApp {
                         self.status = "No supported images in this folder.".to_string();
                     }
                 }
+                Msg::Aspects {
+                    generation,
+                    results,
+                } => {
+                    self.aspect_job_running = false;
+                    if generation == self.scan_generation {
+                        self.aspects.extend(results);
+                        self.refilter();
+                    }
+                }
                 Msg::Loaded {
                     generation,
                     path,
@@ -428,7 +438,17 @@ impl HoramaApp {
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| {
-            ui.label(self.status_text());
+            ui.horizontal(|ui| {
+                ui.label(self.status_text());
+                if let Some(path) = self.current_path() {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let current = self.settings.get_rating(&path);
+                        if let Some(stars) = filters::star_picker(ui, current) {
+                            self.set_rating(stars);
+                        }
+                    });
+                }
+            });
         });
         egui::Panel::bottom("filmstrip")
             .resizable(false)
@@ -473,7 +493,7 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new("Actual Size (100%)").shortcut_text("1"),
+                        egui::Button::new("Actual Size (100%)").shortcut_text("Ctrl+1"),
                     )
                     .clicked()
                 {
@@ -516,19 +536,36 @@ impl HoramaApp {
             return;
         }
         let open = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+        const RATING_KEYS: [Key; 6] = [
+            Key::Num0,
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+        ];
+        let rating = ui.input(|i| {
+            if i.modifiers.any() {
+                return None;
+            }
+            RATING_KEYS.iter().position(|k| i.key_pressed(*k))
+        });
         let (open, next, prev, fit, actual, zoom_in, zoom_out) = ui.input_mut(|i| {
             (
                 i.consume_shortcut(&open),
                 i.key_pressed(Key::ArrowRight),
                 i.key_pressed(Key::ArrowLeft),
                 i.key_pressed(Key::F),
-                i.key_pressed(Key::Num1),
+                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Num1)),
                 i.key_pressed(Key::Plus) || i.key_pressed(Key::Equals),
                 i.key_pressed(Key::Minus),
             )
         });
         if open {
             self.pick_folder();
+        }
+        if let Some(stars) = rating {
+            self.set_rating(stars as u8);
         }
         if !self.visible.is_empty() {
             let last = self.visible.len() - 1;
@@ -583,6 +620,7 @@ impl HoramaApp {
         if search.changed() {
             self.refilter();
         }
+        self.filters_panel(ui);
         ui.label(format!("{} images shown", self.visible.len()));
         ui.separator();
 
@@ -711,6 +749,20 @@ impl HoramaApp {
             None => {
                 painter.rect_filled(thumb_area.shrink(8.0), 2.0, Color32::from_gray(0x2E));
             }
+        }
+        let stars = self.settings.get_rating(path);
+        if stars > 0 {
+            let size = 9.0;
+            let left = Pos2::new(thumb_area.min.x + 2.0, thumb_area.max.y - size / 2.0 - 2.0);
+            painter.rect_filled(
+                Rect::from_min_size(
+                    left - Vec2::new(1.0, size / 2.0 + 1.0),
+                    Vec2::new(size * 5.0 + 2.0, size + 2.0),
+                ),
+                2.0,
+                Color32::from_black_alpha(160),
+            );
+            filters::paint_stars(&painter, left, size, stars);
         }
         let label_rect = Rect::from_min_max(
             Pos2::new(rect.min.x + 4.0, thumb_area.max.y + 2.0),

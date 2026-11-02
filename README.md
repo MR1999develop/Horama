@@ -105,7 +105,7 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 cargo run --release --bin horama-egui
 ```
 
-Per ora apre una cartella (menu, riga di comando o trascinamento), mostra l'albero delle cartelle e la filmstrip con le miniature, con ricerca e selezione multipla, e visualizza l'immagine corrente con gestione colore, "adatta alla finestra", 100%, zoom sul cursore e spostamento; le immagini vicine vengono precaricate. Valutazioni, modifiche, metadati e gli altri strumenti arriveranno nelle fasi successive.
+Per ora apre una cartella (menu, riga di comando o trascinamento), mostra l'albero delle cartelle e la filmstrip con le miniature, con ricerca e selezione multipla, visualizza l'immagine corrente con gestione colore, "adatta alla finestra", 100% (Ctrl+1), zoom sul cursore e spostamento, e precarica le immagini vicine. Le valutazioni si danno con i tasti 0–5 o con le stelle nella barra di stato; i filtri (stelle, formato, proporzioni, profilo colore) sono nel pannello a sinistra. Modifiche, metadati e gli altri strumenti arriveranno nelle fasi successive.
 
 ## File di log
 

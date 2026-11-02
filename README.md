@@ -99,7 +99,7 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 
 ## Interfaccia
 
-Dalla versione 0.6 `horama` usa una nuova interfaccia basata su [egui](https://github.com/emilk/egui). L'interfaccia precedente, in Slint, resta per una versione come `horama-slint` (`horama-slint.exe` su Windows) e poi verrà tolta; le due condividono impostazioni, valutazioni e scorciatoie.
+Ora `horama` usa una nuova interfaccia basata su [egui](https://github.com/emilk/egui). L'interfaccia precedente, in Slint, resta per una versione come `horama-slint` (`horama-slint.exe` su Windows) e poi verrà tolta; le due condividono impostazioni, valutazioni e scorciatoie.
 
 ```
 cargo run --release

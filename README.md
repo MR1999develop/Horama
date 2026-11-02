@@ -1,6 +1,6 @@
 # Horama
 
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/Rust-2021%20Edition-orange.svg)](https://www.rust-lang.org/)
 [![Slint UI](https://img.shields.io/badge/GUI-Slint%20v1.9-purple.svg)](https://slint.dev/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
@@ -125,4 +125,6 @@ Al primo avvio Horama copia le impostazioni della versione precedente (valutazio
 
 ## Licenza
 
-Progetto open-source rilasciato sotto licenza **GNU General Public License v3.0 (GPL-3.0-or-later)**. Consulta il file [LICENSE](LICENSE) per i dettagli.
+Copyright (C) 2026 MR
+
+Progetto open-source rilasciato sotto licenza **GNU General Public License v3.0 (GPL-3.0-only)**. Consulta il file [LICENSE](LICENSE) per i dettagli.

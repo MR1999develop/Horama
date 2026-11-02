@@ -14,6 +14,7 @@
 //! dropped by generation number.
 
 mod compare;
+mod display;
 mod edit;
 mod files;
 mod filters;
@@ -83,6 +84,8 @@ enum Msg {
         path: String,
         image: Option<ColorImage>,
     },
+    /// The profile of the monitor the window is on ([`display`]).
+    Display(crate::color_manager::DisplayProfile),
     /// Changes on disk in the open folder ([`watch`]).
     Disk {
         generation: u64,
@@ -178,6 +181,9 @@ pub struct HoramaApp {
     open_with: Option<(String, Vec<crate::open_with::OpenWithItem>)>,
     /// Folder of the tree to select when the scan of the last folder arrives.
     pending_tree: Option<String>,
+    /// Window centre (physical pixels) at the last monitor query, and whether one runs.
+    display_center: Option<Vec2>,
+    display_probe_running: bool,
     /// F6 moves the keyboard focus to the next panel: 0 folders, 1 filmstrip, 2 image.
     focus_panel: usize,
     /// The panel that takes the focus at its next drawing.
@@ -262,6 +268,8 @@ impl HoramaApp {
             mcp_open: None,
             open_with: None,
             pending_tree: None,
+            display_center: None,
+            display_probe_running: false,
             focus_panel: 2,
             pending_focus: None,
             compare_paths: Vec::new(),
@@ -603,6 +611,7 @@ impl HoramaApp {
                     );
                 }
                 Msg::File(result) => self.file_result(result),
+                Msg::Display(profile) => self.display_detected(profile),
                 Msg::Compared {
                     generation,
                     path,
@@ -626,6 +635,7 @@ impl HoramaApp {
         self.expire_notice();
         let ctx = ui.ctx().clone();
         self.check_close(&ctx);
+        self.watch_display(&ctx);
         self.handle_keys(ui);
         self.update_compare();
         self.handle_dropped_files(ui);

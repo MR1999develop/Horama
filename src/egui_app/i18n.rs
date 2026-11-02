@@ -244,6 +244,7 @@ const IT: &[(&str, &str)] = &[
     ("Next Panel", "Pannello successivo"),
     // Tools
     ("Pixel", "Pixel"),
+    ("Display profile: {}", "Profilo del monitor: {}"),
     ("Open With", "Apri con"),
     ("Choose Another App…", "Scegli un'altra app…"),
     ("'{}' not opened: {}", "'{}' non aperto: {}"),
@@ -301,6 +302,7 @@ mod tests {
             include_str!("compare.rs"),
             include_str!("shortcuts.rs"),
             include_str!("tools.rs"),
+            include_str!("display.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

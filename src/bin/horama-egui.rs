@@ -13,6 +13,13 @@ impl eframe::App for Shell {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.0.ui(ui);
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Settings and ratings are written by a background thread: let it finish.
+        if !horama::persist::flush(std::time::Duration::from_secs(10)) {
+            log::warn!("Settings or ratings may not have been saved before exit");
+        }
+    }
 }
 
 fn main() -> eframe::Result {

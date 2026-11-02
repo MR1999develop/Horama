@@ -20,5 +20,7 @@ pub mod logging;
 pub mod mcp_server;
 pub mod metadata;
 pub mod open_with;
+pub mod persist;
+pub mod ratings;
 pub mod rename;
 pub mod view;

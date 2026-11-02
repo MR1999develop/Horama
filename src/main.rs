@@ -1868,7 +1868,7 @@ fn redo_last_operation(ui: &AppWindow, state: &mut ViewerState) {
     state.is_undoing_redoing = false;
 }
 
-/// Sets the rating of several files, updates the filmstrip and saves the settings once.
+/// Sets the rating of several files and updates the filmstrip (ratings save themselves).
 fn set_ratings(
     ui: &AppWindow,
     state: &mut ViewerState,
@@ -1888,7 +1888,6 @@ fn set_ratings(
         }
         state.settings.set_rating(p, rating);
     }
-    state.settings.save();
 
     let model = ui.get_filmstrip_items();
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
@@ -5334,6 +5333,10 @@ fn main() -> Result<(), slint::PlatformError> {
         if !st.disk.flush(Duration::from_secs(10)) {
             log::warn!("Some file operations did not finish before exit");
         }
+    }
+    // Settings and ratings are written by a background thread: let it finish.
+    if !horama::persist::flush(Duration::from_secs(10)) {
+        log::warn!("Settings or ratings may not have been saved before exit");
     }
     if let Err(ref e) = res {
         let msg = format!("{} encountered a UI runtime error:\n\n{}", APP_NAME, e);

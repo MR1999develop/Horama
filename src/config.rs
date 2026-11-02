@@ -1,9 +1,12 @@
 //! Configuration, supported file extensions, folder scanning, and persistent settings.
 
+use crate::persist;
+use crate::ratings::Ratings;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use walkdir::WalkDir;
 
 pub const APP_NAME: &str = "Horama";
@@ -49,8 +52,13 @@ pub struct AppSettings {
     pub last_subfolder: String,
     pub recent_folders: Vec<String>,
     pub custom_profiles: Vec<String>,
-    #[serde(default)]
-    pub image_ratings: std::collections::HashMap<String, u8>,
+    /// Ratings saved inside the settings by older versions: read once, moved to [`Ratings`]
+    /// and never written back.
+    #[serde(default, rename = "image_ratings", skip_serializing)]
+    legacy_ratings: HashMap<String, u8>,
+    /// Star ratings, kept in their own file (see [`crate::ratings`]).
+    #[serde(skip)]
+    pub ratings: Ratings,
     #[serde(default = "default_window_width")]
     pub window_width: u32,
     #[serde(default = "default_window_height")]
@@ -107,7 +115,8 @@ impl Default for AppSettings {
             last_subfolder: String::new(),
             recent_folders: Vec::new(),
             custom_profiles: Vec::new(),
-            image_ratings: std::collections::HashMap::new(),
+            legacy_ratings: HashMap::new(),
+            ratings: Ratings::in_memory(),
             window_width: 1440,
             window_height: 900,
             window_maximized: false,
@@ -123,7 +132,47 @@ impl AppSettings {
         settings_path_in(&config_base_dir(), APP_NAME)
     }
 
+    pub fn ratings_file_path() -> PathBuf {
+        config_base_dir().join(APP_NAME).join("ratings.jsonl")
+    }
+
+    /// Reads the settings and the ratings; ratings found inside the settings (older versions)
+    /// are moved to the ratings file.
     pub fn load() -> Self {
+        let mut settings = Self::load_settings_file();
+        settings.ratings = Ratings::load(Self::ratings_file_path());
+        if !settings.legacy_ratings.is_empty() {
+            // The settings stop holding the old ratings at their next save: a copy of the file
+            // as it was is kept in case the move goes wrong.
+            let path = Self::config_file_path();
+            let backup = path.with_extension("json.before-ratings");
+            if !backup.exists() {
+                if let Err(e) = fs::copy(&path, &backup) {
+                    log::error!("Settings not copied to {}: {}", backup.display(), e);
+                }
+            }
+            let legacy = std::mem::take(&mut settings.legacy_ratings);
+            let count = legacy.len();
+            settings.ratings.import(legacy);
+            let written = persist::flush(Duration::from_secs(10))
+                && Ratings::load(Self::ratings_file_path()).len() >= settings.ratings.len();
+            if written {
+                settings.save();
+                log::info!(
+                    "{} ratings moved from the settings to their own file",
+                    count
+                );
+            } else {
+                log::error!(
+                    "Ratings not written to their own file; the old ones are in {}",
+                    backup.display()
+                );
+            }
+        }
+        settings
+    }
+
+    fn load_settings_file() -> Self {
         if let Some(src) = migrate_legacy_settings(&config_base_dir()) {
             log::info!("Settings copied from {}", src.display());
         }
@@ -159,24 +208,12 @@ impl AppSettings {
         }
     }
 
-    /// Writes the settings atomically (temp file + rename) so a crash can never leave a
-    /// truncated settings.json behind.
+    /// Queues the settings for writing on the background writer ([`persist`]), which writes
+    /// them atomically (temp file + rename) so a crash never leaves a truncated file behind.
     pub fn save(&self) {
-        let path = Self::config_file_path();
-        if let Some(dir) = path.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        let json = match serde_json::to_string_pretty(self) {
-            Ok(json) => json,
-            Err(e) => {
-                log::error!("Settings not saved: {}", e);
-                return;
-            }
-        };
-        let tmp = path.with_extension("json.tmp");
-        if let Err(e) = fs::write(&tmp, json).and_then(|_| fs::rename(&tmp, &path)) {
-            log::error!("Settings not saved to {}: {}", path.display(), e);
-            let _ = fs::remove_file(&tmp);
+        match serde_json::to_string_pretty(self) {
+            Ok(json) => persist::replace(Self::config_file_path(), json.into_bytes()),
+            Err(e) => log::error!("Settings not saved: {}", e),
         }
     }
 
@@ -200,37 +237,17 @@ impl AppSettings {
     }
 
     pub fn get_rating(&self, path: &str) -> u8 {
-        if let Some(r) = self.image_ratings.get(&path_key(path)) {
-            return *r;
-        }
-        // Ratings saved by older versions used lower-case keys on every platform.
-        self.image_ratings
-            .get(&normalize_path(path).to_lowercase())
-            .copied()
-            .unwrap_or(0)
+        self.ratings.get(path)
     }
 
-    /// Sets a rating in memory; call [`AppSettings::save`] once after a batch of changes.
+    /// Sets a rating; it is written to the ratings file on its own, without [`Self::save`].
     pub fn set_rating(&mut self, path: &str, rating: u8) {
-        let key = path_key(path);
-        if !cfg!(windows) {
-            self.image_ratings
-                .remove(&normalize_path(path).to_lowercase());
-        }
-        if rating == 0 {
-            self.image_ratings.remove(&key);
-        } else {
-            self.image_ratings.insert(key, rating.min(5));
-        }
+        self.ratings.set(path, rating);
     }
 
     /// Moves the rating of a renamed file to its new path.
     pub fn rename_rating(&mut self, old: &str, new: &str) {
-        let r = self.get_rating(old);
-        self.set_rating(old, 0);
-        if r > 0 {
-            self.set_rating(new, r);
-        }
+        self.ratings.rename(old, new);
     }
 
     pub fn clear_recent_folders(&mut self) {
@@ -567,7 +584,7 @@ mod tests {
         s.set_rating("/p/b.jpg", 9);
         assert_eq!(s.get_rating("/p/b.jpg"), 5);
         s.set_rating("/p/b.jpg", 0);
-        assert!(s.image_ratings.is_empty());
+        assert!(s.ratings.is_empty());
     }
 
     #[test]

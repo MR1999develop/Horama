@@ -140,7 +140,6 @@ impl HoramaApp {
         for p in &targets {
             self.settings.set_rating(p, stars.min(5));
         }
-        self.settings.save();
         self.status = match targets.len() {
             1 => format!("{}: {} star(s)", browse::file_name_of(&targets[0]), stars),
             n => format!("{} images: {} star(s)", n, stars),

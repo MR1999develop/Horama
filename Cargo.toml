@@ -31,7 +31,7 @@ log = "0.4"
 # New interface (program horama-egui), under construction next to the Slint one.
 # glow (OpenGL) instead of the default wgpu: shares glutin with Slint and builds much faster.
 egui = "0.36"
-eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11", "winit/default"] }
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 notify = "6.1"
 
 [build-dependencies]

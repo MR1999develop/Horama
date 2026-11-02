@@ -16,6 +16,6 @@ fi
 if [ -x "target/release/horama" ]; then
     exec "./target/release/horama" "$@"
 else
-    echo "Building and launching Horama (Rust + Slint) in Release mode..."
+    echo "Building and launching Horama in Release mode..."
     cargo run --release -- "$@"
 fi

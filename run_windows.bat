@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Horama (Rust + Slint)
+title Horama
 
 cd /d "%~dp0"
 
@@ -10,7 +10,7 @@ if exist "%USERPROFILE%\.cargo\bin" set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 
 if exist "target\release\horama.exe" goto :run_exe
 
-echo Building Horama (Rust + Slint) in Release mode...
+echo Building Horama in Release mode...
 cargo build --release
 if errorlevel 1 goto :build_error
 

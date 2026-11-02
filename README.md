@@ -97,15 +97,16 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 
 ---
 
-## Nuova interfaccia egui (anteprima)
+## Interfaccia
 
-È in costruzione una nuova interfaccia basata su [egui](https://github.com/emilk/egui), accanto a quella attuale in Slint. Le due interfacce condividono la libreria del programma (decodifica, gestione colore, file, filtri e selezione, geometria della vista).
+Dalla versione 0.6 `horama` usa una nuova interfaccia basata su [egui](https://github.com/emilk/egui). L'interfaccia precedente, in Slint, resta per una versione come `horama-slint` (`horama-slint.exe` su Windows) e poi verrà tolta; le due condividono impostazioni, valutazioni e scorciatoie.
 
 ```
-cargo run --release --bin horama-egui
+cargo run --release
+cargo run --release --bin horama-slint
 ```
 
-Le release contengono anche `horama-egui` (`horama-egui.exe` su Windows). Fa tutto quello che fa l'interfaccia Slint:
+L'interfaccia egui fa tutto quello che faceva quella Slint:
 
 - apre una cartella o un file (menu, cartelle recenti, riga di comando, trascinamento; trascinando più immagini apre solo quelle), con l'albero delle cartelle (riapre l'ultima sottocartella) e la filmstrip delle miniature, ricerca e selezione multipla; la cartella si aggiorna da sola quando altri programmi aggiungono, cancellano o rinominano file;
 - mostra l'immagine con gestione colore (profilo del monitor aggiornato quando la finestra passa a un altro schermo), adatta alla finestra, 100%, zoom sul cursore e spostamento; oltre il 100% i pixel si vedono netti; lente 4× (tasto centrale) e contagocce RGB/HSL (tasto destro);
@@ -118,7 +119,7 @@ Le release contengono anche `horama-egui` (`horama-egui.exe` su Windows). Fa tut
 - rotazione senza perdita (R / L; i RAW e i formati che non si possono riscrivere senza perdita ruotano solo a schermo), Cestino senza conferma con Annulla per 8 secondi (Canc), rinomina di uno o più file (F2), "Salva una copia come" con la scelta della qualità JPEG (Ctrl+Maiusc+S), "Apri con" dal menu del tasto destro sulla filmstrip;
 - scorciatoie personalizzabili (Visualizza > Scorciatoie da tastiera, condivise con Slint), F6 per passare da un pannello all'altro;
 - tema Sistema / Chiaro / Scuro e lingua italiana o inglese (menu Visualizza); nomi e stati dei controlli per i lettori di schermo;
-- server MCP (`horama-egui --mcp`) con gli stessi strumenti di Slint.
+- server MCP (`horama --mcp`) con gli stessi strumenti di Slint.
 
 Le valutazioni sono salvate nel file `ratings.jsonl`, accanto a `settings.json` nella cartella delle impostazioni, e sono condivise dalle due interfacce. Alla prima apertura le valutazioni salvate dalle versioni precedenti dentro `settings.json` vengono spostate lì; una copia del file com'era resta in `settings.json.before-ratings`.
 

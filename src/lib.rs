@@ -2,8 +2,8 @@
 //!
 //! The library holds everything that does not depend on the user interface toolkit: decoding,
 //! color management, file operations, the browsing model and the view geometry. Two programs
-//! use it during the move to egui: `horama` (Slint, the current interface) and `horama-egui`
-//! (the new interface, see [`egui_app`]).
+//! use it: `horama`, the egui interface ([`egui_app`]), and `horama-slint`, the previous
+//! interface, kept for one version.
 
 pub mod browse;
 pub mod cache_manager;

@@ -1,4 +1,4 @@
-//! MCP server of the egui interface (`horama-egui --mcp`, or `HORAMA_MCP` set): an AI client
+//! MCP server (`horama --mcp`, or `HORAMA_MCP` set): an AI client
 //! drives the viewer through JSON-RPC on stdin/stdout ([`crate::mcp_server`]), with the same
 //! tools as the Slint interface.
 //!

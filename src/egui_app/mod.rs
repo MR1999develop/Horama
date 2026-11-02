@@ -1,4 +1,4 @@
-//! The egui interface, under construction next to the Slint one.
+//! The interface of Horama (program `horama`).
 //!
 //! Done so far: open a folder (menu, command line or drag and drop); folder tree with the
 //! same rules as the Slint interface ([`crate::browse`]); filmstrip with thumbnails and
@@ -8,7 +8,7 @@
 //! ([`filters`]); the info panel with histogram and metadata. Editing and the other tools
 //! come in later stages.
 //!
-//! Only `egui` is used here, not `eframe`: the `horama-egui` program puts [`HoramaApp`] in a
+//! Only `egui` is used here, not `eframe`: the `horama` program puts [`HoramaApp`] in a
 //! native window. Disk reads and decoding run on worker threads; their results come back
 //! through a channel read at every frame, and stale results (an older folder or image) are
 //! dropped by generation number.

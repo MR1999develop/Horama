@@ -68,9 +68,7 @@ impl HoramaApp {
                     .insert(path_key(&path), profile.to_string());
             }
         }
-        if let Some(path) = self.current_path() {
-            self.load(path);
-        }
+        self.reload_current();
         if self.filters.color_profile != "ALL" {
             self.refilter();
         }

@@ -202,6 +202,9 @@ impl HoramaApp {
 
     /// Shows the current image again (another profile, crop or file content).
     pub(super) fn reload_current(&mut self) {
+        // The comparison previews are made again too.
+        self.compare_paths.clear();
+        self.compare_textures.clear();
         if let Some(path) = self.current_path() {
             self.load(path);
         }
@@ -213,7 +216,7 @@ impl HoramaApp {
     pub(super) fn toggle_crop(&mut self) {
         if self.crop.is_some() {
             self.crop = None;
-        } else if self.shown.is_some() {
+        } else if self.shown.is_some() && !self.comparing() {
             let ratio = self.crop_ratio;
             let mut b = CropBox {
                 rect: Rect::from_min_max(Pos2::new(0.05, 0.05), Pos2::new(0.95, 0.95)),

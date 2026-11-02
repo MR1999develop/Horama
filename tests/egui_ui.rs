@@ -152,6 +152,20 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         image::image_dimensions(photos.join("renamed_1.jpg")).ok() == Some((58, 43))
     });
 
+    // Shift+click in the filmstrip selects a range: the view compares the images side by
+    // side; clicking one of them shows it alone.
+    harness
+        .get_by_label("Thumbnail of a.jpg")
+        .click_modifiers(egui::Modifiers::SHIFT);
+    wait_for(&mut harness, "the comparison grid", |h| {
+        h.query_by_role_and_label(egui::accesskit::Role::Button, "b.jpg")
+            .is_some()
+    });
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "b.jpg")
+        .click();
+    wait_for(&mut harness, "b.jpg alone", |h| shows(h, "b.jpg —"));
+
     drop(harness);
     let _ = std::fs::remove_dir_all(&photos);
     let _ = std::fs::remove_dir_all(&config);

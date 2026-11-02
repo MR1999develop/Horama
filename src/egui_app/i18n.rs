@@ -223,6 +223,7 @@ const IT: &[(&str, &str)] = &[
     ("{} cropped image(s) are not saved. Save them as new files next to the originals?", "{} immagini ritagliate non sono salvate. Salvarle come nuovi file accanto agli originali?"),
     ("Save and Close", "Salva e chiudi"),
     ("Close Without Saving", "Chiudi senza salvare"),
+    ("{} selected, the first {} shown", "{} selezionate, mostrate le prime {}"),
 ];
 
 #[cfg(test)]
@@ -273,6 +274,7 @@ mod tests {
             include_str!("profiles.rs"),
             include_str!("watch.rs"),
             include_str!("edit.rs"),
+            include_str!("compare.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

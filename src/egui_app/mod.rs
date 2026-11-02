@@ -13,6 +13,7 @@
 //! through a channel read at every frame, and stale results (an older folder or image) are
 //! dropped by generation number.
 
+mod compare;
 mod edit;
 mod files;
 mod filters;
@@ -73,6 +74,12 @@ enum Msg {
     },
     /// Outcome of a file operation on the disk queue ([`files`]).
     File(files::FileResult),
+    /// A preview of the comparison grid ([`compare`]); `None` = unreadable.
+    Compared {
+        generation: u64,
+        path: String,
+        image: Option<ColorImage>,
+    },
     /// Changes on disk in the open folder ([`watch`]).
     Disk {
         generation: u64,
@@ -160,6 +167,12 @@ pub struct HoramaApp {
     /// Aspect ratio of the crop, kept between crops.
     crop_ratio: Option<f32>,
     close_prompt: Option<edit::ClosePrompt>,
+    /// The images of the comparison grid and their previews ([`compare`]).
+    compare_paths: Vec<String>,
+    compare_textures: HashMap<String, Option<TextureHandle>>,
+    compare_generation: u64,
+    /// The newest comparison request, read by its worker to stop early.
+    compare_latest: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// The user chose how to close: the next close request is let through.
     closing: bool,
     notice: Option<files::Notice>,
@@ -229,6 +242,10 @@ impl HoramaApp {
             crop: None,
             crop_ratio: None,
             close_prompt: None,
+            compare_paths: Vec::new(),
+            compare_textures: HashMap::new(),
+            compare_generation: 0,
+            compare_latest: Default::default(),
             closing: false,
             notice: None,
             rename: None,
@@ -535,6 +552,11 @@ impl HoramaApp {
                     );
                 }
                 Msg::File(result) => self.file_result(result),
+                Msg::Compared {
+                    generation,
+                    path,
+                    image,
+                } if generation == self.compare_generation => self.compared_preview(path, image),
                 Msg::Disk {
                     generation,
                     actions,
@@ -553,6 +575,7 @@ impl HoramaApp {
         let ctx = ui.ctx().clone();
         self.check_close(&ctx);
         self.handle_keys(ui);
+        self.update_compare();
         self.handle_dropped_files(ui);
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
@@ -589,8 +612,12 @@ impl HoramaApp {
             .frame(egui::Frame::NONE.fill(theme::canvas(&ui.ctx().global_style().visuals)))
             .show(ui, |ui| {
                 let rect = ui.max_rect();
-                self.image_view(ui);
-                self.crop_bar(ui, rect);
+                if self.comparing() {
+                    self.compare_view(ui);
+                } else {
+                    self.image_view(ui);
+                    self.crop_bar(ui, rect);
+                }
                 self.notice_overlay(ui, rect);
             });
         self.close_window(&ctx);

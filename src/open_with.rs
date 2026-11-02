@@ -86,7 +86,7 @@ mod win_impl {
     #[link(name = "ole32")]
     #[link(name = "user32")]
     #[link(name = "gdi32")]
-    extern "system" {
+    unsafe extern "system" {
         fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> i32;
         fn CoUninitialize();
         fn GetObjectW(h: *mut c_void, c: i32, pv: *mut c_void) -> i32;
@@ -168,17 +168,17 @@ mod win_impl {
 
     type VTable = *const *const usize;
 
-    unsafe fn call_release(p: *mut c_void) {
+    unsafe fn call_release(p: *mut c_void) { unsafe {
         if !p.is_null() {
             let vt = *(p as VTable);
             let release_fn: extern "system" fn(*mut c_void) -> u32 =
                 std::mem::transmute(*vt.add(2));
             release_fn(p);
         }
-    }
+    }}
 
     /// Extract 16x16 32-bit RGBA pixels from an HICON.
-    unsafe fn hicon_to_rgba(h_icon: *mut c_void) -> Option<(u32, u32, Vec<u8>)> {
+    unsafe fn hicon_to_rgba(h_icon: *mut c_void) -> Option<(u32, u32, Vec<u8>)> { unsafe {
         if h_icon.is_null() {
             return None;
         }
@@ -266,10 +266,10 @@ mod win_impl {
         }
 
         Some((width as u32, height as u32, buf))
-    }
+    }}
 
     /// Extract icon for a given file path or application name.
-    unsafe fn extract_app_icon(app_path: &str, icon_index: i32) -> Option<(u32, u32, Vec<u8>)> {
+    unsafe fn extract_app_icon(app_path: &str, icon_index: i32) -> Option<(u32, u32, Vec<u8>)> { unsafe {
         let wide: Vec<u16> = app_path.encode_utf16().chain(std::iter::once(0)).collect();
 
         // 1. Try ExtractIconExW
@@ -301,7 +301,7 @@ mod win_impl {
         }
 
         None
-    }
+    }}
 
     pub fn get_handlers_for_file(file_path: &str) -> Vec<OpenWithItem> {
         let mut results = Vec::new();

@@ -176,11 +176,10 @@ impl AppSettings {
             // as it was is kept in case the move goes wrong.
             let path = Self::config_file_path();
             let backup = path.with_extension("json.before-ratings");
-            if !backup.exists() {
-                if let Err(e) = fs::copy(&path, &backup) {
+            if !backup.exists()
+                && let Err(e) = fs::copy(&path, &backup) {
                     log::error!("Settings not copied to {}: {}", backup.display(), e);
                 }
-            }
             let legacy = std::mem::take(&mut settings.legacy_ratings);
             let count = legacy.len();
             settings.ratings.import(legacy);

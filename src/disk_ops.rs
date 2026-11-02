@@ -453,7 +453,7 @@ mod imp {
     }
 
     #[link(name = "shell32")]
-    extern "system" {
+    unsafe extern "system" {
         fn SHFileOperationW(lp: *mut SHFILEOPSTRUCTW) -> i32;
     }
 

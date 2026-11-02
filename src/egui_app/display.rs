@@ -23,11 +23,10 @@ impl HoramaApp {
             v.outer_rect.map(|r| r.center().to_vec2() * ppp)
         });
         let Some(center) = center else { return };
-        if let Some(last) = self.display_center {
-            if (center - last).length() < MOVE_THRESHOLD {
+        if let Some(last) = self.display_center
+            && (center - last).length() < MOVE_THRESHOLD {
                 return;
             }
-        }
         self.display_center = Some(center);
         self.display_probe_running = true;
         let (tx, ctx) = (self.tx.clone(), ctx.clone());

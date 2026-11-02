@@ -1,0 +1,4 @@
+# The Rust version the project is built and checked with (also by the CI).
+[toolchain]
+channel = "1.99"
+components = ["rustfmt", "clippy"]

@@ -144,32 +144,26 @@ impl DecodedImage {
 pub fn extract_icc_from_bytes(bytes: &[u8], ext: &str) -> Option<Vec<u8>> {
     let ext_low = ext.to_lowercase();
     if matches!(ext_low.as_str(), "jpg" | "jpeg" | "jpe" | "jfif") {
-        if let Ok(jpeg) = img_parts::jpeg::Jpeg::from_bytes(bytes.to_vec().into()) {
-            if let Some(icc) = jpeg.icc_profile() {
-                if !icc.is_empty() {
+        if let Ok(jpeg) = img_parts::jpeg::Jpeg::from_bytes(bytes.to_vec().into())
+            && let Some(icc) = jpeg.icc_profile()
+                && !icc.is_empty() {
                     return Some(icc.to_vec());
                 }
-            }
-        }
         return extract_jpeg_icc_from_header(bytes);
     } else if ext_low == "png" {
-        if let Ok(png) = img_parts::png::Png::from_bytes(bytes.to_vec().into()) {
-            if let Some(icc) = png.icc_profile() {
-                if !icc.is_empty() {
+        if let Ok(png) = img_parts::png::Png::from_bytes(bytes.to_vec().into())
+            && let Some(icc) = png.icc_profile()
+                && !icc.is_empty() {
                     return Some(icc.to_vec());
                 }
-            }
-        }
     } else if ext_low == "webp" {
-        if let Ok(webp) = img_parts::webp::WebP::from_bytes(bytes.to_vec().into()) {
-            if let Some(icc) = webp.icc_profile() {
-                if !icc.is_empty() {
+        if let Ok(webp) = img_parts::webp::WebP::from_bytes(bytes.to_vec().into())
+            && let Some(icc) = webp.icc_profile()
+                && !icc.is_empty() {
                     return Some(icc.to_vec());
                 }
-            }
-        }
-    } else if matches!(ext_low.as_str(), "tif" | "tiff") {
-        if let Ok(mut dec) = tiff::decoder::Decoder::new(Cursor::new(bytes)) {
+    } else if matches!(ext_low.as_str(), "tif" | "tiff")
+        && let Ok(mut dec) = tiff::decoder::Decoder::new(Cursor::new(bytes)) {
             // Tag 34675 (0x8773) is InterColorProfile (ICC Profile)
             if let Ok(Some(tiff::decoder::ifd::Value::List(list))) =
                 dec.find_tag(tiff::tags::Tag::Unknown(34675))
@@ -190,13 +184,11 @@ pub fn extract_icc_from_bytes(bytes: &[u8], ext: &str) -> Option<Vec<u8>> {
                     return Some(icc);
                 }
             }
-            if let Ok(vec_u8) = dec.get_tag_u8_vec(tiff::tags::Tag::Unknown(34675)) {
-                if vec_u8.len() >= 128 {
+            if let Ok(vec_u8) = dec.get_tag_u8_vec(tiff::tags::Tag::Unknown(34675))
+                && vec_u8.len() >= 128 {
                     return Some(vec_u8);
                 }
-            }
         }
-    }
     None
 }
 
@@ -268,26 +260,22 @@ fn classify_icc(icc: Option<Vec<u8>>) -> (Option<Vec<u8>>, Option<String>, Optio
 /// Read EXIF orientation (1..=8) from a file or byte slice.
 fn read_exif_orientation_from_bytes(bytes: &[u8]) -> u32 {
     let mut cursor = Cursor::new(bytes);
-    if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cursor) {
-        if let Some(field) = exif_data.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-            if let Some(v) = field.value.get_uint(0) {
+    if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cursor)
+        && let Some(field) = exif_data.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+            && let Some(v) = field.value.get_uint(0) {
                 return v;
             }
-        }
-    }
     1
 }
 
 pub fn read_exif_orientation_from_file(path: &Path) -> u32 {
     if let Ok(file) = File::open(path) {
         let mut reader = BufReader::new(file);
-        if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut reader) {
-            if let Some(field) = exif_data.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-                if let Some(v) = field.value.get_uint(0) {
+        if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut reader)
+            && let Some(field) = exif_data.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                && let Some(v) = field.value.get_uint(0) {
                     return v;
                 }
-            }
-        }
     }
     1
 }
@@ -581,8 +569,8 @@ fn load_thumbnail_inner(
 
     // 1. Instant path: embedded EXIF thumbnail. The thumbnail JPEG has no EXIF of its own,
     //    so the orientation and ICC profile of the main file are used.
-    if let Some(thumb_bytes) = extract_exif_thumbnail(path) {
-        if let Some(img) = decode_bytes(&thumb_bytes) {
+    if let Some(thumb_bytes) = extract_exif_thumbnail(path)
+        && let Some(img) = decode_bytes(&thumb_bytes) {
             let emb_icc = if is_jpeg {
                 read_prefix(path, 1024 * 1024).and_then(|p| extract_jpeg_icc_from_header(&p))
             } else {
@@ -591,7 +579,6 @@ fn load_thumbnail_inner(
             let oriented = apply_orientation(img, file_orientation);
             return Some(finish_thumbnail(oriented, emb_icc, cm));
         }
-    }
 
     // 2. RAW embedded preview path
     if is_raw_file(path) {
@@ -655,11 +642,10 @@ pub fn create_thumbnail_from_decoded(
 /// For RAW files the size of the embedded preview is used.
 pub fn probe_dimensions(path: &Path) -> Option<(u32, u32)> {
     if !is_raw_file(path) {
-        if let Ok(sz) = imagesize::size(path) {
-            if sz.width > 0 && sz.height > 0 {
+        if let Ok(sz) = imagesize::size(path)
+            && sz.width > 0 && sz.height > 0 {
                 return Some((sz.width as u32, sz.height as u32));
             }
-        }
         return ImageReader::open(path)
             .ok()?
             .with_guessed_format()

@@ -197,13 +197,11 @@ fn action_for_shortcut(settings: &AppSettings, pressed: &str) -> String {
         }
     }
     // Historical behaviour: Space also fits the image when "Fit to Window" keeps its default key.
-    if p_lower == "space" {
-        if let Some(fit) = settings.shortcuts.get("zoom_fit") {
-            if fit.trim().eq_ignore_ascii_case("ctrl+0") {
+    if p_lower == "space"
+        && let Some(fit) = settings.shortcuts.get("zoom_fit")
+            && fit.trim().eq_ignore_ascii_case("ctrl+0") {
                 return "zoom_fit".to_string();
             }
-        }
-    }
     String::new()
 }
 
@@ -395,15 +393,14 @@ impl ViewerState {
                 .iter()
                 .filter(|a| matches!(a, HistoryAction::ImageEdit { .. }))
                 .count();
-            if pixel_entries > MAX_PIXEL_HISTORY {
-                if let Some(pos) = self
+            if pixel_entries > MAX_PIXEL_HISTORY
+                && let Some(pos) = self
                     .history_undo
                     .iter()
                     .position(|a| matches!(a, HistoryAction::ImageEdit { .. }))
                 {
                     self.history_undo.remove(pos);
                 }
-            }
         }
         if self.history_undo.len() > MAX_HISTORY {
             self.history_undo.remove(0);
@@ -839,7 +836,7 @@ fn show_fatal_error_dialog(title: &str, details: &str) {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        extern "system" {
+        unsafe extern "system" {
             fn MessageBoxW(
                 hwnd: *mut std::ffi::c_void,
                 lpText: *const u16,
@@ -983,8 +980,8 @@ fn refresh_multi_selection_overview(ui: &AppWindow, state: &ViewerState) {
                 tile_h: eff_h,
                 is_cropped: false,
             });
-        } else if let Some(&file_idx) = sel_indices_vec.get(slot_idx) {
-            if let Some(fpath) = state.visible_files.get(file_idx) {
+        } else if let Some(&file_idx) = sel_indices_vec.get(slot_idx)
+            && let Some(fpath) = state.visible_files.get(file_idx) {
                 let fname = Path::new(fpath)
                     .file_name()
                     .map(|s| s.to_string_lossy().to_string())
@@ -1012,7 +1009,6 @@ fn refresh_multi_selection_overview(ui: &AppWindow, state: &ViewerState) {
                     is_cropped: state.is_cropped(fpath),
                 });
             }
-        }
     }
 
     ui.set_multi_selection_tiles(ModelRc::new(VecModel::from(tiles)));
@@ -1051,11 +1047,10 @@ fn sync_filmstrip_selection_ui(ui: &AppWindow, state: &ViewerState) {
     let _total = state.visible_files.len();
     ui.set_selected_files_count(count.max(if state.current_index.is_some() { 1 } else { 0 }) as i32);
 
-    if let Some(cur_idx) = state.current_index {
-        if let Some(p) = state.visible_files.get(cur_idx) {
+    if let Some(cur_idx) = state.current_index
+        && let Some(p) = state.visible_files.get(cur_idx) {
             ui.set_current_rating(state.settings.get_rating(p) as i32);
         }
-    }
 
     if count > 1 {
         refresh_multi_selection_overview(ui, state);
@@ -1162,8 +1157,8 @@ fn set_thumbnail_for_path(
         Some(i) if i < vm.row_count() && matches(i) => Some(i),
         _ => (0..vm.row_count()).find(|&i| matches(i)),
     };
-    if let Some(i) = row {
-        if let Some(mut item) = vm.row_data(i) {
+    if let Some(i) = row
+        && let Some(mut item) = vm.row_data(i) {
             item.thumbnail = img;
             item.has_thumbnail = true;
             if let Some(c) = cropped {
@@ -1171,7 +1166,6 @@ fn set_thumbnail_for_path(
             }
             vm.set_row_data(i, item);
         }
-    }
 }
 
 /// Rebuilds the thumbnail of `path` from an in-memory image (after rotate/crop/undo).
@@ -1470,8 +1464,8 @@ fn start_neighborhood_preload(ui: &AppWindow, state: &ViewerState, index: usize)
             let ui_c = ui_weak.clone();
             let c_ref = cache_ref.clone();
             let _ = slint::invoke_from_event_loop(move || {
-                if let Some(ui) = ui_c.upgrade() {
-                    if let Ok(guard) = c_ref.lock() {
+                if let Some(ui) = ui_c.upgrade()
+                    && let Ok(guard) = c_ref.lock() {
                         let (count, used, budget) = guard.stats();
                         ui.set_status_cache_text(
                             format!(
@@ -1484,7 +1478,6 @@ fn start_neighborhood_preload(ui: &AppWindow, state: &ViewerState, index: usize)
                             .into(),
                         );
                     }
-                }
             });
         });
 }
@@ -1533,9 +1526,9 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
             state
                 .edited_images
                 .insert(path.to_string(), rotated.clone());
-        } else if let Ok(mut g) = state.preloader.cache.lock() {
+        } else { if let Ok(mut g) = state.preloader.cache.lock() {
             g.insert(path.to_string(), rotated.clone());
-        }
+        }}
         refresh_thumbnail_from_memory(ui, state, path, &rotated);
         if current_matches {
             state.current_decoded = Some(rotated);
@@ -1894,12 +1887,11 @@ fn set_ratings(
     let model = ui.get_filmstrip_items();
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
         for i in 0..vm.row_count() {
-            if let Some(mut item) = vm.row_data(i) {
-                if paths.iter().any(|p| same_path(p, item.full_path.as_str())) {
+            if let Some(mut item) = vm.row_data(i)
+                && paths.iter().any(|p| same_path(p, item.full_path.as_str())) {
                     item.rating = rating as i32;
                     vm.set_row_data(i, item);
                 }
-            }
         }
     }
     if let Some(cur) = state.current_index.and_then(|i| state.visible_files.get(i)) {
@@ -1961,14 +1953,13 @@ fn select_image_by_index(ui: &AppWindow, state: &mut ViewerState, index: usize) 
         return;
     }
 
-    if let Some(from) = state.current_index {
-        if from != index {
+    if let Some(from) = state.current_index
+        && from != index {
             state.push_undo(HistoryAction::ImageSelection {
                 from_idx: from,
                 to_idx: index,
             });
         }
-    }
 
     let path = state.visible_files[index].clone();
     state.current_index = Some(index);
@@ -2317,7 +2308,7 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
         }
     });
 
-    let gen = state.thumbnail_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let r#gen = state.thumbnail_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let files = Arc::new(state.visible_files.clone());
     let order = Arc::new(order);
     let edits: Arc<HashMap<String, Arc<DecodedImage>>> = Arc::new(state.edited_images.clone());
@@ -2341,7 +2332,7 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
             state.thumbnail_generation.clone(),
         );
         std::thread::spawn(move || loop {
-            if gen_arc.load(Ordering::SeqCst) != gen {
+            if gen_arc.load(Ordering::SeqCst) != r#gen {
                 return;
             }
             let i = next.fetch_add(1, Ordering::SeqCst);
@@ -2351,7 +2342,7 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
                 Some(edit) => horama::image_loader::create_thumbnail_from_decoded(edit, Some(&cm)),
                 None => load_thumbnail_rgba(Path::new(path), Some(&cm)),
             };
-            if gen_arc.load(Ordering::SeqCst) != gen {
+            if gen_arc.load(Ordering::SeqCst) != r#gen {
                 return;
             }
             // Neutral placeholder so "Loading..." never hangs on unreadable files.
@@ -2374,7 +2365,7 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
             let ui_copy = ui_weak.clone();
             let gen_check = gen_arc_dist.clone();
             let _ = slint::invoke_from_event_loop(move || {
-                if gen_check.load(Ordering::SeqCst) != gen {
+                if gen_check.load(Ordering::SeqCst) != r#gen {
                     return;
                 }
                 if let Some(ui) = ui_copy.upgrade() {
@@ -2391,7 +2382,7 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
             });
         };
         while let Ok(item) = rx.recv() {
-            if gen_arc_dist.load(Ordering::SeqCst) != gen {
+            if gen_arc_dist.load(Ordering::SeqCst) != r#gen {
                 return;
             }
             batch.push(item);
@@ -2430,13 +2421,13 @@ fn start_folder_scan(
     commit_pending_trash(ui, state);
     state.scan_generation += 1;
     state.aspect_job_generation.fetch_add(1, Ordering::SeqCst);
-    let gen = state.scan_generation;
+    let r#gen = state.scan_generation;
     let folder = normalize_path(&state.current_folder);
     ui.set_status_file_text(format!("Scanning {}…", folder).into());
     std::thread::spawn(move || {
         let (files, subdirs) = scan_folder_and_subfolders(&folder);
         post_to_ui(ui_w, st_w, move |ui, st| {
-            if st.scan_generation != gen {
+            if st.scan_generation != r#gen {
                 return;
             }
             st.all_folder_files = files;
@@ -2574,12 +2565,11 @@ fn handle_filesystem_sync(
 
     let set_badge_for = |path: &str, badge: Badge| {
         for i in 0..vm.row_count() {
-            if let Some(mut item) = vm.row_data(i) {
-                if same_path(item.full_path.as_str(), path) {
+            if let Some(mut item) = vm.row_data(i)
+                && same_path(item.full_path.as_str(), path) {
                     set_item_badge(&mut item, badge);
                     vm.set_row_data(i, item);
                 }
-            }
         }
     };
 
@@ -2611,14 +2601,13 @@ fn handle_filesystem_sync(
             }
             FileSyncAction::Restored(restored_path) => {
                 for i in 0..vm.row_count() {
-                    if let Some(mut item) = vm.row_data(i) {
-                        if same_path(item.full_path.as_str(), &restored_path)
+                    if let Some(mut item) = vm.row_data(i)
+                        && same_path(item.full_path.as_str(), &restored_path)
                             && item.badge_type == "deleted"
                         {
                             set_item_badge(&mut item, Badge::None);
                             vm.set_row_data(i, item);
                         }
-                    }
                 }
                 if cur_path
                     .as_deref()
@@ -2764,8 +2753,8 @@ fn migrate_renamed_path(
     let model = ui.get_filmstrip_items();
     if let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() {
         for i in 0..vm.row_count() {
-            if let Some(mut item) = vm.row_data(i) {
-                if same_path(item.full_path.as_str(), old_path) {
+            if let Some(mut item) = vm.row_data(i)
+                && same_path(item.full_path.as_str(), old_path) {
                     item.full_path = new_path.into();
                     item.label = file_name_of(new_path).into();
                     if show_badge {
@@ -2773,7 +2762,6 @@ fn migrate_renamed_path(
                     }
                     vm.set_row_data(i, item);
                 }
-            }
         }
     }
     for f in state
@@ -2801,11 +2789,10 @@ fn migrate_renamed_path(
             .image_profile_overrides
             .insert(new_path.to_string(), p);
     }
-    if let Ok(mut c) = state.aspect_cache.lock() {
-        if let Some(r) = c.remove(&path_key(old_path)) {
+    if let Ok(mut c) = state.aspect_cache.lock()
+        && let Some(r) = c.remove(&path_key(old_path)) {
             c.insert(path_key(new_path), r);
         }
-    }
     state.settings.rename_rating(old_path, new_path);
     for action in state
         .history_undo
@@ -3549,7 +3536,7 @@ fn reveal_in_file_manager(path_str: &str) {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        extern "system" {
+        unsafe extern "system" {
             fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
         }
         // Let Explorer bring its window to the front (ASFW_ANY).
@@ -3583,7 +3570,7 @@ fn enable_windows_dpi_awareness() {
         // Per-Monitor V2 DPI awareness for crisp rendering on high-DPI displays.
         type SetProcessDpiAwarenessContextFn = unsafe extern "system" fn(isize) -> i32;
         type SetProcessDpiAwareFn = unsafe extern "system" fn() -> i32;
-        extern "system" {
+        unsafe extern "system" {
             fn GetModuleHandleA(lpModuleName: *const std::ffi::c_char) -> *mut std::ffi::c_void;
             fn GetProcAddress(
                 hModule: *mut std::ffi::c_void,
@@ -3993,14 +3980,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 let Some(ui) = ui_weak.upgrade() else { return };
                 let mut st = lock_state(&state);
                 sync_display_scale(&ui, &mut st);
-                if !st.lock_zoom {
-                    if let Some(dec) = st.current_decoded.clone() {
+                if !st.lock_zoom
+                    && let Some(dec) = st.current_decoded.clone() {
                         st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
                         st.pan_x = 0.0;
                         st.pan_y = 0.0;
                         update_zoom_ui(&ui, &st);
                     }
-                }
             },
         );
         timer
@@ -4331,14 +4317,13 @@ fn main() -> Result<(), slint::PlatformError> {
             sync_display_scale(&ui, &mut st);
             if st.selected_indices.len() > 1 {
                 refresh_multi_selection_overview(&ui, &st);
-            } else if let Some(decoded) = st.current_decoded.clone() {
-                if st.is_fit_mode && !st.lock_zoom {
+            } else if let Some(decoded) = st.current_decoded.clone()
+                && st.is_fit_mode && !st.lock_zoom {
                     st.zoom_factor = calculate_fit_zoom(&ui, decoded.width, decoded.height);
                     st.pan_x = 0.0;
                     st.pan_y = 0.0;
                     update_zoom_ui(&ui, &st);
                 }
-            }
         });
     }
 
@@ -4727,12 +4712,11 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_apply_custom_aspect_ratio(move |text| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let text = text.trim();
-            if let Some(r) = parse_aspect_ratio_str(text) {
-                if r > 0.01 && r < 100.0 {
+            if let Some(r) = parse_aspect_ratio_str(text)
+                && r > 0.01 && r < 100.0 {
                     ui.invoke_set_aspect_ratio(format!("Custom ({text})").into(), r);
                     ui.set_crop_custom_dialog_visible(false);
                 }
-            }
         });
     }
     {
@@ -5237,13 +5221,12 @@ fn main() -> Result<(), slint::PlatformError> {
                 ticks_since_save += 1;
 
                 if sync_display_scale(&ui, &mut st) {
-                    if let Some(dec) = st.current_decoded.clone() {
-                        if st.is_fit_mode && !st.lock_zoom {
+                    if let Some(dec) = st.current_decoded.clone()
+                        && st.is_fit_mode && !st.lock_zoom {
                             st.zoom_factor = calculate_fit_zoom(&ui, dec.width, dec.height);
                             st.pan_x = 0.0;
                             st.pan_y = 0.0;
                         }
-                    }
                     update_zoom_ui(&ui, &st);
                 }
 
@@ -5259,8 +5242,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 if cfg!(target_os = "windows")
                     && last_center != Some(center)
                     && !st.display_probe_running
-                {
-                    if let Some((ui_w, st_w)) = weak_handles(&st) {
+                    && let Some((ui_w, st_w)) = weak_handles(&st) {
                         st.display_probe_running = true;
                         last_center = Some(center);
                         std::thread::spawn(move || {
@@ -5280,7 +5262,6 @@ fn main() -> Result<(), slint::PlatformError> {
                             });
                         });
                     }
-                }
 
                 // Window geometry is saved every 2 seconds at most.
                 if ticks_since_save >= 4 {

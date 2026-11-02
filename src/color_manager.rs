@@ -123,14 +123,14 @@ mod win_display {
     }
 
     #[link(name = "user32")]
-    extern "system" {
+    unsafe extern "system" {
         fn GetDC(hwnd: *mut c_void) -> *mut c_void;
         fn ReleaseDC(hwnd: *mut c_void, hdc: *mut c_void) -> i32;
         fn MonitorFromPoint(pt: POINT, flags: u32) -> *mut c_void;
         fn GetMonitorInfoW(hmonitor: *mut c_void, lpmi: *mut MONITORINFOEXW) -> i32;
     }
     #[link(name = "gdi32")]
-    extern "system" {
+    unsafe extern "system" {
         fn GetICMProfileW(hdc: *mut c_void, lpcb_name: *mut u32, lpsz_filename: *mut u16) -> i32;
         fn CreateDCW(
             driver: *const u16,
@@ -143,7 +143,7 @@ mod win_display {
 
     const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
-    unsafe fn icm_profile(hdc: *mut c_void) -> Option<PathBuf> {
+    unsafe fn icm_profile(hdc: *mut c_void) -> Option<PathBuf> { unsafe {
         let mut size: u32 = 1024;
         let mut buf: Vec<u16> = vec![0u16; size as usize];
         if GetICMProfileW(hdc, &mut size, buf.as_mut_ptr()) == 0 {
@@ -159,7 +159,7 @@ mod win_display {
         let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
         let p = PathBuf::from(String::from_utf16_lossy(&buf[..len]));
         p.is_file().then_some(p)
-    }
+    }}
 
     pub fn profile_path(screen_point: Option<(i32, i32)>) -> Option<PathBuf> {
         unsafe {
@@ -691,11 +691,10 @@ impl ColorManager {
             return None;
         }
         let cache_key = (src_key.to_string(), dst_key.to_string());
-        if let Ok(cache) = self.transform_cache.lock() {
-            if let Some(t) = cache.get(&cache_key) {
+        if let Ok(cache) = self.transform_cache.lock()
+            && let Some(t) = cache.get(&cache_key) {
                 return t.clone();
             }
-        }
         let src = self.build_profile(src_key, src_name, src_emb);
         let dst = self.build_profile(dst_key, dst_name, dst_emb);
         let t = Transform::new(&src, &dst, DataType::RGB8, Intent::Perceptual).map(Arc::new);

@@ -1205,14 +1205,13 @@ impl HoramaApp {
         if let Some(key) = toggled {
             browse::toggle_expanded(&mut self.expanded, &root, &key);
         }
-        if let Some(key) = chosen {
-            if key != self.filters.tree {
+        if let Some(key) = chosen
+            && key != self.filters.tree {
                 self.settings.last_subfolder = key.clone();
                 self.settings.save();
                 self.filters.tree = key;
                 self.refilter();
             }
-        }
     }
 
     /// Horizontal strip of thumbnails; only the cells in view are drawn.
@@ -1303,12 +1302,11 @@ impl HoramaApp {
                 }
             });
         // Scrolling the strip far from the current image moves where thumbnails are made.
-        if let Some(mid) = strip_mid.filter(|_| scroll_target.is_none()) {
-            if mid.abs_diff(self.thumb_center) > thumbs::RECENTER_AFTER {
+        if let Some(mid) = strip_mid.filter(|_| scroll_target.is_none())
+            && mid.abs_diff(self.thumb_center) > thumbs::RECENTER_AFTER {
                 self.thumb_center = mid;
                 self.request_thumbs();
             }
-        }
         if let Some(i) = right_clicked {
             if !self.selected.contains(&i) {
                 self.select_only(i);
@@ -1316,11 +1314,10 @@ impl HoramaApp {
             let path = self.visible[i].clone();
             self.open_with_handlers(&path);
         }
-        if let Some((i, action)) = menu_action {
-            if let Some(path) = self.visible.get(i).cloned() {
+        if let Some((i, action)) = menu_action
+            && let Some(path) = self.visible.get(i).cloned() {
                 self.cell_action(&path, action);
             }
-        }
         if let Some((i, mods)) = clicked {
             let show = browse::apply_click(
                 &mut self.selected,
@@ -1473,8 +1470,8 @@ impl HoramaApp {
         // Wheel: zoom around the cursor. Drag: pan. Double click: fit.
         if response.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-            if scroll != 0.0 {
-                if let Some(pos) = response.hover_pos() {
+            if scroll != 0.0
+                && let Some(pos) = response.hover_pos() {
                     // One wheel notch (about 50 points) = one WHEEL_STEP.
                     let factor = view::WHEEL_STEP.powf(scroll / 50.0);
                     let cursor = (pos.x - rect.min.x, pos.y - rect.min.y);
@@ -1489,7 +1486,6 @@ impl HoramaApp {
                     self.view.pan = Vec2::new(pan.0, pan.1);
                     self.view.fit = false;
                 }
-            }
         }
         if response.dragged_by(egui::PointerButton::Primary) && self.crop.is_none() {
             self.view.pan += response.drag_delta();

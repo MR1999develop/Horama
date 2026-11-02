@@ -55,7 +55,9 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     )
     .unwrap();
     // Read by every settings access of this test process.
-    std::env::set_var("HORAMA_CONFIG_DIR", &config);
+    // SAFETY: set before the interface and its threads start; this is the only test of this
+    // program, so no other thread reads the environment meanwhile.
+    unsafe { std::env::set_var("HORAMA_CONFIG_DIR", &config) };
 
     let photos = temp_dir("photos");
     for name in ["a.jpg", "b.jpg", "c.jpg"] {

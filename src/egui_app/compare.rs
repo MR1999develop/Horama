@@ -209,10 +209,9 @@ impl HoramaApp {
                 theme::canvas_text(&visuals),
             );
         }
-        if let Some(path) = clicked {
-            if let Some(i) = self.visible.iter().position(|v| *v == path) {
+        if let Some(path) = clicked
+            && let Some(i) = self.visible.iter().position(|v| *v == path) {
                 self.select_only(i);
             }
-        }
     }
 }

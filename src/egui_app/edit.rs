@@ -193,11 +193,10 @@ impl HoramaApp {
 
     /// Makes `path` the current image if it is in the list.
     fn show_path(&mut self, path: &str) {
-        if let Some(i) = self.visible.iter().position(|v| same_path(v, path)) {
-            if self.current != Some(i) {
+        if let Some(i) = self.visible.iter().position(|v| same_path(v, path))
+            && self.current != Some(i) {
                 self.select_only(i);
             }
-        }
     }
 
     /// Shows the current image again (another profile, crop or file content).
@@ -300,13 +299,12 @@ impl HoramaApp {
         if response.drag_started() {
             b.grip = under;
         }
-        if response.dragged() {
-            if let Some(grip) = b.grip {
+        if response.dragged()
+            && let Some(grip) = b.grip {
                 let d = response.drag_delta();
                 let delta = Vec2::new(d.x / image.width(), d.y / image.height());
                 b.rect = self.drag_box(&b, grip, delta);
             }
-        }
         if response.drag_stopped() {
             b.grip = None;
         }

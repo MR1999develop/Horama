@@ -77,11 +77,10 @@ impl Log for FileLogger {
     }
 
     fn flush(&self) {
-        if let Ok(mut guard) = self.file.lock() {
-            if let Some(f) = guard.as_mut() {
+        if let Ok(mut guard) = self.file.lock()
+            && let Some(f) = guard.as_mut() {
                 let _ = f.flush();
             }
-        }
     }
 }
 

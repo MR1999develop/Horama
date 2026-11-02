@@ -175,8 +175,8 @@ impl FolderWatcher {
                         }
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                        if let Some(last_time) = last_event_time {
-                            if last_time.elapsed() >= debounce_delay {
+                        if let Some(last_time) = last_event_time
+                            && last_time.elapsed() >= debounce_delay {
                                 last_event_time = None;
                                 last_rename_from = None;
 
@@ -292,7 +292,6 @@ impl FolderWatcher {
                                     callback(actions);
                                 }
                             }
-                        }
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                         break;

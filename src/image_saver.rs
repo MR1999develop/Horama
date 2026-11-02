@@ -315,22 +315,19 @@ pub fn build_export_exif(source_path: &Path, width: u32, height: u32) -> Option<
 }
 
 fn read_source_exif(path: &Path) -> Option<exif::Exif> {
-    if let Ok(file) = File::open(path) {
-        if let Ok(e) = exif::Reader::new().read_from_container(&mut BufReader::new(file)) {
+    if let Ok(file) = File::open(path)
+        && let Ok(e) = exif::Reader::new().read_from_container(&mut BufReader::new(file)) {
             return Some(e);
         }
-    }
     if crate::config::is_raw_file(path) {
         if crate::cr3_parser::is_cr3_file(path) {
             // CMT1 holds IFD0 (camera, date); good enough for exports.
             if let Some(blob) = crate::cr3_parser::extract_cr3_exif_blocks(path)
                 .into_iter()
                 .next()
-            {
-                if let Ok(e) = exif::Reader::new().read_raw(blob) {
+                && let Ok(e) = exif::Reader::new().read_raw(blob) {
                     return Some(e);
                 }
-            }
         }
         let jpeg = crate::cr3_parser::extract_largest_embedded_jpeg(path)?;
         return exif::Reader::new()
@@ -386,11 +383,10 @@ pub fn save_image_with_icc(
                     .map_err(|e| format!("JPEG ICC write error: {}", e))?;
                 out = buf;
             }
-            if let Some(exif) = exif_tiff {
-                if let Ok(with_exif) = crate::exif_orient::replace_jpeg_exif(&out, exif) {
+            if let Some(exif) = exif_tiff
+                && let Ok(with_exif) = crate::exif_orient::replace_jpeg_exif(&out, exif) {
                     out = with_exif;
                 }
-            }
             out
         }
         "png" => {

@@ -48,11 +48,10 @@ impl RamCache {
     }
 
     fn touch(&mut self, path: &str) {
-        if let Some(pos) = self.order.iter().position(|p| p == path) {
-            if let Some(k) = self.order.remove(pos) {
+        if let Some(pos) = self.order.iter().position(|p| p == path)
+            && let Some(k) = self.order.remove(pos) {
                 self.order.push_back(k);
             }
-        }
     }
 
     /// Returns a cached image and marks it as recently used.
@@ -177,7 +176,7 @@ fn load_dedup(
 }
 
 struct PreloadJob {
-    gen: u64,
+    request: u64,
     queue: Vec<String>,
     on_cached: Box<dyn Fn() + Send + 'static>,
 }
@@ -229,7 +228,7 @@ impl PreloadController {
     where
         F: Fn() + Send + 'static,
     {
-        let gen = self.cancel_and_next_generation();
+        let request = self.cancel_and_next_generation();
         let total = files.len();
         if total == 0 {
             return;
@@ -244,7 +243,7 @@ impl PreloadController {
             }
         }
         let _ = self.jobs.send(PreloadJob {
-            gen,
+            request,
             queue,
             on_cached: Box::new(on_cached),
         });
@@ -282,12 +281,12 @@ fn preload_worker(
             job = newer;
         }
         for path in &job.queue {
-            if generation.load(Ordering::SeqCst) != job.gen {
+            if generation.load(Ordering::SeqCst) != job.request {
                 break;
             }
             let cached = cache.lock().map(|g| g.contains(path)).unwrap_or(false);
             if !cached && load_dedup(&cache, &inflight, path).is_ok() {
-                if generation.load(Ordering::SeqCst) != job.gen {
+                if generation.load(Ordering::SeqCst) != job.request {
                     break;
                 }
                 (job.on_cached)();

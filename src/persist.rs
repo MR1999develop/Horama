@@ -69,11 +69,10 @@ fn worker(rx: Receiver<Job>) {
         let mut newest: HashSet<PathBuf> = HashSet::new();
         let mut keep = vec![true; batch.len()];
         for (i, job) in batch.iter().enumerate().rev() {
-            if let Job::Replace { path, .. } = job {
-                if !newest.insert(path.clone()) {
+            if let Job::Replace { path, .. } = job
+                && !newest.insert(path.clone()) {
                     keep[i] = false;
                 }
-            }
         }
         for (job, keep) in batch.into_iter().zip(keep) {
             match job {

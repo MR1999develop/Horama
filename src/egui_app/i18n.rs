@@ -242,6 +242,11 @@ const IT: &[(&str, &str)] = &[
     ("Reset to Defaults", "Ripristina i predefiniti"),
     ("{} is already used by \"{}\".", "{} è già usato da \"{}\"."),
     ("Next Panel", "Pannello successivo"),
+    // Tools
+    ("Pixel", "Pixel"),
+    ("Open With", "Apri con"),
+    ("Choose Another App…", "Scegli un'altra app…"),
+    ("'{}' not opened: {}", "'{}' non aperto: {}"),
     ("Open a folder or an image (File menu), or drop one here", "Apri una cartella o un'immagine (menu File), o trascinala qui"),
 ];
 
@@ -295,6 +300,7 @@ mod tests {
             include_str!("edit.rs"),
             include_str!("compare.rs"),
             include_str!("shortcuts.rs"),
+            include_str!("tools.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

@@ -24,6 +24,7 @@ mod profiles;
 mod shortcuts;
 mod theme;
 mod thumbs;
+mod tools;
 mod watch;
 
 use crate::browse::{self, ClickMods, Filters};
@@ -173,6 +174,10 @@ pub struct HoramaApp {
     /// Commands of the MCP server, when it runs ([`mcp`]).
     mcp: Option<Receiver<crate::mcp_server::McpCommand>>,
     mcp_open: Option<mcp::PendingOpen>,
+    /// Applications of "Open With" for the file of the last context menu.
+    open_with: Option<(String, Vec<crate::open_with::OpenWithItem>)>,
+    /// Folder of the tree to select when the scan of the last folder arrives.
+    pending_tree: Option<String>,
     /// F6 moves the keyboard focus to the next panel: 0 folders, 1 filmstrip, 2 image.
     focus_panel: usize,
     /// The panel that takes the focus at its next drawing.
@@ -255,6 +260,8 @@ impl HoramaApp {
             shortcut_editor: None,
             mcp: None,
             mcp_open: None,
+            open_with: None,
+            pending_tree: None,
             focus_panel: 2,
             pending_focus: None,
             compare_paths: Vec::new(),
@@ -308,7 +315,10 @@ impl HoramaApp {
     pub fn open_last_folder(&mut self) {
         let last = self.settings.last_folder.clone();
         if !last.is_empty() && Path::new(&last).is_dir() {
+            // The subfolder chosen last time is selected again when the scan arrives.
+            let sub = self.settings.last_subfolder.clone();
             self.open_folder(&last, None);
+            self.pending_tree = Some(sub).filter(|s| !s.is_empty());
         }
     }
 
@@ -520,6 +530,18 @@ impl HoramaApp {
                         self.status = tr("No supported images in this folder.").to_string();
                     }
                     self.mcp_folder_scanned();
+                    if let Some(tree) = self.pending_tree.take() {
+                        let root = self.folder.clone().unwrap_or_default();
+                        if self
+                            .subfolders
+                            .iter()
+                            .any(|d| crate::config::same_path(d, &tree))
+                        {
+                            browse::expand_to(&mut self.expanded, &root, &tree);
+                            self.filters.tree = tree;
+                            self.refilter();
+                        }
+                    }
                 }
                 Msg::Aspects {
                     generation,
@@ -1090,6 +1112,8 @@ impl HoramaApp {
         }
         if let Some(key) = chosen {
             if key != self.filters.tree {
+                self.settings.last_subfolder = key.clone();
+                self.settings.save();
                 self.filters.tree = key;
                 self.refilter();
             }
@@ -1107,6 +1131,10 @@ impl HoramaApp {
         };
         let mut clicked: Option<(usize, ClickMods)> = None;
         let mut strip_mid: Option<usize> = None;
+        // Context menu: the applications of "Open With" are read when it opens.
+        let mut right_clicked: Option<usize> = None;
+        let mut menu_action: Option<(usize, tools::CellAction)> = None;
+        let menu_handlers = self.open_with.clone();
         // F6 brings the focus to the cell of the current image.
         let focus_cell = if self.pending_focus == Some(1) {
             self.pending_focus = None;
@@ -1150,6 +1178,20 @@ impl HoramaApp {
                             egui::StrokeKind::Outside,
                         );
                     }
+                    if response.secondary_clicked() {
+                        right_clicked = Some(i);
+                    }
+                    response.context_menu(|ui| {
+                        let path = &self.visible[i];
+                        let (handlers, loaded) = match &menu_handlers {
+                            Some((p, h)) if p == path => (h.as_slice(), true),
+                            _ => (&[][..], false),
+                        };
+                        if let Some(a) = Self::cell_menu(ui, handlers, loaded) {
+                            menu_action = Some((i, a));
+                            ui.close();
+                        }
+                    });
                     if response.clicked() {
                         let m = ui.input(|inp| inp.modifiers);
                         clicked = Some((
@@ -1170,6 +1212,18 @@ impl HoramaApp {
             if mid.abs_diff(self.thumb_center) > thumbs::RECENTER_AFTER {
                 self.thumb_center = mid;
                 self.request_thumbs();
+            }
+        }
+        if let Some(i) = right_clicked {
+            if !self.selected.contains(&i) {
+                self.select_only(i);
+            }
+            let path = self.visible[i].clone();
+            self.open_with_handlers(&path);
+        }
+        if let Some((i, action)) = menu_action {
+            if let Some(path) = self.visible.get(i).cloned() {
+                self.cell_action(&path, action);
             }
         }
         if let Some((i, mods)) = clicked {
@@ -1326,7 +1380,7 @@ impl HoramaApp {
                 }
             }
         }
-        if response.dragged() && self.crop.is_none() {
+        if response.dragged_by(egui::PointerButton::Primary) && self.crop.is_none() {
             self.view.pan += response.drag_delta();
             self.view.fit = false;
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -1345,6 +1399,8 @@ impl HoramaApp {
             .image(shown.texture.id(), image_rect, uv, Color32::WHITE);
         if self.crop.is_some() {
             self.crop_overlay(ui, &response, image_rect);
+        } else {
+            self.image_tools(ui, image_rect);
         }
     }
 

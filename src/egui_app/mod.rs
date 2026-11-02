@@ -15,7 +15,9 @@
 
 mod files;
 mod filters;
+mod i18n;
 mod loader;
+mod theme;
 mod thumbs;
 
 use crate::browse::{self, ClickMods, Filters};
@@ -28,16 +30,14 @@ use egui::{
     Align2, Color32, ColorImage, Key, KeyboardShortcut, Modifiers, Pos2, Rect, Sense, Stroke,
     TextureHandle, TextureOptions, Vec2,
 };
+use i18n::{tr, trf};
 use loader::ImageLoader;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use thumbs::{ThumbResult, ThumbnailLoader};
 
-/// Neutral grey behind the image, the same as the Slint interface.
-const CANVAS: Color32 = Color32::from_rgb(0x12, 0x12, 0x12);
-/// Accent of the selection, as in the Slint interface.
-const ACCENT: Color32 = Color32::from_rgb(0x00, 0x7A, 0xCC);
+use theme::ACCENT;
 /// Filmstrip cell (thumbnail, name and spacing) and thumbnail box, in points.
 const CELL_W: f32 = 132.0;
 const THUMB_BOX: Vec2 = Vec2::new(120.0, 84.0);
@@ -143,7 +143,9 @@ pub struct HoramaApp {
 impl HoramaApp {
     /// Creates the interface; `ctx` is kept so worker threads can ask for a repaint.
     pub fn new(ctx: egui::Context) -> Self {
-        ctx.set_visuals(egui::Visuals::dark());
+        let settings = AppSettings::load();
+        ctx.set_theme(theme::preference(settings.theme));
+        i18n::set_language(&settings.language);
         let (tx, rx) = channel();
         let color = ColorManager::new();
         let (thumb_tx, thumb_rx) = channel();
@@ -157,7 +159,7 @@ impl HoramaApp {
             ctx,
             color,
             disk: DiskQueue::new(),
-            settings: AppSettings::load(),
+            settings,
             tx,
             rx,
             scan_generation: 0,
@@ -193,7 +195,7 @@ impl HoramaApp {
             notice: None,
             rename: None,
             quality: None,
-            status: "Open a folder to view images".to_string(),
+            status: tr("Open a folder to view images").to_string(),
         }
     }
 
@@ -210,12 +212,12 @@ impl HoramaApp {
                 .unwrap_or_default();
             self.open_folder(&parent, Some(file));
         } else if p.is_file() {
-            self.status = format!(
+            self.status = trf(
                 "'{}' is not an image format Horama can open.",
-                browse::file_name_of(path)
+                &[&browse::file_name_of(path)],
             );
         } else {
-            self.status = format!("'{}' does not exist.", path);
+            self.status = trf("'{}' does not exist.", &[&path]);
         }
     }
 
@@ -244,7 +246,7 @@ impl HoramaApp {
         if let Ok(mut cache) = self.preloader.cache.lock() {
             cache.clear();
         }
-        self.status = format!("Scanning {}…", folder);
+        self.status = trf("Scanning {}…", &[&folder]);
         let (tx, ctx, folder) = (self.tx.clone(), self.ctx.clone(), folder.to_string());
         let spawned = std::thread::Builder::new()
             .name("egui-scan".into())
@@ -259,7 +261,7 @@ impl HoramaApp {
                 ctx.request_repaint();
             });
         if let Err(e) = spawned {
-            self.status = format!("Could not scan the folder: {}", e);
+            self.status = trf("Could not scan the folder: {}", &[&e]);
         }
     }
 
@@ -400,16 +402,16 @@ impl HoramaApp {
                         {
                             Some(i) => self.select_only(i),
                             None => {
-                                self.status = format!(
+                                self.status = trf(
                                     "'{}' was not found in its folder.",
-                                    browse::file_name_of(&file)
+                                    &[&browse::file_name_of(&file)],
                                 )
                             }
                         }
                     }
                     if self.visible.is_empty() {
                         self.shown = None;
-                        self.status = "No supported images in this folder.".to_string();
+                        self.status = tr("No supported images in this folder.").to_string();
                     }
                 }
                 Msg::Aspects {
@@ -459,8 +461,10 @@ impl HoramaApp {
                     error,
                 } if generation == self.load_generation => {
                     self.loading = None;
-                    self.status =
-                        format!("Cannot display {}: {}", browse::file_name_of(&path), error);
+                    self.status = trf(
+                        "Cannot display {}: {}",
+                        &[&browse::file_name_of(&path), &error],
+                    );
                 }
                 Msg::File(result) => self.file_result(result),
                 _ => {} // result of an older request
@@ -470,6 +474,8 @@ impl HoramaApp {
 
     /// Draws the whole interface. Call once per frame with the window's root `Ui`.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // Textures belong to the context that draws them (the window, or a test harness).
+        self.ctx = ui.ctx().clone();
         self.receive();
         self.expire_notice();
         self.handle_keys(ui);
@@ -506,7 +512,7 @@ impl HoramaApp {
                 .show(ui, |ui| self.info_panel(ui));
         }
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(CANVAS))
+            .frame(egui::Frame::NONE.fill(theme::canvas(&ui.ctx().global_style().visuals)))
             .show(ui, |ui| {
                 let rect = ui.max_rect();
                 self.image_view(ui);
@@ -521,21 +527,21 @@ impl HoramaApp {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui
-                    .add(egui::Button::new("Open Folder…").shortcut_text("Ctrl+O"))
+                    .add(egui::Button::new(tr("Open Folder…")).shortcut_text("Ctrl+O"))
                     .clicked()
                 {
                     self.pick_folder();
                 }
                 let recent = self.settings.recent_folders.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
-                    ui.menu_button("Recent Folders", |ui| {
+                    ui.menu_button(tr("Recent Folders"), |ui| {
                         for folder in &recent {
                             if ui.button(folder.as_str()).clicked() {
                                 self.open_path(folder);
                             }
                         }
                         ui.separator();
-                        if ui.button("Clear List").clicked() {
+                        if ui.button(tr("Clear List")).clicked() {
                             self.settings.clear_recent_folders();
                         }
                     });
@@ -545,14 +551,17 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new("Save a Copy As…").shortcut_text("Ctrl+Shift+S"),
+                        egui::Button::new(tr("Save a Copy As…")).shortcut_text("Ctrl+Shift+S"),
                     )
                     .clicked()
                 {
                     self.save_as();
                 }
                 if ui
-                    .add_enabled(has_image, egui::Button::new("Rename…").shortcut_text("F2"))
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new(tr("Rename…")).shortcut_text("F2"),
+                    )
                     .clicked()
                 {
                     self.start_rename();
@@ -560,23 +569,23 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new("Move to Recycle Bin").shortcut_text("Del"),
+                        egui::Button::new(tr("Move to Recycle Bin")).shortcut_text("Del"),
                     )
                     .clicked()
                 {
                     self.trash_selected();
                 }
                 ui.separator();
-                if ui.button("Exit").clicked() {
+                if ui.button(tr("Exit")).clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
-            ui.menu_button("Image", |ui| {
+            ui.menu_button(tr("Image"), |ui| {
                 let has_image = self.current.is_some();
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new("Rotate Right").shortcut_text("R"),
+                        egui::Button::new(tr("Rotate Right")).shortcut_text("R"),
                     )
                     .clicked()
                 {
@@ -585,28 +594,50 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new("Rotate Left").shortcut_text("L"),
+                        egui::Button::new(tr("Rotate Left")).shortcut_text("L"),
                     )
                     .clicked()
                 {
                     self.rotate(false);
                 }
             });
-            ui.menu_button("View", |ui| {
+            ui.menu_button(tr("View"), |ui| {
                 let has_image = self.shown.is_some();
                 let mut info = self.show_info;
                 if ui
-                    .add(egui::Checkbox::new(&mut info, "Image Info"))
-                    .on_hover_text("Histogram and metadata (I)")
+                    .add(egui::Checkbox::new(&mut info, tr("Image Info")))
+                    .on_hover_text(tr("Histogram and metadata (I)"))
                     .changed()
                 {
                     self.show_info = info;
                 }
+                ui.menu_button(tr("Theme"), |ui| {
+                    for choice in crate::config::ThemeChoice::ALL {
+                        if ui
+                            .radio(self.settings.theme == choice, tr(choice.label()))
+                            .clicked()
+                        {
+                            self.settings.theme = choice;
+                            self.settings.save();
+                            ui.ctx().set_theme(theme::preference(choice));
+                        }
+                    }
+                });
+                ui.menu_button(tr("Language"), |ui| {
+                    for (value, name) in i18n::CHOICES {
+                        let label = if value.is_empty() { tr(name) } else { name };
+                        if ui.radio(self.settings.language == value, label).clicked() {
+                            self.settings.language = value.to_string();
+                            self.settings.save();
+                            i18n::set_language(value);
+                        }
+                    }
+                });
                 ui.separator();
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new("Fit to Window").shortcut_text("F"),
+                        egui::Button::new(tr("Fit to Window")).shortcut_text("F"),
                     )
                     .clicked()
                 {
@@ -616,20 +647,26 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new("Actual Size (100%)").shortcut_text("Ctrl+1"),
+                        egui::Button::new(tr("Actual Size (100%)")).shortcut_text("Ctrl+1"),
                     )
                     .clicked()
                 {
                     self.set_zoom(1.0);
                 }
                 if ui
-                    .add_enabled(has_image, egui::Button::new("Zoom In").shortcut_text("+"))
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new(tr("Zoom In")).shortcut_text("+"),
+                    )
                     .clicked()
                 {
                     self.set_zoom(self.view.zoom * view::ZOOM_STEP);
                 }
                 if ui
-                    .add_enabled(has_image, egui::Button::new("Zoom Out").shortcut_text("−"))
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new(tr("Zoom Out")).shortcut_text("−"),
+                    )
                     .clicked()
                 {
                     self.set_zoom(self.view.zoom / view::ZOOM_STEP);
@@ -673,7 +710,7 @@ impl HoramaApp {
         });
         let (undo, save_as, delete, rename, rotate_right, rotate_left) = commands;
         if undo && !self.undo_trash() {
-            self.status = "Nothing to undo.".to_string();
+            self.status = tr("Nothing to undo.").to_string();
         }
         if self.current.is_some() {
             if save_as {
@@ -768,21 +805,21 @@ impl HoramaApp {
 
     fn folder_tree(&mut self, ui: &mut egui::Ui) {
         let Some(root) = self.folder.clone() else {
-            ui.label("No folder open");
+            ui.label(tr("No folder open"));
             return;
         };
         ui.label(egui::RichText::new(browse::file_name_of(&root)).strong())
             .on_hover_text(root.as_str());
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.filters.search)
-                .hint_text("Search file names")
+                .hint_text(tr("Search file names"))
                 .desired_width(f32::INFINITY),
         );
         if search.changed() {
             self.refilter();
         }
         self.filters_panel(ui);
-        ui.label(format!("{} images shown", self.visible.len()));
+        ui.label(trf("{} images shown", &[&self.visible.len()]));
         ui.separator();
 
         let rows = browse::tree_rows(
@@ -847,6 +884,16 @@ impl HoramaApp {
                 for i in first..last {
                     let rect = cell_rect(i).shrink(3.0);
                     let response = ui.interact(rect, ui.id().with(("cell", i)), Sense::click());
+                    let name = browse::file_name_of(&self.visible[i]);
+                    let selected = self.selected.contains(&i);
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::SelectableLabel,
+                            true,
+                            selected,
+                            trf("Thumbnail of {}", &[&name]),
+                        )
+                    });
                     self.paint_cell(ui, i, rect, response.hovered());
                     if response.clicked() {
                         let m = ui.input(|inp| inp.modifiers);
@@ -889,12 +936,8 @@ impl HoramaApp {
         let path = &self.visible[i];
         let painter = ui.painter_at(rect);
         let selected = self.selected.contains(&i);
-        let fill = if hovered {
-            Color32::from_gray(0x33)
-        } else {
-            Color32::from_gray(0x24)
-        };
-        painter.rect_filled(rect, 4.0, fill);
+        let visuals = ui.visuals();
+        painter.rect_filled(rect, 4.0, theme::cell(visuals, hovered));
         let thumb_area = Rect::from_min_size(
             rect.min + Vec2::new((rect.width() - THUMB_BOX.x) / 2.0, 4.0),
             THUMB_BOX,
@@ -913,11 +956,11 @@ impl HoramaApp {
                     Align2::CENTER_CENTER,
                     "⚠",
                     egui::FontId::proportional(18.0),
-                    Color32::from_gray(0x99),
+                    theme::canvas_text(visuals),
                 );
             }
             None => {
-                painter.rect_filled(thumb_area.shrink(8.0), 2.0, Color32::from_gray(0x2E));
+                painter.rect_filled(thumb_area.shrink(8.0), 2.0, theme::placeholder(visuals));
             }
         }
         let stars = self.settings.get_rating(path);
@@ -958,18 +1001,23 @@ impl HoramaApp {
     fn image_view(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
+        let label = match &self.shown {
+            Some(s) => format!("{}: {}", tr("Image view"), browse::file_name_of(&s.path)),
+            None => tr("Image view").to_string(),
+        };
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
         let Some(shown) = &self.shown else {
             let text = if self.loading.is_some() {
-                "Loading…"
+                tr("Loading…")
             } else {
-                "Open a folder (Ctrl+O) or drop an image here"
+                tr("Open a folder (Ctrl+O) or drop an image here")
             };
             ui.painter().text(
                 rect.center(),
                 Align2::CENTER_CENTER,
                 text,
                 egui::FontId::proportional(14.0),
-                Color32::from_gray(0x88),
+                theme::canvas_text(ui.visuals()),
             );
             return;
         };
@@ -1023,10 +1071,10 @@ impl HoramaApp {
     /// Histogram and metadata of the image on screen.
     fn info_panel(&self, ui: &mut egui::Ui) {
         let Some(shown) = &self.shown else {
-            ui.label(egui::RichText::new("No image").weak());
+            ui.label(egui::RichText::new(tr("No image")).weak());
             return;
         };
-        ui.label(egui::RichText::new("Histogram").strong());
+        ui.label(egui::RichText::new(tr("Histogram")).strong());
         let size = shown.histogram.size_vec2();
         let width = ui.available_width();
         ui.add(egui::Image::new((
@@ -1043,7 +1091,7 @@ impl HoramaApp {
                     .spacing([12.0, 4.0])
                     .show(ui, |ui| {
                         for (label, value) in &shown.metadata {
-                            ui.label(egui::RichText::new(label).weak());
+                            ui.label(egui::RichText::new(tr(label)).weak());
                             ui.add(egui::Label::new(value).wrap());
                             ui.end_row();
                         }
@@ -1060,7 +1108,7 @@ impl HoramaApp {
             None => String::new(),
         };
         let loading = match &self.loading {
-            Some(p) => format!(" — loading {}…", browse::file_name_of(p)),
+            Some(p) => trf(" — loading {}…", &[&browse::file_name_of(p)]),
             None => String::new(),
         };
         format!(
@@ -1083,10 +1131,16 @@ fn expander(ui: &mut egui::Ui, enabled: bool, expanded: bool) -> egui::Response 
     if enabled {
         let c = rect.center();
         let color = if response.hovered() {
-            Color32::from_gray(0xEE)
+            ui.visuals().strong_text_color()
         } else {
-            Color32::from_gray(0xAA)
+            ui.visuals().text_color()
         };
+        let state = if expanded {
+            tr("Collapse")
+        } else {
+            tr("Expand")
+        };
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, state));
         let points = if expanded {
             vec![
                 c + Vec2::new(-4.0, -2.0),
@@ -1102,7 +1156,11 @@ fn expander(ui: &mut egui::Ui, enabled: bool, expanded: bool) -> egui::Response 
         };
         ui.painter()
             .add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
-        response.on_hover_text(if expanded { "Collapse" } else { "Expand" })
+        response.on_hover_text(if expanded {
+            tr("Collapse")
+        } else {
+            tr("Expand")
+        })
     } else {
         response
     }

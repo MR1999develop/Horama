@@ -72,6 +72,34 @@ pub struct AppSettings {
     /// JPEG quality chosen at the last save (1–100); 0 = the compression of the original.
     #[serde(default)]
     pub jpeg_quality: u8,
+    /// Theme of the egui interface.
+    #[serde(default)]
+    pub theme: ThemeChoice,
+    /// Language of the egui interface: "" = the system language, otherwise "en" or "it".
+    #[serde(default)]
+    pub language: String,
+}
+
+/// Theme of the interface; Dark by default, as suits an image viewer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ThemeChoice {
+    System,
+    Light,
+    #[default]
+    Dark,
+}
+
+impl ThemeChoice {
+    pub const ALL: [ThemeChoice; 3] = [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark];
+
+    /// English name, to be passed through the translation.
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeChoice::System => "System",
+            ThemeChoice::Light => "Light",
+            ThemeChoice::Dark => "Dark",
+        }
+    }
 }
 
 pub fn default_shortcuts() -> std::collections::HashMap<String, String> {
@@ -123,6 +151,8 @@ impl Default for AppSettings {
             shortcuts: default_shortcuts(),
             saved_aspect_ratios: Vec::new(),
             jpeg_quality: 0,
+            theme: ThemeChoice::default(),
+            language: String::new(),
         }
     }
 }
@@ -256,7 +286,12 @@ impl AppSettings {
     }
 }
 
+/// Folder that holds the program's settings folder. `HORAMA_CONFIG_DIR` replaces it (the
+/// interface tests use it to keep away from the user's settings).
 fn config_base_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("HORAMA_CONFIG_DIR") {
+        return PathBuf::from(dir);
+    }
     dirs::config_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 

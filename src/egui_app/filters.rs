@@ -4,13 +4,15 @@
 //! keeps the facts the rules need (ratings from the settings, aspect ratios measured in the
 //! background, color profiles of the images already decoded).
 
-use super::{HoramaApp, Msg, ACCENT};
+use super::i18n::{tr, trf};
+use super::theme::{self, ACCENT};
+use super::{HoramaApp, Msg};
 use crate::browse::{self, FileFacts};
 use crate::config::{
     AppSettings, DEFAULT_FALLBACK_PROFILE, PROFILE_ADOBE_RGB, PROFILE_DISPLAY_P3, PROFILE_PROPHOTO,
     PROFILE_REC2020, PROFILE_SRGB,
 };
-use egui::{Color32, Pos2, Sense, Stroke, Vec2};
+use egui::{Pos2, Sense, Stroke, Vec2};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -99,7 +101,7 @@ impl HoramaApp {
         self.aspect_job_running = true;
         let generation = self.scan_generation;
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
-        self.status = format!("Reading the size of {} image(s)…", paths.len());
+        self.status = trf("Reading the size of {} image(s)…", &[&paths.len()]);
         let spawned = std::thread::Builder::new()
             .name("egui-aspects".into())
             .spawn(move || {
@@ -120,7 +122,7 @@ impl HoramaApp {
             });
         if let Err(e) = spawned {
             self.aspect_job_running = false;
-            self.status = format!("Could not read the image sizes: {}", e);
+            self.status = trf("Could not read the image sizes: {}", &[&e]);
         }
     }
 
@@ -141,8 +143,11 @@ impl HoramaApp {
             self.settings.set_rating(p, stars.min(5));
         }
         self.status = match targets.len() {
-            1 => format!("{}: {} star(s)", browse::file_name_of(&targets[0]), stars),
-            n => format!("{} images: {} star(s)", n, stars),
+            1 => trf(
+                "{}: {} star(s)",
+                &[&browse::file_name_of(&targets[0]), &stars],
+            ),
+            n => trf("{} images: {} star(s)", &[&n, &stars]),
         };
         // A rating filter may hide or show them now.
         if self.filters.ratings_mask != 0 {
@@ -152,17 +157,17 @@ impl HoramaApp {
 
     pub(super) fn filters_panel(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
-        egui::CollapsingHeader::new("Filters")
+        egui::CollapsingHeader::new(tr("Filters"))
             .id_salt("filters")
             .default_open(false)
             .show(ui, |ui| {
-                ui.label("Rating (stars)");
+                ui.label(tr("Rating (stars)"));
                 ui.horizontal_wrapped(|ui| {
                     for stars in 0..=5u8 {
                         let bit = 1u8 << stars;
                         let on = self.filters.ratings_mask & bit != 0;
                         let text = if stars == 0 {
-                            "Unrated".to_string()
+                            tr("Unrated").to_string()
                         } else {
                             stars.to_string()
                         };
@@ -173,7 +178,7 @@ impl HoramaApp {
                     }
                 });
                 ui.add_space(4.0);
-                changed |= combo(ui, "Format", &mut self.filters.format, &FORMATS);
+                changed |= combo(ui, tr("Format"), &mut self.filters.format, &FORMATS);
                 let mut aspects: Vec<(String, String)> = ASPECTS
                     .iter()
                     .map(|(v, l)| (v.to_string(), l.to_string()))
@@ -181,10 +186,10 @@ impl HoramaApp {
                 for custom in &self.settings.saved_aspect_ratios {
                     aspects.push((custom.clone(), custom.replace(['x', 'X'], ":")));
                 }
-                changed |= combo_owned(ui, "Aspect ratio", &mut self.filters.aspect, &aspects);
+                changed |= combo_owned(ui, tr("Aspect ratio"), &mut self.filters.aspect, &aspects);
                 changed |= combo(
                     ui,
-                    "Color profile",
+                    tr("Color profile"),
                     &mut self.filters.color_profile,
                     &PROFILES,
                 );
@@ -195,7 +200,7 @@ impl HoramaApp {
                     || self.filters.color_profile != "ALL"
                     || !self.filters.search.is_empty();
                 if ui
-                    .add_enabled(any, egui::Button::new("Clear filters"))
+                    .add_enabled(any, egui::Button::new(tr("Clear filters")))
                     .clicked()
                 {
                     let tree = std::mem::take(&mut self.filters.tree);
@@ -207,9 +212,11 @@ impl HoramaApp {
                 }
                 if self.filters.color_profile != "ALL" {
                     ui.label(
-                        egui::RichText::new("The profile is known only for images already opened.")
-                            .small()
-                            .weak(),
+                        egui::RichText::new(tr(
+                            "The profile is known only for images already opened.",
+                        ))
+                        .small()
+                        .weak(),
                     );
                 }
             });
@@ -236,7 +243,7 @@ fn combo_owned(
     let shown = options
         .iter()
         .find(|(v, _)| v == value)
-        .map(|(_, l)| l.clone())
+        .map(|(_, l)| tr(l).to_string())
         .unwrap_or_else(|| value.clone());
     let mut changed = false;
     ui.horizontal(|ui| {
@@ -245,7 +252,7 @@ fn combo_owned(
             .selected_text(shown)
             .show_ui(ui, |ui| {
                 for (v, l) in options {
-                    if ui.selectable_label(value == v, l).clicked() && value != v {
+                    if ui.selectable_label(value == v, tr(l)).clicked() && value != v {
                         *value = v.clone();
                         changed = true;
                     }
@@ -270,9 +277,9 @@ pub(super) fn paint_stars(painter: &egui::Painter, left_center: Pos2, size: f32,
             // Concave shape: drawn as a fan of triangles around the centre.
             let mut mesh = egui::Mesh::default();
             let centre = mesh.vertices.len() as u32;
-            mesh.colored_vertex(c, Color32::from_rgb(0xF2, 0xC0, 0x3A));
+            mesh.colored_vertex(c, theme::STAR);
             for p in &points {
-                mesh.colored_vertex(*p, Color32::from_rgb(0xF2, 0xC0, 0x3A));
+                mesh.colored_vertex(*p, theme::STAR);
             }
             for k in 0..10u32 {
                 mesh.add_triangle(centre, centre + 1 + k, centre + 1 + (k + 1) % 10);
@@ -283,7 +290,7 @@ pub(super) fn paint_stars(painter: &egui::Painter, left_center: Pos2, size: f32,
             closed.push(points[0]);
             painter.add(egui::Shape::line(
                 closed,
-                Stroke::new(1.0, Color32::from_gray(0x70)),
+                Stroke::new(1.0, theme::faint(&painter.ctx().global_style().visuals)),
             ));
         }
     }
@@ -308,6 +315,8 @@ pub(super) fn star_picker(ui: &mut egui::Ui, current: u8) -> Option<u8> {
         );
     }
     let clicked = response.clicked().then_some(hover).flatten();
-    response.on_hover_text("Rating (keys 0–5)");
+    // Screen readers hear "Rating, 3 of 5" instead of an unnamed drawing.
+    response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(current), tr("Rating")));
+    response.on_hover_text(tr("Rating (keys 0–5)"));
     clicked.map(|s| if s == current { 0 } else { s })
 }

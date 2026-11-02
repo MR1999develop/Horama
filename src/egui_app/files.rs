@@ -6,7 +6,8 @@
 //! Recycle Bin has no confirmation: the files leave the list at once and reach the Recycle Bin
 //! only when the notice closes, so Undo (or Ctrl+Z) can put them back until then.
 
-use super::{HoramaApp, Msg};
+use super::i18n::{tr, trf};
+use super::{theme, HoramaApp, Msg};
 use crate::browse;
 use crate::config::{path_key, same_path, DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED};
 use crate::disk_ops::{self, RotationOutcome};
@@ -137,9 +138,9 @@ impl HoramaApp {
         }
         if !skipped.is_empty() {
             self.notify(
-                format!(
+                trf(
                     "Not rotated: {} (RAW and other formats are never modified).",
-                    skipped.join(", ")
+                    &[&skipped.join(", ")],
                 ),
                 false,
             );
@@ -151,12 +152,12 @@ impl HoramaApp {
         match result {
             Ok(RotationOutcome::Saved(_)) => {
                 self.forget_pixels(&path);
-                self.status = format!("Rotated: {}", name);
+                self.notify(trf("Rotated: {}", &[&name]), false);
             }
             Ok(RotationOutcome::ShownOnly(reason)) => {
-                self.notify(format!("'{}' not rotated: {}.", name, reason), false)
+                self.notify(trf("'{}' not rotated: {}.", &[&name, &reason]), false)
             }
-            Err(e) => self.notify(format!("Rotation not saved for '{}': {}", name, e), true),
+            Err(e) => self.notify(trf("Rotation not saved for '{}': {}", &[&name, &e]), true),
         }
     }
 
@@ -183,11 +184,11 @@ impl HoramaApp {
             return;
         }
         let text = match files.len() {
-            1 => format!(
+            1 => trf(
                 "'{}' moved to the Recycle Bin.",
-                browse::file_name_of(&files[0])
+                &[&browse::file_name_of(&files[0])],
             ),
-            n => format!("{} files moved to the Recycle Bin.", n),
+            n => trf("{} files moved to the Recycle Bin.", &[&n]),
         };
         self.notify(text, false);
         let keys: Vec<String> = files.iter().map(|f| path_key(f)).collect();
@@ -209,7 +210,7 @@ impl HoramaApp {
         let files = std::mem::take(&mut n.trash);
         self.notice = None;
         self.restore_files(&files);
-        self.status = format!("Restored {} file(s).", files.len());
+        self.notify(trf("Restored {} file(s).", &[&files.len()]), false);
         true
     }
 
@@ -281,10 +282,9 @@ impl HoramaApp {
             .collect();
         self.restore_files(&back);
         self.notify(
-            format!(
+            trf(
                 "{} file(s) could not be moved to the Recycle Bin and are back in the list. {}",
-                failed.len(),
-                details.join("; ")
+                &[&failed.len(), &details.join("; ")],
             ),
             true,
         );
@@ -318,8 +318,8 @@ impl HoramaApp {
         let mut apply = false;
         let mut cancel = false;
         let title = match dialog.files.len() {
-            1 => "Rename".to_string(),
-            n => format!("Rename {} files", n),
+            1 => tr("Rename").to_string(),
+            n => trf("Rename {} files", &[&n]),
         };
         egui::Window::new(title)
             .collapsible(false)
@@ -327,14 +327,14 @@ impl HoramaApp {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 if dialog.files.len() > 1 {
-                    ui.label(
+                    ui.label(tr(
                         "The files become \"Name (1)\", \"Name (2)\"… keeping their extension.",
-                    );
+                    ));
                 }
                 let field = ui.add(
                     egui::TextEdit::singleline(&mut dialog.name)
                         .desired_width(320.0)
-                        .hint_text("New name"),
+                        .hint_text(tr("New name")),
                 );
                 if std::mem::take(&mut dialog.focus) {
                     field.request_focus();
@@ -349,10 +349,10 @@ impl HoramaApp {
                     ui.colored_label(ui.visuals().error_fg_color, e);
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Rename").clicked() {
+                    if ui.button(tr("Rename")).clicked() {
                         apply = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr("Cancel")).clicked() {
                         cancel = true;
                     }
                 });
@@ -386,7 +386,7 @@ impl HoramaApp {
 
     fn renamed(&mut self, plan: Vec<(String, String)>, result: Result<(), String>) {
         if let Err(e) = result {
-            self.notify(format!("Not renamed: {}", e), true);
+            self.notify(trf("Not renamed: {}", &[&e]), true);
             return;
         }
         let current = self.current_path();
@@ -418,10 +418,11 @@ impl HoramaApp {
         if let Some(i) = new_current.and_then(|c| self.visible.iter().position(|g| *g == c)) {
             self.select_only(i);
         }
-        self.status = match plan.len() {
-            1 => format!("Renamed to {}", browse::file_name_of(&plan[0].1)),
-            n => format!("{} files renamed", n),
+        let text = match plan.len() {
+            1 => trf("Renamed to {}", &[&browse::file_name_of(&plan[0].1)]),
+            n => trf("{} files renamed", &[&n]),
         };
+        self.notify(text, false);
     }
 
     // ---- Save As ---------------------------------------------------------------------
@@ -433,7 +434,7 @@ impl HoramaApp {
         };
         let suggested = generate_next_sequential_path(Path::new(&source));
         let mut dialog = rfd::FileDialog::new()
-            .set_title("Save a Copy As")
+            .set_title(tr("Save a Copy As"))
             .add_filter("JPEG", &["jpg", "jpeg"])
             .add_filter("TIFF", &["tif", "tiff"])
             .add_filter("PNG", &["png"])
@@ -449,7 +450,7 @@ impl HoramaApp {
         };
         if same_path(&dest.to_string_lossy(), &source) {
             self.notify(
-                "Choose another name: the original is never overwritten.",
+                tr("Choose another name: the original is never overwritten."),
                 true,
             );
             return;
@@ -474,7 +475,7 @@ impl HoramaApp {
         let mut save = false;
         let mut cancel = false;
         let source_is_jpeg = is_jpeg(Path::new(&dialog.source));
-        egui::Window::new("JPEG Quality")
+        egui::Window::new(tr("JPEG Quality"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -483,27 +484,24 @@ impl HoramaApp {
                 if source_is_jpeg {
                     ui.checkbox(
                         &mut dialog.like_original,
-                        "Same compression as the original",
+                        tr("Same compression as the original"),
                     )
-                    .on_hover_text(
-                        "Reuses the tables of the original: repeated saves do not wear the \
-                             image, and an unchanged image is copied without recompression.",
-                    );
+                    .on_hover_text(tr("Reuses the tables of the original: repeated saves do not wear the image, and an unchanged image is copied without recompression."));
                 }
                 ui.add_enabled(
                     !(source_is_jpeg && dialog.like_original),
-                    egui::Slider::new(&mut dialog.quality, 1..=100).text("Quality"),
+                    egui::Slider::new(&mut dialog.quality, 1..=100).text(tr("Quality")),
                 );
                 ui.label(
-                    egui::RichText::new("From 90 the color keeps full resolution (4:4:4).")
+                    egui::RichText::new(tr("From 90 the color keeps full resolution (4:4:4)."))
                         .small()
                         .weak(),
                 );
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if ui.button(tr("Save")).clicked() {
                         save = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr("Cancel")).clicked() {
                         cancel = true;
                     }
                 });
@@ -531,7 +529,10 @@ impl HoramaApp {
     fn start_save(&mut self, source: String, dest: PathBuf, jpeg_quality: u8) {
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         let (loader, color) = (self.preloader.loader(), self.color.clone());
-        self.status = format!("Saving {}…", browse::file_name_of(&dest.to_string_lossy()));
+        self.status = trf(
+            "Saving {}…",
+            &[&browse::file_name_of(&dest.to_string_lossy())],
+        );
         self.disk.submit(move || {
             let result = loader.get_or_load(&source).and_then(|decoded| {
                 let profile = if decoded.embedded_icc_name.is_some() {
@@ -551,7 +552,7 @@ impl HoramaApp {
         match result {
             Ok(()) => {
                 log::info!("Saved {}", dest.display());
-                self.notify(format!("Saved '{}'.", name), false);
+                self.notify(trf("Saved '{}'.", &[&name]), false);
                 // A copy saved inside the open folder joins the list.
                 let dest_s = crate::config::normalize_path(&dest.to_string_lossy());
                 let inside = self
@@ -565,7 +566,7 @@ impl HoramaApp {
                     self.refilter();
                 }
             }
-            Err(e) => self.notify(format!("'{}' not saved: {}", name, e), true),
+            Err(e) => self.notify(trf("'{}' not saved: {}", &[&name, &e]), true),
         }
     }
 
@@ -585,11 +586,7 @@ impl HoramaApp {
         let Some(n) = &self.notice else { return };
         let mut undo = false;
         let mut close = false;
-        let fill = if n.is_error {
-            egui::Color32::from_rgb(0x5A, 0x1E, 0x1E)
-        } else {
-            egui::Color32::from_gray(0x2A)
-        };
+        let fill = theme::notice(ui.visuals(), n.is_error);
         let width = (view.width() - 32.0).clamp(160.0, 560.0);
         let area = egui::Area::new(ui.id().with("notice"))
             .order(egui::Order::Foreground)
@@ -603,11 +600,13 @@ impl HoramaApp {
                 .show(ui, |ui| {
                     ui.set_max_width(width);
                     ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(&n.text).wrap());
-                        if !n.trash.is_empty() && ui.button("Undo").clicked() {
+                        let text =
+                            egui::RichText::new(&n.text).color(ui.visuals().strong_text_color());
+                        ui.add(egui::Label::new(text).wrap());
+                        if !n.trash.is_empty() && ui.button(tr("Undo")).clicked() {
                             undo = true;
                         }
-                        if ui.small_button("✕").on_hover_text("Close").clicked() {
+                        if ui.small_button("✕").on_hover_text(tr("Close")).clicked() {
                             close = true;
                         }
                     });

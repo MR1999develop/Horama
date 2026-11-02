@@ -35,6 +35,7 @@ jpeg-encoder = "0.7"
 egui = "0.36"
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 notify = "6.1"
+sys-locale = "0.3"
 
 [build-dependencies]
 slint-build = "1.9"
@@ -50,4 +51,7 @@ codegen-units = 1
 # instead of terminating the whole application (decoders run inside catch_unwind).
 panic = "unwind"
 strip = true
+
+[dev-dependencies]
+egui_kittest = "0.36"
 

@@ -17,4 +17,4 @@ updates:
       interval: "monthly"
     open-pull-requests-limit: 3
     labels:
-      - "ci"
+      - "dependencies"

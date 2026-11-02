@@ -2006,7 +2006,7 @@ export component AppWindow inherits Window {
                             x: ((parent.width - self.width) / 2.0) + (root.pan-x * 1px);
                             y: ((parent.height - self.height) / 2.0) + (root.pan-y * 1px);
                             source: root.current-image;
-                            image-rendering: root.zoom-factor >= 3.0 ? pixelated : smooth;
+                            image-rendering: root.zoom-factor > 1.0 ? pixelated : smooth;
                         }
 
                         // Multi-selection 3x thumbnail comparison grid

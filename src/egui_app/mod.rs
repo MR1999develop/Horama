@@ -403,6 +403,8 @@ impl HoramaApp {
                     let options = TextureOptions {
                         // Mipmaps: zoomed-out views are filtered instead of aliased.
                         mipmap_mode: Some(egui::TextureFilter::Linear),
+                        // Above 100% every image pixel is shown as a sharp square.
+                        magnification: egui::TextureFilter::Nearest,
                         ..TextureOptions::LINEAR
                     };
                     let texture = self.ctx.load_texture(path.clone(), image, options);

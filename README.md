@@ -105,17 +105,22 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 cargo run --release --bin horama-egui
 ```
 
-Le release contengono anche `horama-egui` (`horama-egui.exe` su Windows). Per ora:
+Le release contengono anche `horama-egui` (`horama-egui.exe` su Windows). Fa già quasi tutto quello che fa l'interfaccia Slint:
 
-- apre una cartella (menu, cartelle recenti, riga di comando o trascinamento), con l'albero delle cartelle e la filmstrip delle miniature, ricerca e selezione multipla;
-- mostra l'immagine con gestione colore, "adatta alla finestra" (F), 100% (Ctrl+1), zoom sul cursore e spostamento; oltre il 100% i pixel si vedono netti;
+- apre una cartella o un file (menu, cartelle recenti, riga di comando, trascinamento), con l'albero delle cartelle (riapre l'ultima sottocartella) e la filmstrip delle miniature, ricerca e selezione multipla; la cartella si aggiorna da sola quando altri programmi aggiungono, cancellano o rinominano file;
+- mostra l'immagine con gestione colore, adatta alla finestra, 100%, zoom sul cursore e spostamento; oltre il 100% i pixel si vedono netti; lente 4× (tasto centrale) e contagocce RGB/HSL (tasto destro);
 - precarica le immagini vicine; un solo caricamento alla volta, così scorrendo veloce si decodifica solo l'immagine su cui ci si ferma;
-- valutazioni con i tasti 0–5 o con le stelle nella barra di stato, e tutti i filtri (stelle, formato, proporzioni, profilo colore) nel pannello a sinistra;
+- valutazioni (0–5 o stelle nella barra di stato) e tutti i filtri (stelle, formato, proporzioni, profilo colore, profilo cambiato, ritagliate);
 - pannello informazioni con istogramma e metadati (I);
-- rotazione senza perdita (R / L), Cestino senza conferma con Annulla per 8 secondi (Canc, Ctrl+Z), rinomina di uno o più file (F2), salvataggio di una copia con la scelta della qualità JPEG (Ctrl+Maiusc+S);
-- tema Sistema / Chiaro / Scuro e lingua italiana o inglese (menu Visualizza); nomi e stati dei controlli per i lettori di schermo.
+- scelta e conversione del profilo colore (menu Immagine, P per il successivo) e profili ICC/ICM personalizzati;
+- ritaglio (C) con proporzioni libere o fisse, Annulla/Ripeti (Ctrl+Z / Ctrl+Y) per ritagli, valutazioni, profili e rotazioni, salvataggio dei ritagli come nuovi file accanto agli originali (Ctrl+S) e richiesta alla chiusura se restano ritagli non salvati;
+- confronto fino a nove immagini selezionate, affiancate;
+- rotazione senza perdita (R / L), Cestino senza conferma con Annulla per 8 secondi (Canc), rinomina di uno o più file (F2), "Salva una copia come" con la scelta della qualità JPEG (Ctrl+Maiusc+S), "Apri con" dal menu del tasto destro sulla filmstrip;
+- scorciatoie personalizzabili (Visualizza > Scorciatoie da tastiera, condivise con Slint), F6 per passare da un pannello all'altro;
+- tema Sistema / Chiaro / Scuro e lingua italiana o inglese (menu Visualizza); nomi e stati dei controlli per i lettori di schermo;
+- server MCP (`horama-egui --mcp`) con gli stessi strumenti di Slint.
 
-Mancano ancora, rispetto all'interfaccia Slint: ritaglio e cronologia Annulla/Ripeti delle modifiche, scelta e conversione del profilo colore, profili personalizzati, confronto di più immagini, server MCP, aggiornamento automatico della cartella, editor delle scorciatoie.
+Mancano ancora, rispetto all'interfaccia Slint: l'aggiornamento del profilo del monitor quando la finestra passa a un altro schermo, l'apertura della sola selezione trascinando più immagini, la rotazione solo a schermo dei RAW.
 
 Le valutazioni sono salvate nel file `ratings.jsonl`, accanto a `settings.json` nella cartella delle impostazioni, e sono condivise dalle due interfacce. Alla prima apertura le valutazioni salvate dalle versioni precedenti dentro `settings.json` vengono spostate lì; una copia del file com'era resta in `settings.json.before-ratings`.
 

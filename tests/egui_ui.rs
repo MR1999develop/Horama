@@ -166,6 +166,16 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         .click();
     wait_for(&mut harness, "b.jpg alone", |h| shows(h, "b.jpg —"));
 
+    // F6 moves the keyboard focus between the panels: the folders (search box) come next
+    // after the image view, and typing there no longer drives the viewer.
+    harness.key_press(egui::Key::F6);
+    harness.run_steps(2);
+    let focused = harness
+        .query_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.is_focused())
+        .count();
+    assert_eq!(focused, 1, "F6 focuses the search box");
+
     drop(harness);
     let _ = std::fs::remove_dir_all(&photos);
     let _ = std::fs::remove_dir_all(&config);

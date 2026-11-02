@@ -20,6 +20,7 @@ mod filters;
 mod i18n;
 mod loader;
 mod profiles;
+mod shortcuts;
 mod theme;
 mod thumbs;
 mod watch;
@@ -31,8 +32,8 @@ use crate::config::{is_supported_file, normalize_path, scan_folder_and_subfolder
 use crate::disk_ops::DiskQueue;
 use crate::view;
 use egui::{
-    Align2, Color32, ColorImage, Key, KeyboardShortcut, Modifiers, Pos2, Rect, Sense, Stroke,
-    TextureHandle, TextureOptions, Vec2,
+    Align2, Color32, ColorImage, Key, Modifiers, Pos2, Rect, Sense, Stroke, TextureHandle,
+    TextureOptions, Vec2,
 };
 use i18n::{tr, trf};
 use loader::ImageLoader;
@@ -167,6 +168,11 @@ pub struct HoramaApp {
     /// Aspect ratio of the crop, kept between crops.
     crop_ratio: Option<f32>,
     close_prompt: Option<edit::ClosePrompt>,
+    shortcut_editor: Option<shortcuts::ShortcutEditor>,
+    /// F6 moves the keyboard focus to the next panel: 0 folders, 1 filmstrip, 2 image.
+    focus_panel: usize,
+    /// The panel that takes the focus at its next drawing.
+    pending_focus: Option<usize>,
     /// The images of the comparison grid and their previews ([`compare`]).
     compare_paths: Vec<String>,
     compare_textures: HashMap<String, Option<TextureHandle>>,
@@ -242,6 +248,9 @@ impl HoramaApp {
             crop: None,
             crop_ratio: None,
             close_prompt: None,
+            shortcut_editor: None,
+            focus_panel: 2,
+            pending_focus: None,
             compare_paths: Vec::new(),
             compare_textures: HashMap::new(),
             compare_generation: 0,
@@ -621,6 +630,7 @@ impl HoramaApp {
                 self.notice_overlay(ui, rect);
             });
         self.close_window(&ctx);
+        self.shortcuts_window(&ctx);
         self.rename_window(&ctx);
         self.quality_window(&ctx);
     }
@@ -629,7 +639,19 @@ impl HoramaApp {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui
-                    .add(egui::Button::new(tr("Open Folder…")).shortcut_text("Ctrl+O"))
+                    .add(
+                        egui::Button::new(tr("Open File…"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::OpenFile)),
+                    )
+                    .clicked()
+                {
+                    self.pick_file();
+                }
+                if ui
+                    .add(
+                        egui::Button::new(tr("Open Folder…"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::OpenFolder)),
+                    )
                     .clicked()
                 {
                     self.pick_folder();
@@ -653,7 +675,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Save a Copy As…")).shortcut_text("Ctrl+Shift+S"),
+                        egui::Button::new(tr("Save a Copy As…"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::SaveAs)),
                     )
                     .clicked()
                 {
@@ -662,7 +685,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Rename…")).shortcut_text("F2"),
+                        egui::Button::new(tr("Rename…"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::Rename)),
                     )
                     .clicked()
                 {
@@ -671,7 +695,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Move to Recycle Bin")).shortcut_text("Del"),
+                        egui::Button::new(tr("Move to Recycle Bin"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::Delete)),
                     )
                     .clicked()
                 {
@@ -689,7 +714,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Rotate Right")).shortcut_text("R"),
+                        egui::Button::new(tr("Rotate Right"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::RotateCw)),
                     )
                     .clicked()
                 {
@@ -698,7 +724,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Rotate Left")).shortcut_text("L"),
+                        egui::Button::new(tr("Rotate Left"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::RotateCcw)),
                     )
                     .clicked()
                 {
@@ -706,7 +733,11 @@ impl HoramaApp {
                 }
                 ui.separator();
                 if ui
-                    .add_enabled(has_image, egui::Button::new(tr("Crop")).shortcut_text("C"))
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new(tr("Crop"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::ToggleCrop)),
+                    )
                     .clicked()
                 {
                     self.toggle_crop();
@@ -718,7 +749,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         edited,
-                        egui::Button::new(tr("Save Crop")).shortcut_text("Ctrl+S"),
+                        egui::Button::new(tr("Save Crop"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::Save)),
                     )
                     .clicked()
                 {
@@ -731,7 +763,8 @@ impl HoramaApp {
                     .add_enabled(
                         !self.undo.is_empty()
                             || self.notice.as_ref().is_some_and(|n| !n.trash.is_empty()),
-                        egui::Button::new(tr("Undo")).shortcut_text("Ctrl+Z"),
+                        egui::Button::new(tr("Undo"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::Undo)),
                     )
                     .clicked()
                 {
@@ -740,7 +773,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         !self.redo.is_empty(),
-                        egui::Button::new(tr("Redo")).shortcut_text("Ctrl+Y"),
+                        egui::Button::new(tr("Redo"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::Redo)),
                     )
                     .clicked()
                 {
@@ -779,11 +813,21 @@ impl HoramaApp {
                         }
                     }
                 });
+                if ui
+                    .add(
+                        egui::Button::new(tr("Keyboard Shortcuts…"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::OpenShortcuts)),
+                    )
+                    .clicked()
+                {
+                    self.run(shortcuts::Command::OpenShortcuts);
+                }
                 ui.separator();
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Fit to Window")).shortcut_text("F"),
+                        egui::Button::new(tr("Fit to Window"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::ZoomFit)),
                     )
                     .clicked()
                 {
@@ -793,7 +837,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Actual Size (100%)")).shortcut_text("Ctrl+1"),
+                        egui::Button::new(tr("Actual Size (100%)"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::Zoom100)),
                     )
                     .clicked()
                 {
@@ -802,7 +847,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Zoom In")).shortcut_text("+"),
+                        egui::Button::new(tr("Zoom In"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::ZoomIn)),
                     )
                     .clicked()
                 {
@@ -811,7 +857,8 @@ impl HoramaApp {
                 if ui
                     .add_enabled(
                         has_image,
-                        egui::Button::new(tr("Zoom Out")).shortcut_text("−"),
+                        egui::Button::new(tr("Zoom Out"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::ZoomOut)),
                     )
                     .clicked()
                 {
@@ -837,12 +884,12 @@ impl HoramaApp {
     }
 
     fn handle_keys(&mut self, ui: &mut egui::Ui) {
+        // F6 works from every panel, the search box included.
+        if self.no_window_open() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) {
+            self.focus_next_panel();
+        }
         // Keys go to text fields when one has the focus (the search box), and to the windows.
-        if ui.ctx().egui_wants_keyboard_input()
-            || self.rename.is_some()
-            || self.quality.is_some()
-            || self.close_prompt.is_some()
-        {
+        if ui.ctx().egui_wants_keyboard_input() || !self.no_window_open() {
             return;
         }
         if self.crop.is_some() {
@@ -854,66 +901,9 @@ impl HoramaApp {
                 self.crop = None;
             }
         }
-        let (redo, save, crop) = ui.input_mut(|i| {
-            (
-                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Y))
-                    || i.consume_shortcut(&KeyboardShortcut::new(
-                        Modifiers::COMMAND | Modifiers::SHIFT,
-                        Key::Z,
-                    )),
-                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)),
-                i.key_pressed(Key::C) && !i.modifiers.any(),
-            )
-        });
-        if redo {
-            self.redo_last();
+        for cmd in self.pressed_commands(ui) {
+            self.run(cmd);
         }
-        if save {
-            let targets = self.targets();
-            self.save_edits(targets);
-        }
-        if crop {
-            self.toggle_crop();
-        }
-        let commands = ui.input_mut(|i| {
-            (
-                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Z)),
-                i.consume_shortcut(&KeyboardShortcut::new(
-                    Modifiers::COMMAND | Modifiers::SHIFT,
-                    Key::S,
-                )),
-                i.key_pressed(Key::Delete),
-                i.key_pressed(Key::F2),
-                i.key_pressed(Key::R) && !i.modifiers.any(),
-                i.key_pressed(Key::L) && !i.modifiers.any(),
-                i.key_pressed(Key::P) && !i.modifiers.any(),
-            )
-        });
-        let (undo, save_as, delete, rename, rotate_right, rotate_left, cycle) = commands;
-        if cycle && self.current.is_some() {
-            self.cycle_profile();
-        }
-        if undo {
-            self.undo_last();
-        }
-        if self.current.is_some() {
-            if save_as {
-                self.save_as();
-            }
-            if delete {
-                self.trash_selected();
-            }
-            if rename {
-                self.start_rename();
-            }
-            if rotate_right {
-                self.rotate(true);
-            }
-            if rotate_left {
-                self.rotate(false);
-            }
-        }
-        let open = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
         const RATING_KEYS: [Key; 6] = [
             Key::Num0,
             Key::Num1,
@@ -928,51 +918,89 @@ impl HoramaApp {
             }
             RATING_KEYS.iter().position(|k| i.key_pressed(*k))
         });
-        let (open, next, prev, fit, actual, zoom_in, zoom_out, info) = ui.input_mut(|i| {
-            (
-                i.consume_shortcut(&open),
-                i.key_pressed(Key::ArrowRight),
-                i.key_pressed(Key::ArrowLeft),
-                i.key_pressed(Key::F),
-                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Num1)),
-                i.key_pressed(Key::Plus) || i.key_pressed(Key::Equals),
-                i.key_pressed(Key::Minus),
-                i.key_pressed(Key::I) && !i.modifiers.any(),
-            )
-        });
-        if info {
-            self.show_info = !self.show_info;
-        }
-        if open {
-            self.pick_folder();
-        }
         if let Some(stars) = rating {
             self.set_rating(stars as u8);
         }
-        if !self.visible.is_empty() {
-            let last = self.visible.len() - 1;
-            let cur = self.current.unwrap_or(0);
-            if next && cur < last {
-                self.select_only(cur + 1);
+    }
+
+    /// Carries out a command of the keyboard or of the menus.
+    fn run(&mut self, cmd: shortcuts::Command) {
+        use shortcuts::Command as C;
+        let has_image = self.current.is_some();
+        let shown = self.shown.is_some();
+        match cmd {
+            C::Undo => self.undo_last(),
+            C::Redo => self.redo_last(),
+            C::OpenFile => self.pick_file(),
+            C::OpenFolder => self.pick_folder(),
+            C::Refresh => self.rescan_folder(),
+            C::OpenShortcuts => {
+                self.shortcut_editor = Some(shortcuts::ShortcutEditor {
+                    capturing: None,
+                    error: None,
+                })
             }
-            if prev && cur > 0 {
-                self.select_only(cur - 1);
+            C::ToggleInfo => self.show_info = !self.show_info,
+            C::NextPanel => self.focus_next_panel(),
+            C::Next | C::Prev | C::Forward10 | C::Back10 => {
+                if let Some(last) = self.visible.len().checked_sub(1) {
+                    let cur = self.current.unwrap_or(0);
+                    let to = match cmd {
+                        C::Next => (cur + 1).min(last),
+                        C::Prev => cur.saturating_sub(1),
+                        C::Forward10 => (cur + 10).min(last),
+                        _ => cur.saturating_sub(10),
+                    };
+                    if to != cur || self.current.is_none() {
+                        self.select_only(to);
+                    }
+                }
             }
-        }
-        if self.shown.is_some() {
-            if fit {
+            C::ZoomIn if shown => self.set_zoom(self.view.zoom * view::ZOOM_STEP),
+            C::ZoomOut if shown => self.set_zoom(self.view.zoom / view::ZOOM_STEP),
+            C::Zoom100 if shown => self.set_zoom(1.0),
+            C::ZoomFit | C::Fit if shown => {
                 self.view.fit = true;
                 self.view.pan = Vec2::ZERO;
             }
-            if actual {
-                self.set_zoom(1.0);
+            C::Save if has_image => {
+                let targets = self.targets();
+                self.save_edits(targets);
             }
-            if zoom_in {
-                self.set_zoom(self.view.zoom * view::ZOOM_STEP);
-            }
-            if zoom_out {
-                self.set_zoom(self.view.zoom / view::ZOOM_STEP);
-            }
+            C::SaveAs if has_image => self.save_as(),
+            C::Delete if has_image => self.trash_selected(),
+            C::Rename if has_image => self.start_rename(),
+            C::RotateCw if has_image => self.rotate(true),
+            C::RotateCcw if has_image => self.rotate(false),
+            C::ToggleCrop if has_image => self.toggle_crop(),
+            C::CycleProfile if has_image => self.cycle_profile(),
+            _ => {}
+        }
+    }
+
+    fn no_window_open(&self) -> bool {
+        self.rename.is_none()
+            && self.quality.is_none()
+            && self.close_prompt.is_none()
+            && self.shortcut_editor.is_none()
+    }
+
+    /// F6: the keyboard focus goes to the next panel (folders, filmstrip, image).
+    fn focus_next_panel(&mut self) {
+        self.focus_panel = (self.focus_panel + 1) % 3;
+        self.pending_focus = Some(self.focus_panel);
+    }
+
+    /// Opens one image file (with its folder).
+    fn pick_file(&mut self) {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title(tr("Open File"))
+            .add_filter(tr("Images"), &crate::config::dialog_extensions());
+        if let Some(f) = &self.folder {
+            dialog = dialog.set_directory(f);
+        }
+        if let Some(file) = dialog.pick_file() {
+            self.open_path(&file.to_string_lossy());
         }
     }
 
@@ -999,6 +1027,10 @@ impl HoramaApp {
                 .hint_text(tr("Search file names"))
                 .desired_width(f32::INFINITY),
         );
+        if self.pending_focus == Some(0) {
+            self.pending_focus = None;
+            search.request_focus();
+        }
         if search.changed() {
             self.refilter();
         }
@@ -1054,6 +1086,13 @@ impl HoramaApp {
         };
         let mut clicked: Option<(usize, ClickMods)> = None;
         let mut strip_mid: Option<usize> = None;
+        // F6 brings the focus to the cell of the current image.
+        let focus_cell = if self.pending_focus == Some(1) {
+            self.pending_focus = None;
+            Some(self.current.unwrap_or(0))
+        } else {
+            None
+        };
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
@@ -1078,7 +1117,18 @@ impl HoramaApp {
                             trf("Thumbnail of {}", &[&name]),
                         )
                     });
+                    if focus_cell == Some(i) {
+                        response.request_focus();
+                    }
                     self.paint_cell(ui, i, rect, response.hovered());
+                    if response.has_focus() {
+                        ui.painter().rect_stroke(
+                            rect.expand(2.0),
+                            5.0,
+                            ui.visuals().selection.stroke,
+                            egui::StrokeKind::Outside,
+                        );
+                    }
                     if response.clicked() {
                         let m = ui.input(|inp| inp.modifiers);
                         clicked = Some((
@@ -1195,6 +1245,18 @@ impl HoramaApp {
     fn image_view(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
+        if self.pending_focus == Some(2) {
+            self.pending_focus = None;
+            response.request_focus();
+        }
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect.shrink(1.0),
+                0.0,
+                ui.visuals().selection.stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
         let label = match &self.shown {
             Some(s) => format!("{}: {}", tr("Image view"), browse::file_name_of(&s.path)),
             None => tr("Image view").to_string(),
@@ -1204,7 +1266,7 @@ impl HoramaApp {
             let text = if self.loading.is_some() {
                 tr("Loading…")
             } else {
-                tr("Open a folder (Ctrl+O) or drop an image here")
+                tr("Open a folder or an image (File menu), or drop one here")
             };
             ui.painter().text(
                 rect.center(),

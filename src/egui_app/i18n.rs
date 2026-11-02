@@ -121,7 +121,6 @@ const IT: &[(&str, &str)] = &[
     ("{} images shown", "{} immagini mostrate"),
     (" — loading {}…", " — caricamento di {}…"),
     ("Loading…", "Caricamento…"),
-    ("Open a folder (Ctrl+O) or drop an image here", "Apri una cartella (Ctrl+O) o trascina qui un'immagine"),
     ("Collapse", "Comprimi"),
     ("Expand", "Espandi"),
     ("Thumbnail of {}", "Miniatura di {}"),
@@ -224,6 +223,26 @@ const IT: &[(&str, &str)] = &[
     ("Save and Close", "Salva e chiudi"),
     ("Close Without Saving", "Chiudi senza salvare"),
     ("{} selected, the first {} shown", "{} selezionate, mostrate le prime {}"),
+    // Keyboard
+    ("Open File…", "Apri file…"),
+    ("Open File", "Apri file"),
+    ("Images", "Immagini"),
+    ("Open Folder", "Apri cartella"),
+    ("Refresh Folder", "Aggiorna cartella"),
+    ("Next Image", "Immagine successiva"),
+    ("Previous Image", "Immagine precedente"),
+    ("10 Images Forward", "10 immagini avanti"),
+    ("10 Images Back", "10 immagini indietro"),
+    ("Next Color Profile", "Profilo colore successivo"),
+    ("Keyboard Shortcuts", "Scorciatoie da tastiera"),
+    ("Keyboard Shortcuts…", "Scorciatoie da tastiera…"),
+    ("Press the new keys… (Esc cancels)", "Premi i nuovi tasti… (Esc annulla)"),
+    ("Change", "Cambia"),
+    ("Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.", "Tasti fissi: 0–5 valutazione, F adatta, I pannello informazioni, Ctrl+Maiusc+S salva una copia, F6 pannello successivo."),
+    ("Reset to Defaults", "Ripristina i predefiniti"),
+    ("{} is already used by \"{}\".", "{} è già usato da \"{}\"."),
+    ("Next Panel", "Pannello successivo"),
+    ("Open a folder or an image (File menu), or drop one here", "Apri una cartella o un'immagine (menu File), o trascinala qui"),
 ];
 
 #[cfg(test)]
@@ -275,6 +294,7 @@ mod tests {
             include_str!("watch.rs"),
             include_str!("edit.rs"),
             include_str!("compare.rs"),
+            include_str!("shortcuts.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

@@ -21,6 +21,53 @@ pub fn preference(choice: ThemeChoice) -> egui::ThemePreference {
     }
 }
 
+/// The interface font of the system and its icon font: Segoe UI and Segoe MDL2 Assets on
+/// Windows, read from the Windows fonts folder (never shipped: their licence does not allow
+/// it). Elsewhere, or when they are missing, egui's own font is used and the icons fall back
+/// to plain characters ([`super::symbol`]).
+pub fn apply_fonts(ctx: &egui::Context) {
+    let mut defs = egui::FontDefinitions::default();
+    let mut icons = false;
+    if let Some((regular, icon_font)) = system_fonts() {
+        defs.font_data.insert(
+            "ui".into(),
+            std::sync::Arc::new(egui::FontData::from_owned(regular)),
+        );
+        let family = defs
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default();
+        family.insert(0, "ui".into());
+        if let Some(bytes) = icon_font {
+            defs.font_data.insert(
+                "icons".into(),
+                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+            );
+            family.insert(1, "icons".into());
+            icons = true;
+        }
+    }
+    ctx.set_fonts(defs);
+    super::symbol::set_icon_font(icons);
+}
+
+#[cfg(windows)]
+fn system_fonts() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+    let dir = std::env::var_os("WINDIR")
+        .map_or_else(|| r"C:\Windows".into(), std::path::PathBuf::from)
+        .join("Fonts");
+    let regular = std::fs::read(dir.join("segoeui.ttf")).ok()?;
+    // Windows 11 also has Segoe Fluent Icons, with other glyphs at some code points: one
+    // font everywhere keeps the icons as checked.
+    let icons = std::fs::read(dir.join("segmdl2.ttf")).ok();
+    Some((regular, icons))
+}
+
+#[cfg(not(windows))]
+fn system_fonts() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+    None
+}
+
 /// Neutral grey behind the image: dark in the dark theme, mid-light in the light one, never
 /// tinted, so it does not shift how the colors of the photo are perceived.
 pub fn canvas(v: &Visuals) -> Color32 {

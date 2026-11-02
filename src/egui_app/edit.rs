@@ -431,7 +431,7 @@ impl HoramaApp {
         let mut apply = false;
         let mut cancel = false;
         let mut ratio = None;
-        egui::Area::new(ui.id().with("crop-bar"))
+        egui::Area::new(ui.scope_id().with("crop-bar"))
             .order(egui::Order::Foreground)
             .pivot(egui::Align2::CENTER_TOP)
             .fixed_pos(view.center_top() + Vec2::new(0.0, 12.0))
@@ -552,7 +552,7 @@ impl HoramaApp {
         };
         let count = prompt.count;
         let mut choice = None;
-        egui::Modal::new(egui::Id::new("close-prompt")).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("close-prompt")).show(ctx, |ui| {
             ui.set_max_width(380.0);
             ui.heading(tr("Unsaved crops"));
             ui.label(trf(

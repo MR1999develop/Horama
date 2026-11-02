@@ -29,8 +29,10 @@ jobs:
           sudo apt-get install -y libfontconfig1-dev libx11-dev libxkbcommon-dev libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev libgl1-mesa-dev
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          # The version of rust-toolchain.toml.
+          toolchain: "1.99"
           components: rustfmt, clippy
 
       - name: Rust Cache

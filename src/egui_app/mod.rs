@@ -23,6 +23,7 @@ mod loader;
 mod mcp;
 mod profiles;
 mod shortcuts;
+mod symbol;
 mod theme;
 mod thumbs;
 mod tools;
@@ -143,6 +144,9 @@ pub struct HoramaApp {
     folder: Option<String>,
     /// Only some dropped images are listed, not their whole folder.
     files_mode: bool,
+    /// Renames sent to the disk queue and not done yet: the watcher must not treat them as
+    /// files deleted and created by another program.
+    renaming: Vec<(String, String)>,
     /// Watches the open folder for changes made by other programs.
     watcher: Option<crate::file_watcher::FolderWatcher>,
     /// Changes reported for an older folder carry an older generation.
@@ -179,6 +183,8 @@ pub struct HoramaApp {
     crop_ratio: Option<f32>,
     close_prompt: Option<edit::ClosePrompt>,
     shortcut_editor: Option<shortcuts::ShortcutEditor>,
+    /// Fonts and theme are set on the context that draws, at its first frame.
+    styled: bool,
     /// Commands of the MCP server, when it runs ([`mcp`]).
     mcp: Option<Receiver<crate::mcp_server::McpCommand>>,
     mcp_open: Option<mcp::PendingOpen>,
@@ -213,7 +219,6 @@ impl HoramaApp {
     /// Creates the interface; `ctx` is kept so worker threads can ask for a repaint.
     pub fn new(ctx: egui::Context) -> Self {
         let mut settings = AppSettings::load();
-        ctx.set_theme(theme::preference(settings.theme));
         i18n::set_language(&settings.language);
         let (tx, rx) = channel();
         let mut color = ColorManager::new();
@@ -245,6 +250,7 @@ impl HoramaApp {
             folder: None,
             files_mode: false,
             watcher: None,
+            renaming: Vec::new(),
             watch_generation: 0,
             subfolders: Vec::new(),
             expanded: HashSet::new(),
@@ -273,6 +279,7 @@ impl HoramaApp {
             crop_ratio: None,
             close_prompt: None,
             shortcut_editor: None,
+            styled: false,
             mcp: None,
             mcp_open: None,
             open_with: None,
@@ -648,6 +655,11 @@ impl HoramaApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // Textures belong to the context that draws them (the window, or a test harness).
         self.ctx = ui.ctx().clone();
+        if !self.styled {
+            self.styled = true;
+            self.ctx.set_theme(theme::preference(self.settings.theme));
+            theme::apply_fonts(&self.ctx);
+        }
         self.receive();
         self.serve_mcp();
         self.expire_notice();
@@ -1250,12 +1262,13 @@ impl HoramaApp {
                 strip_mid = Some((first + last) / 2);
                 for i in first..last {
                     let rect = cell_rect(i).shrink(3.0);
-                    let response = ui.interact(rect, ui.id().with(("cell", i)), Sense::click());
+                    let response =
+                        ui.interact(rect, ui.scope_id().with(("cell", i)), Sense::click());
                     let name = browse::file_name_of(&self.visible[i]);
                     let selected = self.selected.contains(&i);
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(
-                            egui::WidgetType::SelectableLabel,
+                            egui::Role::ListItem,
                             true,
                             selected,
                             trf("Thumbnail of {}", &[&name]),
@@ -1374,7 +1387,7 @@ impl HoramaApp {
                 painter.text(
                     thumb_area.center(),
                     Align2::CENTER_CENTER,
-                    "⚠",
+                    symbol::warning(),
                     egui::FontId::proportional(18.0),
                     theme::canvas_text(visuals),
                 );
@@ -1388,7 +1401,7 @@ impl HoramaApp {
             painter.text(
                 thumb_area.right_top() + Vec2::new(-4.0, 4.0),
                 Align2::RIGHT_TOP,
-                "✂",
+                symbol::edited(),
                 egui::FontId::proportional(14.0),
                 theme::ACCENT,
             );
@@ -1447,7 +1460,7 @@ impl HoramaApp {
             Some(s) => format!("{}: {}", tr("Image view"), browse::file_name_of(&s.path)),
             None => tr("Image view").to_string(),
         };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
         let Some(shown) = &self.shown else {
             let text = if self.loading.is_some() {
                 tr("Loading…")
@@ -1587,7 +1600,7 @@ fn expander(ui: &mut egui::Ui, enabled: bool, expanded: bool) -> egui::Response 
         } else {
             tr("Expand")
         };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, state));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, state));
         let points = if expanded {
             vec![
                 c + Vec2::new(-4.0, -2.0),

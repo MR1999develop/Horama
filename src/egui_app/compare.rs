@@ -142,9 +142,12 @@ impl HoramaApp {
                 );
             let cell_rect = Rect::from_min_size(min, cell);
             let name = browse::file_name_of(path);
-            let response = ui.interact(cell_rect, ui.id().with(("compare", k)), Sense::click());
-            response
-                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+            let response = ui.interact(
+                cell_rect,
+                ui.scope_id().with(("compare", k)),
+                Sense::click(),
+            );
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
             let painter = ui.painter_at(cell_rect);
             painter.rect_filled(cell_rect, 4.0, theme::cell(&visuals, response.hovered()));
             let label_h = 20.0;
@@ -164,7 +167,7 @@ impl HoramaApp {
                     painter.text(
                         area.center(),
                         Align2::CENTER_CENTER,
-                        "⚠",
+                        super::symbol::warning(),
                         egui::FontId::proportional(20.0),
                         theme::canvas_text(&visuals),
                     );
@@ -176,7 +179,8 @@ impl HoramaApp {
             let stars = self.settings.get_rating(path);
             let mut label = name.clone();
             if self.edited.contains_key(&path_key(path)) {
-                label.push_str(" ✂");
+                label.push(' ');
+                label.push_str(super::symbol::edited());
             }
             painter.text(
                 egui::Pos2::new(cell_rect.min.x + 6.0, cell_rect.max.y - label_h / 2.0 - 2.0),

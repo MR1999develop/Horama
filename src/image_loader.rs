@@ -326,10 +326,16 @@ fn check_raw_develop_size(path: &Path) -> Result<(), String> {
     let file = File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
     let header = rawloader::decode_dummy(&mut BufReader::new(file))
         .map_err(|e| format!("Failed to decode RAW file '{}': {}", path.display(), e))?;
-    let free = {
-        let mut sys = sysinfo::System::new();
-        sys.refresh_memory();
-        sys.available_memory()
+    // Free memory unknown: only the size limit applies.
+    let free = match sysinfo::System::new() {
+        Ok(mut sys) => {
+            sys.refresh_memory();
+            sys.available_memory()
+        }
+        Err(e) => {
+            log::warn!("Free memory not read: {}", e);
+            u64::MAX
+        }
     };
     raw_develop_size_ok(header.width as u64, header.height as u64, free)
 }

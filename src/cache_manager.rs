@@ -11,9 +11,16 @@ use std::time::Duration;
 use sysinfo::System;
 
 fn compute_budget() -> usize {
-    let mut sys = System::new();
-    sys.refresh_memory();
-    let avail = sys.available_memory() as usize;
+    let avail = match System::new() {
+        Ok(mut sys) => {
+            sys.refresh_memory();
+            sys.available_memory() as usize
+        }
+        Err(e) => {
+            log::warn!("Free memory not read ({}): the smallest cache is used", e);
+            0
+        }
+    };
     let budget = ((avail as f64) * CACHE_FREE_RAM_RATIO) as usize;
     budget.max(256 * 1024 * 1024)
 }

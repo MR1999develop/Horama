@@ -407,6 +407,7 @@ impl HoramaApp {
         match compute_batch_rename_plan(&dialog.files, &dialog.name) {
             Ok(plan) => {
                 self.rename = None;
+                self.renaming.extend(plan.iter().cloned());
                 let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
                 self.disk.submit(move || {
                     let result = execute_batch_rename(&plan);
@@ -422,6 +423,7 @@ impl HoramaApp {
     }
 
     pub(super) fn renamed(&mut self, plan: Vec<(String, String)>, result: Result<(), String>) {
+        self.renaming.retain(|r| !plan.contains(r));
         if let Err(e) = result {
             self.notify(trf("Not renamed: {}", &[&e]), true);
             return;
@@ -429,7 +431,14 @@ impl HoramaApp {
         let current = self.current_path();
         let mut new_current = None;
         for (old, new) in &plan {
-            for f in self.all_files.iter_mut().filter(|f| same_path(f, old)) {
+            // The visible list too: the refilter below must find the current image by its
+            // new name, or it would move to the first image.
+            for f in self
+                .all_files
+                .iter_mut()
+                .chain(self.visible.iter_mut())
+                .filter(|f| same_path(f, old))
+            {
                 *f = new.clone();
             }
             self.settings.rename_rating(old, new);
@@ -621,7 +630,7 @@ impl HoramaApp {
         let mut close = false;
         let fill = theme::notice(ui.visuals(), n.is_error);
         let width = (view.width() - 32.0).clamp(160.0, 560.0);
-        let area = egui::Area::new(ui.id().with("notice"))
+        let area = egui::Area::new(ui.scope_id().with("notice"))
             .order(egui::Order::Foreground)
             .pivot(egui::Align2::CENTER_BOTTOM)
             .fixed_pos(view.center_bottom() - egui::vec2(0.0, 16.0));
@@ -639,7 +648,11 @@ impl HoramaApp {
                         if !n.trash.is_empty() && ui.button(tr("Undo")).clicked() {
                             undo = true;
                         }
-                        if ui.small_button("✕").on_hover_text(tr("Close")).clicked() {
+                        if ui
+                            .small_button(super::symbol::close())
+                            .on_hover_text(tr("Close"))
+                            .clicked()
+                        {
                             close = true;
                         }
                     });

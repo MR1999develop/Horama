@@ -34,6 +34,10 @@ impl HoramaApp {
         let mut rescan = false;
         for action in actions {
             match action {
+                FileSyncAction::Removed(p) if self.is_renaming(&p) => {}
+                FileSyncAction::Created(p) | FileSyncAction::Restored(p)
+                    if self.is_renaming(&p) => {}
+                FileSyncAction::Renamed { old_path, .. } if self.is_renaming(&old_path) => {}
                 FileSyncAction::Removed(p) => {
                     if Path::new(&p).exists() {
                         continue; // a case-only rename, or restored at once
@@ -83,6 +87,13 @@ impl HoramaApp {
             self.all_files.sort_by_key(|a| a.to_lowercase());
             self.refilter();
         }
+    }
+
+    /// True for a file of a rename Horama is doing (its old or its new name).
+    fn is_renaming(&self, path: &str) -> bool {
+        self.renaming
+            .iter()
+            .any(|(old, new)| same_path(old, path) || same_path(new, path))
     }
 
     fn knows(&self, path: &str) -> bool {

@@ -263,7 +263,7 @@ impl HoramaApp {
         let mut open = true;
         let mut change: Option<Command> = None;
         let mut reset = false;
-        egui::Window::new(tr("Keyboard Shortcuts"))
+        super::widgets::dialog(ctx, tr("Keyboard Shortcuts"))
             .open(&mut open)
             .collapsible(false)
             .resizable(true)

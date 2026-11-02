@@ -29,6 +29,7 @@ mod thumbs;
 mod tools;
 mod view_rotation;
 mod watch;
+mod widgets;
 
 use crate::browse::{self, ClickMods, Filters};
 use crate::cache_manager::PreloadController;
@@ -47,7 +48,6 @@ use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use thumbs::{ThumbResult, ThumbnailLoader};
 
-use theme::ACCENT;
 /// Filmstrip cell (thumbnail, name and spacing) and thumbnail box, in points.
 const CELL_W: f32 = 132.0;
 const THUMB_BOX: Vec2 = Vec2::new(120.0, 84.0);
@@ -658,7 +658,7 @@ impl HoramaApp {
         if !self.styled {
             self.styled = true;
             self.ctx.set_theme(theme::preference(self.settings.theme));
-            theme::apply_fonts(&self.ctx);
+            theme::apply(&self.ctx);
         }
         self.receive();
         self.serve_mcp();
@@ -690,7 +690,7 @@ impl HoramaApp {
             .show(ui, |ui| self.filmstrip(ui));
         egui::Panel::left("folders")
             .resizable(true)
-            .default_size(280.0)
+            .default_size(theme::SIDE_PANEL_WIDTH)
             .size_range(180.0..=600.0)
             .show(ui, |ui| self.folder_tree(ui));
         if self.show_info {
@@ -1164,13 +1164,13 @@ impl HoramaApp {
             ui.label(tr("No folder open"));
             return;
         };
+        ui.add_space(theme::SPACE_M);
         let title = if self.files_mode {
             trf("{} selected files", &[&self.all_files.len()])
         } else {
             browse::file_name_of(&root)
         };
-        ui.label(egui::RichText::new(title).strong())
-            .on_hover_text(root.as_str());
+        widgets::section_title(ui, title).on_hover_text(root.as_str());
         let search = ui.add(
             egui::TextEdit::singleline(&mut self.filters.search)
                 .hint_text(tr("Search file names"))
@@ -1207,7 +1207,8 @@ impl HoramaApp {
                             toggled = Some(row.key.clone());
                         }
                         let label = format!("{} ({})", row.name, row.count);
-                        if ui.selectable_label(row.selected, label).clicked() {
+                        let item = widgets::list_item(ui, row.selected, label.into(), 0.0);
+                        if item.clicked() {
                             chosen = Some(row.key.clone());
                         }
                     });
@@ -1403,7 +1404,7 @@ impl HoramaApp {
                 Align2::RIGHT_TOP,
                 symbol::edited(),
                 egui::FontId::proportional(14.0),
-                theme::ACCENT,
+                theme::accent(visuals),
             );
         }
         let stars = self.settings.get_rating(path);
@@ -1435,7 +1436,7 @@ impl HoramaApp {
             painter.rect_stroke(
                 rect,
                 4.0,
-                Stroke::new(width, ACCENT),
+                Stroke::new(width, theme::accent(ui.visuals())),
                 egui::StrokeKind::Inside,
             );
         }
@@ -1534,7 +1535,8 @@ impl HoramaApp {
             ui.label(egui::RichText::new(tr("No image")).weak());
             return;
         };
-        ui.label(egui::RichText::new(tr("Histogram")).strong());
+        ui.add_space(theme::SPACE_M);
+        widgets::section_title(ui, tr("Histogram"));
         let size = shown.histogram.size_vec2();
         let width = ui.available_width();
         ui.add(egui::Image::new((

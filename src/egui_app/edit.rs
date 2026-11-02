@@ -357,7 +357,7 @@ impl HoramaApp {
             painter.rect_filled(
                 Rect::from_center_size(c, Vec2::splat(HANDLE)),
                 1.0,
-                theme::ACCENT,
+                theme::accent(ui.visuals()),
             );
         }
         if let Some(shown) = &self.shown {
@@ -446,7 +446,11 @@ impl HoramaApp {
                             }
                         }
                         ui.separator();
-                        if ui.button(tr("Apply")).on_hover_text("Enter").clicked() {
+                        if ui
+                            .add(super::widgets::primary_button(ui, tr("Apply")))
+                            .on_hover_text("Enter")
+                            .clicked()
+                        {
                             apply = true;
                         }
                         if ui.button(tr("Cancel")).on_hover_text("Esc").clicked() {
@@ -552,7 +556,7 @@ impl HoramaApp {
         };
         let count = prompt.count;
         let mut choice = None;
-        egui::Modal::new(egui::Id::unique("close-prompt")).show(ctx, |ui| {
+        super::widgets::modal(ctx, egui::Id::unique("close-prompt")).show(ctx, |ui| {
             ui.set_max_width(380.0);
             ui.heading(tr("Unsaved crops"));
             ui.label(trf(
@@ -560,10 +564,19 @@ impl HoramaApp {
                 &[&count],
             ));
             ui.horizontal(|ui| {
-                if ui.button(tr("Save and Close")).clicked() {
+                if ui
+                    .add(super::widgets::primary_button(ui, tr("Save and Close")))
+                    .clicked()
+                {
                     choice = Some(0);
                 }
-                if ui.button(tr("Close Without Saving")).clicked() {
+                if ui
+                    .add(super::widgets::danger_button(
+                        ui,
+                        tr("Close Without Saving"),
+                    ))
+                    .clicked()
+                {
                     choice = Some(1);
                 }
                 if ui.button(tr("Cancel")).clicked() {

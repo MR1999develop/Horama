@@ -5,7 +5,7 @@
 //! background, color profiles of the images already decoded).
 
 use super::i18n::{tr, trf};
-use super::theme::{self, ACCENT};
+use super::theme;
 use super::{HoramaApp, Msg};
 use crate::browse::{self, FileFacts};
 use crate::config::{
@@ -170,7 +170,7 @@ impl HoramaApp {
 
     pub(super) fn filters_panel(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
-        egui::CollapsingHeader::new(tr("Filters"))
+        egui::CollapsingHeader::new(super::widgets::section_text(tr("Filters")))
             .id_salt("filters")
             .default_open(false)
             .show(ui, |ui| {
@@ -323,7 +323,7 @@ pub(super) fn star_picker(ui: &mut egui::Ui, current: u8) -> Option<u8> {
         ui.painter().rect_stroke(
             rect.expand(2.0),
             3.0,
-            Stroke::new(1.0, ACCENT),
+            Stroke::new(1.0, theme::accent(ui.visuals())),
             egui::StrokeKind::Outside,
         );
     }

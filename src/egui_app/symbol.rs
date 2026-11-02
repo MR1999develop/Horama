@@ -30,6 +30,16 @@ pub fn warning() -> &'static str {
     pick("\u{E7BA}", "!")
 }
 
+/// An outcome to read.
+pub fn info() -> &'static str {
+    pick("\u{E946}", "i")
+}
+
+/// `icon` and `text` with the gap the interface uses between them.
+pub fn with(icon: &str, text: impl std::fmt::Display) -> String {
+    format!("{icon}  {text}")
+}
+
 /// An image with unsaved edits (crop).
 pub fn edited() -> &'static str {
     pick("\u{E70F}", "*")

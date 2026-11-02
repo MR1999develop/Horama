@@ -358,10 +358,8 @@ impl HoramaApp {
             1 => tr("Rename").to_string(),
             n => trf("Rename {} files", &[&n]),
         };
-        egui::Window::new(title)
-            .collapsible(false)
+        super::widgets::dialog(ctx, title)
             .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 if dialog.files.len() > 1 {
                     ui.label(tr(
@@ -386,7 +384,10 @@ impl HoramaApp {
                     ui.colored_label(ui.visuals().error_fg_color, e);
                 }
                 ui.horizontal(|ui| {
-                    if ui.button(tr("Rename")).clicked() {
+                    if ui
+                        .add(super::widgets::primary_button(ui, tr("Rename")))
+                        .clicked()
+                    {
                         apply = true;
                     }
                     if ui.button(tr("Cancel")).clicked() {
@@ -530,10 +531,7 @@ impl HoramaApp {
         let mut save = false;
         let mut cancel = false;
         let source_is_jpeg = is_jpeg(Path::new(&dialog.source));
-        egui::Window::new(tr("JPEG Quality"))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        super::widgets::dialog(ctx, tr("JPEG Quality")).resizable(false)
             .show(ctx, |ui| {
                 ui.label(browse::file_name_of(&dialog.dest.to_string_lossy()));
                 if source_is_jpeg {
@@ -553,7 +551,10 @@ impl HoramaApp {
                         .weak(),
                 );
                 ui.horizontal(|ui| {
-                    if ui.button(tr("Save")).clicked() {
+                    if ui
+                        .add(super::widgets::primary_button(ui, tr("Save")))
+                        .clicked()
+                    {
                         save = true;
                     }
                     if ui.button(tr("Cancel")).clicked() {
@@ -628,7 +629,7 @@ impl HoramaApp {
         let Some(n) = &self.notice else { return };
         let mut undo = false;
         let mut close = false;
-        let fill = theme::notice(ui.visuals(), n.is_error);
+        let t = theme::Tokens::current(ui);
         let width = (view.width() - 32.0).clamp(160.0, 560.0);
         let area = egui::Area::new(ui.scope_id().with("notice"))
             .order(egui::Order::Foreground)
@@ -636,21 +637,29 @@ impl HoramaApp {
             .fixed_pos(view.center_bottom() - egui::vec2(0.0, 16.0));
         area.show(ui.ctx(), |ui| {
             egui::Frame::new()
-                .fill(fill)
-                .corner_radius(6.0)
+                .fill(t.surface)
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    if n.is_error { t.error } else { t.stroke_weak },
+                ))
+                .corner_radius(theme::RADIUS_WINDOW)
+                .shadow(ui.visuals().popup_shadow)
                 .inner_margin(egui::Margin::symmetric(12, 8))
                 .show(ui, |ui| {
                     ui.set_max_width(width);
                     ui.horizontal(|ui| {
+                        let (icon, color) = if n.is_error {
+                            (super::symbol::warning(), t.error)
+                        } else {
+                            (super::symbol::info(), t.text)
+                        };
                         let text =
-                            egui::RichText::new(&n.text).color(ui.visuals().strong_text_color());
+                            egui::RichText::new(super::symbol::with(icon, &n.text)).color(color);
                         ui.add(egui::Label::new(text).wrap());
                         if !n.trash.is_empty() && ui.button(tr("Undo")).clicked() {
                             undo = true;
                         }
-                        if ui
-                            .small_button(super::symbol::close())
-                            .on_hover_text(tr("Close"))
+                        if super::widgets::icon_button(ui, super::symbol::close(), tr("Close"))
                             .clicked()
                         {
                             close = true;

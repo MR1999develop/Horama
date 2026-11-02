@@ -5,7 +5,8 @@
 //! Ctrl/Shift selection; the current image color-managed, with fit / 100% / zoom around the
 //! cursor / pan ([`crate::view`]); the neighbours of the current image preloaded into the
 //! shared RAM cache; ratings (keys 0–5 or the stars in the status bar) and all the filters
-//! ([`filters`]). Editing, metadata and the other tools come in later stages.
+//! ([`filters`]); the info panel with histogram and metadata. Editing and the other tools
+//! come in later stages.
 //!
 //! Only `egui` is used here, not `eframe`: the `horama-egui` program puts [`HoramaApp`] in a
 //! native window. Disk reads and decoding run on worker threads; their results come back
@@ -13,21 +14,19 @@
 //! dropped by generation number.
 
 mod filters;
+mod loader;
 mod thumbs;
 
 use crate::browse::{self, ClickMods, Filters};
 use crate::cache_manager::PreloadController;
 use crate::color_manager::ColorManager;
-use crate::config::{
-    is_supported_file, normalize_path, scan_folder_and_subfolders, AppSettings,
-    DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED,
-};
-use crate::image_loader::DecodedImage;
+use crate::config::{is_supported_file, normalize_path, scan_folder_and_subfolders, AppSettings};
 use crate::view;
 use egui::{
     Align2, Color32, ColorImage, Key, KeyboardShortcut, Modifiers, Pos2, Rect, Sense, Stroke,
     TextureHandle, TextureOptions, Vec2,
 };
+use loader::ImageLoader;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -59,6 +58,7 @@ enum Msg {
         path: String,
         image: ColorImage,
         details: String,
+        info: loader::ImageInfo,
     },
     Failed {
         generation: u64,
@@ -73,6 +73,9 @@ struct Shown {
     texture: TextureHandle,
     size: (u32, u32),
     details: String,
+    /// Metadata rows (label, value) for the info panel.
+    metadata: Vec<(String, String)>,
+    histogram: TextureHandle,
 }
 
 /// Zoom and pan of the image view; `zoom` in screen pixels per image pixel (see [`view`]).
@@ -84,7 +87,6 @@ struct ViewState {
 
 pub struct HoramaApp {
     ctx: egui::Context,
-    color: ColorManager,
     settings: AppSettings,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
@@ -92,6 +94,7 @@ pub struct HoramaApp {
     load_generation: u64,
 
     preloader: PreloadController,
+    image_loader: ImageLoader,
     thumb_loader: ThumbnailLoader,
     thumb_rx: Receiver<ThumbResult>,
     /// Thumbnails by path; `None` = the file could not be read.
@@ -99,6 +102,9 @@ pub struct HoramaApp {
     /// Thumbnail results older than this generation belong to a previous folder.
     thumb_folder_generation: u64,
     thumb_generation: u64,
+    /// Thumbnails are asked for and kept around this filmstrip index (the current image, or
+    /// the middle of the strip when the user scrolls it).
+    thumb_center: usize,
     /// Scroll the filmstrip to the current image on the next frame.
     scroll_to_current: bool,
 
@@ -119,6 +125,8 @@ pub struct HoramaApp {
     shown: Option<Shown>,
     loading: Option<String>,
     view: ViewState,
+    /// The info panel (histogram and metadata) on the right.
+    show_info: bool,
     status: String,
 }
 
@@ -132,20 +140,23 @@ impl HoramaApp {
         let repaint = ctx.clone();
         let thumb_loader =
             ThumbnailLoader::start(color.clone(), thumb_tx, move || repaint.request_repaint());
+        let preloader = PreloadController::new();
+        let image_loader = ImageLoader::start(preloader.loader(), color, tx.clone(), ctx.clone());
         HoramaApp {
             ctx,
-            color,
             settings: AppSettings::load(),
             tx,
             rx,
             scan_generation: 0,
             load_generation: 0,
-            preloader: PreloadController::new(),
+            preloader,
+            image_loader,
             thumb_loader,
             thumb_rx,
             thumbs: HashMap::new(),
             thumb_folder_generation: 0,
             thumb_generation: 0,
+            thumb_center: 0,
             scroll_to_current: false,
             folder: None,
             subfolders: Vec::new(),
@@ -165,6 +176,7 @@ impl HoramaApp {
                 pan: Vec2::ZERO,
                 fit: true,
             },
+            show_info: true,
             status: "Open a folder to view images".to_string(),
         }
     }
@@ -263,11 +275,33 @@ impl HoramaApp {
         self.request_thumbs();
     }
 
-    /// Asks for the missing thumbnails, closest to the current image first.
+    /// Asks for the missing thumbnails around [`Self::thumb_center`], closest first.
     fn request_thumbs(&mut self) {
-        let order =
-            thumbs::priority_order(&self.visible, self.current, |p| self.thumbs.contains_key(p));
+        let order = thumbs::priority_order(
+            &self.visible,
+            Some(self.thumb_center),
+            thumbs::RADIUS,
+            |p| self.thumbs.contains_key(p),
+        );
         self.thumb_generation = self.thumb_loader.request(order);
+    }
+
+    /// Drops the thumbnail textures far from [`Self::thumb_center`] once there are too many,
+    /// so a folder with thousands of images does not keep all of them in memory.
+    fn limit_thumbs(&mut self) {
+        if self.thumbs.len() <= thumbs::MAX_KEPT {
+            return;
+        }
+        let lo = self.thumb_center.saturating_sub(thumbs::RADIUS);
+        let hi = (self.thumb_center + thumbs::RADIUS + 1).min(self.visible.len());
+        let near: HashSet<&str> = self
+            .visible
+            .get(lo..hi)
+            .unwrap_or(&[])
+            .iter()
+            .map(String::as_str)
+            .collect();
+        self.thumbs.retain(|p, _| near.contains(p.as_str()));
     }
 
     fn current_path(&self) -> Option<String> {
@@ -295,6 +329,7 @@ impl HoramaApp {
             self.anchor = Some(i);
         }
         if moved {
+            self.thumb_center = i;
             self.request_thumbs();
         }
         if self.shown.as_ref().map(|s| s.path == path).unwrap_or(false) {
@@ -305,38 +340,12 @@ impl HoramaApp {
         self.preloader.preload_neighborhood(i, &self.visible, || {});
     }
 
-    /// Decodes and color-manages `path` on a worker thread; the previous image stays on screen
-    /// until the new one is ready.
+    /// Decodes and color-manages `path` on the loading thread ([`loader`]); the previous
+    /// image stays on screen until the new one is ready.
     fn load(&mut self, path: String) {
         self.load_generation += 1;
-        let generation = self.load_generation;
         self.loading = Some(path.clone());
-        let (tx, ctx, color) = (self.tx.clone(), self.ctx.clone(), self.color.clone());
-        let loader = self.preloader.loader();
-        let spawned = std::thread::Builder::new()
-            .name("egui-load".into())
-            .spawn(move || {
-                let decoded = loader.get_or_load(&path);
-                let msg = match decoded.and_then(|d| render_for_screen(&d, &color)) {
-                    Ok((image, details)) => Msg::Loaded {
-                        generation,
-                        path,
-                        image,
-                        details,
-                    },
-                    Err(error) => Msg::Failed {
-                        generation,
-                        path,
-                        error,
-                    },
-                };
-                let _ = tx.send(msg);
-                ctx.request_repaint();
-            });
-        if let Err(e) = spawned {
-            self.loading = None;
-            self.status = format!("Could not start loading: {}", e);
-        }
+        self.image_loader.request(self.load_generation, path);
     }
 
     /// Applies the results the workers sent since the last frame.
@@ -351,6 +360,7 @@ impl HoramaApp {
             });
             self.thumbs.insert(t.path, texture);
         }
+        self.limit_thumbs();
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
                 Msg::Scanned {
@@ -398,6 +408,7 @@ impl HoramaApp {
                     path,
                     image,
                     details,
+                    info,
                 } if generation == self.load_generation => {
                     let size = (image.size[0] as u32, image.size[1] as u32);
                     let options = TextureOptions {
@@ -408,11 +419,16 @@ impl HoramaApp {
                         ..TextureOptions::LINEAR
                     };
                     let texture = self.ctx.load_texture(path.clone(), image, options);
+                    let histogram =
+                        self.ctx
+                            .load_texture("histogram", info.histogram, TextureOptions::LINEAR);
                     self.shown = Some(Shown {
                         path,
                         texture,
                         size,
                         details,
+                        metadata: info.metadata,
+                        histogram,
                     });
                     self.loading = None;
                     self.view.fit = true;
@@ -461,6 +477,13 @@ impl HoramaApp {
             .default_size(280.0)
             .size_range(180.0..=600.0)
             .show(ui, |ui| self.folder_tree(ui));
+        if self.show_info {
+            egui::Panel::right("info")
+                .resizable(true)
+                .default_size(300.0)
+                .size_range(240.0..=520.0)
+                .show(ui, |ui| self.info_panel(ui));
+        }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(CANVAS))
             .show(ui, |ui| self.image_view(ui));
@@ -482,6 +505,15 @@ impl HoramaApp {
             });
             ui.menu_button("View", |ui| {
                 let has_image = self.shown.is_some();
+                let mut info = self.show_info;
+                if ui
+                    .add(egui::Checkbox::new(&mut info, "Image Info"))
+                    .on_hover_text("Histogram and metadata (I)")
+                    .changed()
+                {
+                    self.show_info = info;
+                }
+                ui.separator();
                 if ui
                     .add_enabled(
                         has_image,
@@ -552,7 +584,7 @@ impl HoramaApp {
             }
             RATING_KEYS.iter().position(|k| i.key_pressed(*k))
         });
-        let (open, next, prev, fit, actual, zoom_in, zoom_out) = ui.input_mut(|i| {
+        let (open, next, prev, fit, actual, zoom_in, zoom_out, info) = ui.input_mut(|i| {
             (
                 i.consume_shortcut(&open),
                 i.key_pressed(Key::ArrowRight),
@@ -561,8 +593,12 @@ impl HoramaApp {
                 i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Num1)),
                 i.key_pressed(Key::Plus) || i.key_pressed(Key::Equals),
                 i.key_pressed(Key::Minus),
+                i.key_pressed(Key::I) && !i.modifiers.any(),
             )
         });
+        if info {
+            self.show_info = !self.show_info;
+        }
         if open {
             self.pick_folder();
         }
@@ -673,6 +709,7 @@ impl HoramaApp {
             None
         };
         let mut clicked: Option<(usize, ClickMods)> = None;
+        let mut strip_mid: Option<usize> = None;
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
@@ -683,6 +720,7 @@ impl HoramaApp {
                 };
                 let first = (viewport.min.x / CELL_W).floor().max(0.0) as usize;
                 let last = ((viewport.max.x / CELL_W).ceil() as usize + 1).min(n);
+                strip_mid = Some((first + last) / 2);
                 for i in first..last {
                     let rect = cell_rect(i).shrink(3.0);
                     let response = ui.interact(rect, ui.id().with(("cell", i)), Sense::click());
@@ -702,6 +740,13 @@ impl HoramaApp {
                     ui.scroll_to_rect(cell_rect(c), Some(egui::Align::Center));
                 }
             });
+        // Scrolling the strip far from the current image moves where thumbnails are made.
+        if let Some(mid) = strip_mid.filter(|_| scroll_target.is_none()) {
+            if mid.abs_diff(self.thumb_center) > thumbs::RECENTER_AFTER {
+                self.thumb_center = mid;
+                self.request_thumbs();
+            }
+        }
         if let Some((i, mods)) = clicked {
             let show = browse::apply_click(
                 &mut self.selected,
@@ -852,6 +897,37 @@ impl HoramaApp {
             .image(shown.texture.id(), image_rect, uv, Color32::WHITE);
     }
 
+    /// Histogram and metadata of the image on screen.
+    fn info_panel(&self, ui: &mut egui::Ui) {
+        let Some(shown) = &self.shown else {
+            ui.label(egui::RichText::new("No image").weak());
+            return;
+        };
+        ui.label(egui::RichText::new("Histogram").strong());
+        let size = shown.histogram.size_vec2();
+        let width = ui.available_width();
+        ui.add(egui::Image::new((
+            shown.histogram.id(),
+            Vec2::new(width, width * size.y / size.x),
+        )));
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("metadata")
+                    .num_columns(2)
+                    .striped(true)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        for (label, value) in &shown.metadata {
+                            ui.label(egui::RichText::new(label).weak());
+                            ui.add(egui::Label::new(value).wrap());
+                            ui.end_row();
+                        }
+                    });
+            });
+    }
+
     fn status_text(&self) -> String {
         let Some(shown) = &self.shown else {
             return self.status.clone();
@@ -907,32 +983,4 @@ fn expander(ui: &mut egui::Ui, enabled: bool, expanded: bool) -> egui::Response 
     } else {
         response
     }
-}
-
-/// Converts a decoded image to the monitor profile, as the Slint interface does. Returns the
-/// screen pixels and a short description (format and profile).
-fn render_for_screen(
-    decoded: &DecodedImage,
-    color: &ColorManager,
-) -> Result<(ColorImage, String), String> {
-    let profile = if decoded.embedded_icc_name.is_some() {
-        PROFILE_EMBEDDED
-    } else {
-        DEFAULT_FALLBACK_PROFILE
-    };
-    let rendered = color.render(
-        &decoded.rgb_pixels,
-        profile,
-        decoded.embedded_icc.as_deref(),
-    );
-    let size = [decoded.width as usize, decoded.height as usize];
-    if rendered.display.len() != size[0] * size[1] * 3 {
-        return Err("unexpected size of the rendered pixels".to_string());
-    }
-    let image = ColorImage::from_rgb(size, &rendered.display);
-    let profile_name = decoded
-        .embedded_icc_name
-        .clone()
-        .unwrap_or_else(|| DEFAULT_FALLBACK_PROFILE.to_string());
-    Ok((image, format!("{} — {}", decoded.format_name, profile_name)))
 }

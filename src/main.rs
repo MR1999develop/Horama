@@ -19,7 +19,7 @@ use horama::config::{
 };
 use horama::disk_ops::{DiskQueue, RotationOutcome};
 use horama::image_loader::{load_thumbnail_rgba, DecodedImage};
-use horama::image_saver::{build_export_exif, generate_next_sequential_path, save_image_with_icc};
+use horama::image_saver::{export_image, generate_next_sequential_path};
 use horama::metadata::{extract_metadata, render_histogram_rgba};
 #[cfg(test)]
 use horama::rename::compute_batch_rename_plan;
@@ -308,6 +308,8 @@ struct ViewerState {
     color_manager: ColorManager,
     /// A monitor-profile query is running (see the window tracking timer).
     display_probe_running: bool,
+    /// Save waiting for the JPEG options dialog.
+    pending_save: Option<SaveJob>,
     /// Identity of the notice on screen; bumped by every new or hidden notice.
     notice_id: u64,
     notice_action: NoticeAction,
@@ -465,6 +467,7 @@ impl ViewerState {
             selected_indices: std::collections::BTreeSet::new(),
             selection_anchor: None,
             display_probe_running: false,
+            pending_save: None,
             notice_id: 0,
             notice_action: NoticeAction::None,
             pending_trash: None,
@@ -3343,57 +3346,93 @@ fn effective_profile_for(state: &ViewerState, path: &str, decoded: &DecodedImage
 }
 
 /// Encodes `decoded` with `profile` to `dest` (color conversion, ICC and EXIF included).
-/// Saves `decoded` to `dest` with `profile`. `edited` = the pixels differ from the file
-/// (crop): a JPEG whose pixels did not change is copied without recompression.
-fn export_image(
-    cm: &ColorManager,
-    decoded: &DecodedImage,
-    profile: &str,
-    dest: &Path,
+/// A save the user asked for, waiting for the JPEG options (see [`open_jpeg_options`]).
+struct SaveJob {
+    decoded: Arc<DecodedImage>,
+    profile: String,
+    dest: PathBuf,
     edited: bool,
-) -> Result<(), String> {
-    let source = Path::new(&decoded.path);
-    let is_jpeg = |p: &Path| {
-        matches!(
-            p.extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .as_deref(),
-            Some("jpg" | "jpeg" | "jpe" | "jfif")
-        )
+}
+
+fn is_jpeg_path(p: &Path) -> bool {
+    horama::image_saver::is_jpeg(p)
+}
+
+/// Asks for the JPEG quality before saving `job` (the last choice is preselected).
+fn open_jpeg_options(ui: &AppWindow, st: &mut ViewerState, job: SaveJob) {
+    let can_keep = is_jpeg_path(Path::new(&job.decoded.path));
+    let last = st.settings.jpeg_quality;
+    ui.set_jpeg_can_keep_original(can_keep);
+    ui.set_jpeg_keep_original(can_keep && last == 0);
+    ui.set_jpeg_quality(if last == 0 { 90.0 } else { f32::from(last) });
+    ui.set_jpeg_dialog_file(file_name_of(&job.dest.to_string_lossy()).into());
+    st.pending_save = Some(job);
+    ui.set_jpeg_dialog_visible(true);
+}
+
+/// Saves `job` in the disk queue (never concurrent with a rotation of the same file).
+/// `jpeg_quality`: 0 = like the original, otherwise 1–100.
+fn start_save(ui: &AppWindow, st: &mut ViewerState, job: SaveJob, jpeg_quality: u8) {
+    let Some((ui_w, st_w)) = weak_handles(st) else {
+        return;
     };
-    let embedded = decoded.embedded_icc.as_deref();
-    if !edited && is_jpeg(source) && is_jpeg(dest) && !cm.converts_on_save(profile, embedded) {
-        // Same pixels: keep the compressed data; write a profile only if another one was
-        // assigned to the image.
-        let own_profile = if decoded.embedded_icc_name.is_some() {
-            PROFILE_EMBEDDED
-        } else {
-            DEFAULT_FALLBACK_PROFILE
-        };
-        let icc = (profile != own_profile).then(|| cm.get_profile_bytes(profile, embedded));
-        return horama::image_saver::save_jpeg_unchanged(source, dest, icc.as_deref());
-    }
-    // Recompressed JPEGs reuse the tables of the original, so repeated saves do not wear it.
-    let like = is_jpeg(source)
-        .then(|| std::fs::read(source).ok())
-        .flatten()
-        .and_then(|b| horama::image_saver::jpeg_settings_of(&b));
-    let pixels = cm.prepare_pixels_for_save(
-        &decoded.rgb_pixels,
+    let SaveJob {
+        decoded,
         profile,
-        decoded.embedded_icc.as_deref(),
-    );
-    let icc = cm.get_profile_bytes(profile, decoded.embedded_icc.as_deref());
-    let exif = build_export_exif(Path::new(&decoded.path), decoded.width, decoded.height);
-    save_image_with_icc(
         dest,
-        decoded.width,
-        decoded.height,
-        &pixels,
-        Some(&icc),
-        exif.as_deref(),
-        like.as_ref(),
-    )
+        edited,
+    } = job;
+    let cm = st.color_manager.clone();
+    let dest_str = normalize_path(&dest.to_string_lossy());
+    let src_path = decoded.path.clone();
+    ui.set_status_file_text(format!("Saving {}…", dest.display()).into());
+    st.disk.submit(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            export_image(&cm, &decoded, &profile, &dest, edited, jpeg_quality)
+        }))
+        .unwrap_or_else(|_| Err("internal error while encoding".to_string()));
+        post_to_ui(ui_w, st_w, move |ui, st| match result {
+            Ok(()) => {
+                // The edit is saved: it is no longer an unsaved change, and its undo
+                // snapshots would no longer match the files.
+                st.edited_images.remove(&src_path);
+                st.history_undo.retain(
+                    |a| !matches!(a, HistoryAction::ImageEdit { path, .. } if *path == src_path),
+                );
+                st.history_redo.retain(
+                    |a| !matches!(a, HistoryAction::ImageEdit { path, .. } if *path == src_path),
+                );
+                if let Ok(mut g) = st.preloader.cache.lock() {
+                    g.remove(&dest_str);
+                }
+                set_thumbnail_for_path(ui, None, &src_path, Image::default(), Some(false));
+                // Show the source as it is on disk now (overwritten, or untouched when the
+                // edit was exported to another file).
+                if st
+                    .current_decoded
+                    .as_ref()
+                    .map(|d| same_path(&d.path, &src_path))
+                    .unwrap_or(false)
+                {
+                    ui.set_current_image_is_cropped(false);
+                }
+                reconcile_with_disk(ui, st, &src_path);
+                ui.set_status_file_text(
+                    format!("Saved '{}' with ICC profile '{}'", dest_str, profile).into(),
+                );
+            }
+            Err(e) => {
+                ui.set_status_file_text(format!("Save failed: {}", e).into());
+                show_notice(
+                    ui,
+                    st,
+                    &format!("The image could not be saved: {}.", e),
+                    true,
+                    NoticeAction::None,
+                );
+            }
+        });
+    });
 }
 
 fn unsaved_edits_prompt(ui: &AppWindow, count: usize) {
@@ -4034,19 +4073,21 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_save_image_clicked(move || {
             let Some(ui) = ui_weak.upgrade() else { return };
             // Collect what is needed, then release the lock before any dialog is shown.
-            let (decoded, profile, cm, disk, weak, edited) = {
+            let (decoded, profile, edited) = {
                 let st = lock_state(&state);
                 let Some(decoded) = st.current_decoded.clone() else {
                     ui.set_status_file_text("Nothing to save (no image loaded yet).".into());
                     return;
                 };
                 let edited = st.is_cropped(&decoded.path);
-                (decoded, st.selected_profile.clone(), st.color_manager.clone(), st.disk.clone(), weak_handles(&st), edited)
+                (decoded, st.selected_profile.clone(), edited)
             };
-            let Some((ui_w, st_w)) = weak else { return };
 
             let orig_path = Path::new(&decoded.path);
-            let stem = orig_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "exported_image".to_string());
+            let stem = orig_path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "exported_image".to_string());
             let mut dlg = rfd::FileDialog::new()
                 .set_title("Save / Export Image with Color Profile")
                 .set_file_name(format!("{}.jpg", stem))
@@ -4058,9 +4099,14 @@ fn main() -> Result<(), slint::PlatformError> {
             if let Some(parent) = orig_path.parent().filter(|p| p.is_dir()) {
                 dlg = dlg.set_directory(parent);
             }
-            let Some(mut dest) = dlg.save_file() else { return };
+            let Some(mut dest) = dlg.save_file() else {
+                return;
+            };
 
-            let ext = dest.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let ext = dest
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
             if ext.is_empty() {
                 dest.set_extension("jpg");
             } else if !horama::image_saver::EXPORT_EXTENSIONS.contains(&ext.as_str()) {
@@ -4082,7 +4128,10 @@ fn main() -> Result<(), slint::PlatformError> {
             if dest.exists() && ext.is_empty() {
                 let confirm = rfd::MessageDialog::new()
                     .set_title("Confirm Overwrite")
-                    .set_description(format!("The file '{}' already exists.\n\nDo you want to overwrite it?", dest.display()))
+                    .set_description(format!(
+                        "The file '{}' already exists.\n\nDo you want to overwrite it?",
+                        dest.display()
+                    ))
                     .set_buttons(rfd::MessageButtons::YesNo)
                     .show();
                 if confirm != rfd::MessageDialogResult::Yes {
@@ -4090,38 +4139,49 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
 
-            let dest_str = normalize_path(&dest.to_string_lossy());
-            let src_path = decoded.path.clone();
-            ui.set_status_file_text(format!("Saving {}…", dest.display()).into());
-            // Through the serial disk queue: never concurrent with a rotation of the same file.
-            disk.submit(move || {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| export_image(&cm, &decoded, &profile, &dest, edited)))
-                    .unwrap_or_else(|_| Err("internal error while encoding".to_string()));
-                post_to_ui(ui_w, st_w, move |ui, st| match result {
-                    Ok(()) => {
-                        // The edit is saved: it is no longer an unsaved change, and its undo
-                        // snapshots would no longer match the files.
-                        st.edited_images.remove(&src_path);
-                        st.history_undo.retain(|a| !matches!(a, HistoryAction::ImageEdit { path, .. } if *path == src_path));
-                        st.history_redo.retain(|a| !matches!(a, HistoryAction::ImageEdit { path, .. } if *path == src_path));
-                        if let Ok(mut g) = st.preloader.cache.lock() {
-                            g.remove(&dest_str);
-                        }
-                        set_thumbnail_for_path(ui, None, &src_path, Image::default(), Some(false));
-                        // Show the source as it is on disk now (overwritten, or untouched when
-                        // the edit was exported to another file).
-                        if st.current_decoded.as_ref().map(|d| same_path(&d.path, &src_path)).unwrap_or(false) {
-                            ui.set_current_image_is_cropped(false);
-                        }
-                        reconcile_with_disk(ui, st, &src_path);
-                        ui.set_status_file_text(format!("Saved '{}' with ICC profile '{}'", dest_str, profile).into());
-                    }
-                    Err(e) => {
-                        ui.set_status_file_text(format!("Save failed: {}", e).into());
-                        show_notice(ui, st, &format!("The image could not be saved: {}.", e), true, NoticeAction::None);
-                    }
-                });
-            });
+            let job = SaveJob {
+                decoded,
+                profile,
+                dest,
+                edited,
+            };
+            let mut st = lock_state(&state);
+            if is_jpeg_path(&job.dest) {
+                open_jpeg_options(&ui, &mut st, job);
+            } else {
+                start_save(&ui, &mut st, job, 0);
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_jpeg_options_confirmed(move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let mut st = lock_state(&state);
+            ui.set_jpeg_dialog_visible(false);
+            let Some(job) = st.pending_save.take() else {
+                return;
+            };
+            let keep = ui.get_jpeg_can_keep_original() && ui.get_jpeg_keep_original();
+            let quality = if keep {
+                0
+            } else {
+                ui.get_jpeg_quality().round().clamp(1.0, 100.0) as u8
+            };
+            st.settings.jpeg_quality = quality;
+            st.settings.save();
+            start_save(&ui, &mut st, job, quality);
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_jpeg_options_cancelled(move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            ui.set_jpeg_dialog_visible(false);
+            lock_state(&state).pending_save = None;
+            ui.set_status_file_text("Save cancelled.".into());
         });
     }
 
@@ -4758,14 +4818,14 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         ui.on_save_all_modified_and_exit(move || {
             let Some(ui) = ui_weak.upgrade() else { return };
-            let (jobs, cm, disk, weak) = {
+            let (jobs, cm, disk, weak, quality) = {
                 let st = lock_state(&state);
                 let jobs: Vec<(String, Arc<DecodedImage>, String)> = st
                     .edited_images
                     .iter()
                     .map(|(p, d)| (p.clone(), d.clone(), effective_profile_for(&st, p, d)))
                     .collect();
-                (jobs, st.color_manager.clone(), st.disk.clone(), weak_handles(&st))
+                (jobs, st.color_manager.clone(), st.disk.clone(), weak_handles(&st), st.settings.jpeg_quality)
             };
             let Some((ui_w, st_w)) = weak else { return };
             ui.set_exit_confirm_dialog_visible(false);
@@ -4775,7 +4835,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 let mut failed = Vec::new();
                 for (path, decoded, profile) in jobs {
                     let dest = generate_next_sequential_path(Path::new(&path));
-                    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| export_image(&cm, &decoded, &profile, &dest, true)))
+                    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| export_image(&cm, &decoded, &profile, &dest, true, quality)))
                         .unwrap_or_else(|_| Err("internal error while encoding".to_string()));
                     match res {
                         Ok(()) => saved.push(path),

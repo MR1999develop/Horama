@@ -1,4 +1,4 @@
-import { ScrollView, Palette, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { ScrollView, Palette, VerticalBox, HorizontalBox, Slider } from "std-widgets.slint";
 
 export struct TreeItemData {
     label: string,
@@ -536,6 +536,14 @@ export component AppWindow inherits Window {
     property <string> film-menu-target-name: "";
     in-out property <int> selected-files-count: 0;
     in-out property <bool> rename-dialog-visible: false;
+    // JPEG options asked before saving a JPEG.
+    in-out property <bool> jpeg-dialog-visible: false;
+    in property <string> jpeg-dialog-file: "";
+    in property <bool> jpeg-can-keep-original: false;
+    in-out property <bool> jpeg-keep-original: true;
+    in-out property <float> jpeg-quality: 90;
+    callback jpeg-options-confirmed();
+    callback jpeg-options-cancelled();
     in-out property <int> rename-file-count: 1;
     in-out property <string> rename-input-text: "";
     in-out property <string> rename-extension-text: "";
@@ -641,6 +649,18 @@ export component AppWindow inherits Window {
                 }
                 if (event.text == Key.Return) {
                     root.apply-custom-aspect-ratio(root.crop-custom-input);
+                    return accept;
+                }
+                return reject;
+            }
+
+            if (root.jpeg-dialog-visible) {
+                if (event.text == Key.Escape) {
+                    root.jpeg-options-cancelled();
+                    return accept;
+                }
+                if (event.text == Key.Return) {
+                    root.jpeg-options-confirmed();
                     return accept;
                 }
                 return reject;
@@ -4303,6 +4323,105 @@ export component AppWindow inherits Window {
                                 clicked => {
                                     root.confirm-rename(root.rename-input-text);
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // JPEG options before saving
+            if root.jpeg-dialog-visible : Rectangle {
+                width: 100%;
+                height: 100%;
+
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: #00000099;
+                    }
+                }
+
+                Rectangle {
+                    width: 440px;
+                    height: root.jpeg-can-keep-original ? 250px : 210px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    background: #202020;
+                    border-width: 1px;
+                    border-color: #383838;
+                    border-radius: 4px;
+
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+
+                        Text {
+                            text: "JPEG Quality — " + root.jpeg-dialog-file;
+                            color: #E2E2E2;
+                            font-size: 13px;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+
+                        if root.jpeg-can-keep-original : Win10CheckBox {
+                            text: "Keep the compression of the original";
+                            checked <=> root.jpeg-keep-original;
+                        }
+                        if root.jpeg-can-keep-original : Text {
+                            text: "Recommended: an unchanged photo is saved without recompression, an edited one with the original's settings, so repeated saves do not lose quality.";
+                            color: #A0A0A0;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: "Quality";
+                                color: (root.jpeg-can-keep-original && root.jpeg-keep-original) ? #6A6A6A : #CCCCCC;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                            Slider {
+                                horizontal-stretch: 1;
+                                minimum: 10;
+                                maximum: 100;
+                                step: 1;
+                                value <=> root.jpeg-quality;
+                                enabled: !(root.jpeg-can-keep-original && root.jpeg-keep-original);
+                            }
+                            Text {
+                                width: 32px;
+                                text: Math.round(root.jpeg-quality);
+                                color: (root.jpeg-can-keep-original && root.jpeg-keep-original) ? #6A6A6A : #F0F0F0;
+                                font-size: 12px;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Text {
+                            text: "Higher quality keeps more detail and makes a larger file. From 90 up, colors keep full resolution.";
+                            color: #8E8E8E;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+
+                        HorizontalLayout {
+                            alignment: end;
+                            spacing: 8px;
+                            Win10Button {
+                                text: "Cancel";
+                                clicked => { root.jpeg-options-cancelled(); }
+                            }
+                            Win10Button {
+                                text: "Save";
+                                primary: true;
+                                clicked => { root.jpeg-options-confirmed(); }
                             }
                         }
                     }

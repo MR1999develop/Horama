@@ -61,6 +61,9 @@ pub struct AppSettings {
     pub shortcuts: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub saved_aspect_ratios: Vec<String>,
+    /// JPEG quality chosen at the last save (1–100); 0 = the compression of the original.
+    #[serde(default)]
+    pub jpeg_quality: u8,
 }
 
 pub fn default_shortcuts() -> std::collections::HashMap<String, String> {
@@ -110,6 +113,7 @@ impl Default for AppSettings {
             window_maximized: false,
             shortcuts: default_shortcuts(),
             saved_aspect_ratios: Vec::new(),
+            jpeg_quality: 0,
         }
     }
 }

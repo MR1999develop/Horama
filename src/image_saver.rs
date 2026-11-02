@@ -8,9 +8,14 @@
 //! * an edited JPEG (crop, profile conversion) is compressed with the quantization tables and
 //!   chroma subsampling of the original ([`JpegSettings`]), so the detail the original kept
 //!   survives and saving again does not degrade it further in a visible way;
-//! * other sources are compressed at quality 95 without chroma subsampling.
+//! * other sources are compressed at quality 95 without chroma subsampling;
+//! * the user can instead choose a quality ([`JpegCompression::Quality`]), e.g. for a
+//!   smaller file.
 
+use crate::color_manager::ColorManager;
+use crate::config::{DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED};
 use crate::disk_ops::atomic_write;
+use crate::image_loader::DecodedImage;
 use image::{ColorType, ImageEncoder};
 use img_parts::{Bytes, ImageEXIF, ImageICC};
 use std::fs::File;
@@ -29,6 +34,22 @@ pub struct JpegSettings {
     luma: [u16; 64],
     chroma: [u16; 64],
     sampling: (u8, u8),
+}
+
+/// How to compress a JPEG.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum JpegCompression {
+    /// With the tables and chroma sampling of the original.
+    Like(Box<JpegSettings>),
+    /// At a quality chosen by the user (1–100). From 90 up the color keeps full resolution
+    /// (4:4:4); below, it is halved in both directions (4:2:0) as most cameras do.
+    Quality(u8),
+}
+
+impl Default for JpegCompression {
+    fn default() -> Self {
+        JpegCompression::Quality(DEFAULT_JPEG_QUALITY)
+    }
 }
 
 /// Zigzag position → natural position of a coefficient in an 8×8 block (ITU-T T.81, A.3.6).
@@ -113,12 +134,12 @@ pub fn jpeg_settings_of(jpeg: &[u8]) -> Option<JpegSettings> {
     })
 }
 
-/// Compresses RGB pixels to JPEG, with the settings of the original if known.
+/// Compresses RGB pixels to JPEG.
 fn encode_jpeg(
     rgb: &[u8],
     width: u32,
     height: u32,
-    like: Option<&JpegSettings>,
+    compression: &JpegCompression,
 ) -> Result<Vec<u8>, String> {
     use jpeg_encoder::{ColorType as JColor, Encoder, QuantizationTableType, SamplingFactor};
     let (w, h) = (
@@ -126,16 +147,24 @@ fn encode_jpeg(
         u16::try_from(height).map_err(|_| "image too tall for JPEG (max 65535 px)".to_string())?,
     );
     let mut out = Vec::new();
-    let mut enc = Encoder::new(&mut out, DEFAULT_JPEG_QUALITY);
+    let quality = match compression {
+        JpegCompression::Quality(q) => (*q).clamp(1, 100),
+        JpegCompression::Like(_) => DEFAULT_JPEG_QUALITY,
+    };
+    let mut enc = Encoder::new(&mut out, quality);
     enc.set_optimized_huffman_tables(true);
-    let sampling = match like.map(|l| l.sampling) {
-        Some((2, 1)) => SamplingFactor::F_2_1,
-        Some((1, 2)) => SamplingFactor::F_1_2,
-        Some((2, 2)) => SamplingFactor::F_2_2,
-        _ => SamplingFactor::F_1_1, // 4:4:4: no loss of color resolution
+    let sampling = match compression {
+        JpegCompression::Like(l) => match l.sampling {
+            (2, 1) => SamplingFactor::F_2_1,
+            (1, 2) => SamplingFactor::F_1_2,
+            (2, 2) => SamplingFactor::F_2_2,
+            _ => SamplingFactor::F_1_1,
+        },
+        JpegCompression::Quality(q) if *q < 90 => SamplingFactor::F_2_2,
+        JpegCompression::Quality(_) => SamplingFactor::F_1_1, // full color resolution
     };
     enc.set_sampling_factor(sampling);
-    if let Some(l) = like {
+    if let JpegCompression::Like(l) = compression {
         enc.set_quantization_tables(
             QuantizationTableType::Custom(Box::new(l.luma)),
             QuantizationTableType::Custom(Box::new(l.chroma)),
@@ -171,6 +200,68 @@ pub fn save_jpeg_unchanged(source: &Path, dest: &Path, icc: Option<&[u8]>) -> Re
         return Ok(());
     }
     atomic_write(dest, &out)
+}
+
+/// Saves `decoded` to `dest` with color profile `profile`; the format follows the extension.
+///
+/// * `edited`: the pixels differ from the file (crop).
+/// * `jpeg_quality`: 0 = compress like the original (and do not recompress a JPEG whose
+///   pixels did not change), 1–100 = the quality chosen by the user.
+pub fn export_image(
+    cm: &ColorManager,
+    decoded: &DecodedImage,
+    profile: &str,
+    dest: &Path,
+    edited: bool,
+    jpeg_quality: u8,
+) -> Result<(), String> {
+    let source = Path::new(&decoded.path);
+    let embedded = decoded.embedded_icc.as_deref();
+    let unchanged_pixels = !edited && !cm.converts_on_save(profile, embedded);
+    if jpeg_quality == 0 && unchanged_pixels && is_jpeg(source) && is_jpeg(dest) {
+        // Same pixels: keep the compressed data; write a profile only if another one was
+        // assigned to the image.
+        let own_profile = if decoded.embedded_icc_name.is_some() {
+            PROFILE_EMBEDDED
+        } else {
+            DEFAULT_FALLBACK_PROFILE
+        };
+        let icc = (profile != own_profile).then(|| cm.get_profile_bytes(profile, embedded));
+        return save_jpeg_unchanged(source, dest, icc.as_deref());
+    }
+    let compression = if jpeg_quality > 0 {
+        JpegCompression::Quality(jpeg_quality)
+    } else {
+        // Recompressed JPEGs reuse the tables of the original, so repeated saves do not wear it.
+        is_jpeg(source)
+            .then(|| std::fs::read(source).ok())
+            .flatten()
+            .and_then(|b| jpeg_settings_of(&b))
+            .map(|s| JpegCompression::Like(Box::new(s)))
+            .unwrap_or_default()
+    };
+    let pixels = cm.prepare_pixels_for_save(&decoded.rgb_pixels, profile, embedded);
+    let icc = cm.get_profile_bytes(profile, embedded);
+    let exif = build_export_exif(source, decoded.width, decoded.height);
+    save_image_with_icc(
+        dest,
+        decoded.width,
+        decoded.height,
+        &pixels,
+        Some(&icc),
+        exif.as_deref(),
+        &compression,
+    )
+}
+
+/// Whether `p` has a JPEG extension.
+pub fn is_jpeg(p: &Path) -> bool {
+    matches!(
+        p.extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .as_deref(),
+        Some("jpg" | "jpeg" | "jpe" | "jfif")
+    )
 }
 
 /// Formats the export dialog offers (all 8-bit; the viewer works on 8-bit display data).
@@ -271,7 +362,7 @@ pub fn save_image_with_icc(
     rgb_pixels: &[u8],
     icc_bytes: Option<&[u8]>,
     exif_tiff: Option<&[u8]>,
-    like_jpeg: Option<&JpegSettings>,
+    jpeg: &JpegCompression,
 ) -> Result<(), String> {
     let ext = dest_path
         .extension()
@@ -284,7 +375,7 @@ pub fn save_image_with_icc(
 
     let encoded: Vec<u8> = match ext.as_str() {
         "jpg" | "jpeg" | "jpe" => {
-            let mut out = encode_jpeg(rgb_pixels, width, height, like_jpeg)?;
+            let mut out = encode_jpeg(rgb_pixels, width, height, jpeg)?;
             if let Some(icc) = icc_bytes {
                 let mut jpeg = img_parts::jpeg::Jpeg::from_bytes(Bytes::from(out.clone()))
                     .map_err(|e| format!("JPEG ICC error: {}", e))?;
@@ -487,7 +578,7 @@ mod tests {
                 &[50u8; 4 * 8 * 3],
                 Some(&icc),
                 Some(&exif),
-                None,
+                &JpegCompression::default(),
             )
             .unwrap();
             let decoded = crate::image_loader::load_image(&out).unwrap();
@@ -509,9 +600,16 @@ mod tests {
                     .is_none());
             }
         }
-        assert!(
-            save_image_with_icc(&dir.join("x.dng"), 1, 1, &[0, 0, 0], None, None, None).is_err()
-        );
+        assert!(save_image_with_icc(
+            &dir.join("x.dng"),
+            1,
+            1,
+            &[0, 0, 0],
+            None,
+            None,
+            &JpegCompression::default()
+        )
+        .is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -550,10 +648,16 @@ mod tests {
     #[test]
     fn jpeg_settings_round_trip_through_the_encoder() {
         let rgb = test_image(64, 48);
-        let first = encode_jpeg(&rgb, 64, 48, None).unwrap();
+        let first = encode_jpeg(&rgb, 64, 48, &JpegCompression::default()).unwrap();
         let s = jpeg_settings_of(&first).expect("settings of our own JPEG");
         assert_eq!(s.sampling, (1, 1));
-        let again = encode_jpeg(&decode_rgb(&first), 64, 48, Some(&s)).unwrap();
+        let again = encode_jpeg(
+            &decode_rgb(&first),
+            64,
+            48,
+            &JpegCompression::Like(Box::new(s.clone())),
+        )
+        .unwrap();
         assert_eq!(
             jpeg_settings_of(&again),
             Some(s),
@@ -567,11 +671,17 @@ mod tests {
     fn saving_again_with_the_source_settings_does_not_wear_the_image() {
         let (w, h) = (96, 64);
         let original = test_image(w, h);
-        let gen1 = encode_jpeg(&original, w, h, None).unwrap();
+        let gen1 = encode_jpeg(&original, w, h, &JpegCompression::default()).unwrap();
         let settings = jpeg_settings_of(&gen1).unwrap();
         let mut current = gen1.clone();
         for _ in 0..10 {
-            current = encode_jpeg(&decode_rgb(&current), w, h, Some(&settings)).unwrap();
+            current = encode_jpeg(
+                &decode_rgb(&current),
+                w,
+                h,
+                &JpegCompression::Like(Box::new(settings.clone())),
+            )
+            .unwrap();
         }
         let drift = psnr(&decode_rgb(&gen1), &decode_rgb(&current));
         assert!(
@@ -582,13 +692,32 @@ mod tests {
     }
 
     #[test]
+    fn chosen_quality_trades_size_for_detail() {
+        let (w, h) = (96, 64);
+        let rgb = test_image(w, h);
+        let high = encode_jpeg(&rgb, w, h, &JpegCompression::Quality(98)).unwrap();
+        let low = encode_jpeg(&rgb, w, h, &JpegCompression::Quality(60)).unwrap();
+        assert!(
+            low.len() < high.len(),
+            "{} vs {} bytes",
+            low.len(),
+            high.len()
+        );
+        assert!(psnr(&rgb, &decode_rgb(&high)) > psnr(&rgb, &decode_rgb(&low)));
+        assert_eq!(jpeg_settings_of(&high).unwrap().sampling, (1, 1));
+        assert_eq!(jpeg_settings_of(&low).unwrap().sampling, (2, 2));
+        // Out-of-range values are clamped, not rejected.
+        assert!(encode_jpeg(&rgb, w, h, &JpegCompression::Quality(0)).is_ok());
+    }
+
+    #[test]
     fn unchanged_jpeg_keeps_its_bytes() {
         let dir = std::env::temp_dir().join(format!("horama-unchanged-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let src = dir.join("a.jpg");
         std::fs::write(
             &src,
-            encode_jpeg(&test_image(32, 32), 32, 32, None).unwrap(),
+            encode_jpeg(&test_image(32, 32), 32, 32, &JpegCompression::default()).unwrap(),
         )
         .unwrap();
         let before = std::fs::read(&src).unwrap();

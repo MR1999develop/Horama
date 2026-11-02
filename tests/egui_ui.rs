@@ -5,6 +5,7 @@
 use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
 use horama::egui_app::HoramaApp;
+use horama::mcp_server::McpCommand;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -175,6 +176,45 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         .filter(|n| n.is_focused())
         .count();
     assert_eq!(focused, 1, "F6 focuses the search box");
+
+    // MCP: the commands of an AI client act on the viewer and answer through their channel.
+    let (mcp_tx, mcp_rx) = std::sync::mpsc::channel();
+    harness.state_mut().attach_mcp(mcp_rx);
+    let ask =
+        |harness: &mut Harness<'_, HoramaApp>,
+         cmd: fn(crossbeam_channel::Sender<Result<String, String>>) -> McpCommand| {
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            mcp_tx.send(cmd(tx)).unwrap();
+            harness.step();
+            rx.recv_timeout(Duration::from_secs(5)).unwrap()
+        };
+    let selected = ask(&mut harness, |resp| McpCommand::SelectImage {
+        filename: "A.JPG".into(),
+        resp,
+    });
+    assert!(selected.unwrap().ends_with("a.jpg"));
+    let rated = ask(&mut harness, |resp| McpCommand::SetRating {
+        rating: 9,
+        resp,
+    });
+    assert!(rated.is_ok());
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    mcp_tx
+        .send(McpCommand::GetCurrentImageInfo { resp: tx })
+        .unwrap();
+    harness.step();
+    let info = rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
+    assert_eq!(info["rating"], 5, "{}", info);
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    mcp_tx.send(McpCommand::ListImages { resp: tx }).unwrap();
+    harness.step();
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap()
+            .len(),
+        4
+    );
 
     drop(harness);
     let _ = std::fs::remove_dir_all(&photos);

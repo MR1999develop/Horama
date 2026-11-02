@@ -19,6 +19,7 @@ mod files;
 mod filters;
 mod i18n;
 mod loader;
+mod mcp;
 mod profiles;
 mod shortcuts;
 mod theme;
@@ -169,6 +170,9 @@ pub struct HoramaApp {
     crop_ratio: Option<f32>,
     close_prompt: Option<edit::ClosePrompt>,
     shortcut_editor: Option<shortcuts::ShortcutEditor>,
+    /// Commands of the MCP server, when it runs ([`mcp`]).
+    mcp: Option<Receiver<crate::mcp_server::McpCommand>>,
+    mcp_open: Option<mcp::PendingOpen>,
     /// F6 moves the keyboard focus to the next panel: 0 folders, 1 filmstrip, 2 image.
     focus_panel: usize,
     /// The panel that takes the focus at its next drawing.
@@ -249,6 +253,8 @@ impl HoramaApp {
             crop_ratio: None,
             close_prompt: None,
             shortcut_editor: None,
+            mcp: None,
+            mcp_open: None,
             focus_panel: 2,
             pending_focus: None,
             compare_paths: Vec::new(),
@@ -283,6 +289,19 @@ impl HoramaApp {
         } else {
             self.status = trf("'{}' does not exist.", &[&path]);
         }
+    }
+
+    /// Starts the MCP server on stdin/stdout (`--mcp`): an AI client can then drive the viewer.
+    pub fn enable_mcp(&mut self) {
+        if self.mcp.is_none() {
+            self.attach_mcp(mcp::start(self.ctx.clone()));
+            log::info!("MCP server started on stdin/stdout");
+        }
+    }
+
+    /// Serves the MCP commands arriving on `commands` (the server's, or a test's).
+    pub fn attach_mcp(&mut self, commands: Receiver<crate::mcp_server::McpCommand>) {
+        self.mcp = Some(commands);
     }
 
     /// Opens the folder the user used last, if it still exists.
@@ -500,6 +519,7 @@ impl HoramaApp {
                         self.shown = None;
                         self.status = tr("No supported images in this folder.").to_string();
                     }
+                    self.mcp_folder_scanned();
                 }
                 Msg::Aspects {
                     generation,
@@ -580,6 +600,7 @@ impl HoramaApp {
         // Textures belong to the context that draws them (the window, or a test harness).
         self.ctx = ui.ctx().clone();
         self.receive();
+        self.serve_mcp();
         self.expire_notice();
         let ctx = ui.ctx().clone();
         self.check_close(&ctx);

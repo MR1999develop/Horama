@@ -1,7 +1,8 @@
 //! `horama-egui`: the new egui interface of Horama, under construction.
 //!
 //! Only the window lives here (eframe); the interface itself is `horama::egui_app`.
-//! Command line: `horama-egui [file or folder]`, as used by "Open with".
+//! Command line: `horama-egui [--mcp] [file or folder]`, as used by "Open with"; `--mcp` (or
+//! the `HORAMA_MCP` variable) starts the MCP server on stdin/stdout.
 #![windows_subsystem = "windows"]
 
 use horama::config::APP_NAME;
@@ -33,6 +34,9 @@ fn main() -> eframe::Result {
     let launch = std::env::args()
         .skip(1)
         .find(|a| !a.starts_with('-') && !a.trim().is_empty());
+    // MCP server for AI clients, as in the Slint interface.
+    let mcp = std::env::args().any(|a| a == "--mcp" || a == "-mcp")
+        || std::env::var_os("HORAMA_MCP").is_some();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(format!("{} (egui preview)", APP_NAME))
@@ -46,6 +50,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             let mut app = HoramaApp::new(cc.egui_ctx.clone());
+            if mcp {
+                app.enable_mcp();
+            }
             match launch {
                 Some(path) => app.open_path(&path),
                 None => app.open_last_folder(),

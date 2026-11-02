@@ -1,6 +1,5 @@
 //! MCP server (`horama --mcp`, or `HORAMA_MCP` set): an AI client
-//! drives the viewer through JSON-RPC on stdin/stdout ([`crate::mcp_server`]), with the same
-//! tools as the Slint interface.
+//! drives the viewer through JSON-RPC on stdin/stdout ([`crate::mcp_server`]).
 //!
 //! The server thread reads the requests; a relay thread passes each command to the interface
 //! and wakes it, and the answer goes back through the command's own channel.

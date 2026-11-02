@@ -2,8 +2,7 @@
 //!
 //! Only the window lives here (eframe); the interface itself is `horama::egui_app`.
 //! Command line: `horama [--mcp] [file or folder]`, as used by "Open with"; `--mcp` (or the
-//! `HORAMA_MCP` variable) starts the MCP server on stdin/stdout. The previous Slint interface
-//! is still built as `horama-slint` for one version.
+//! `HORAMA_MCP` variable) starts the MCP server on stdin/stdout.
 #![windows_subsystem = "windows"]
 
 use horama::config::APP_NAME;

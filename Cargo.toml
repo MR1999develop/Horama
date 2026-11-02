@@ -6,12 +6,8 @@ rust-version = "1.99"
 license = "GPL-3.0-only"
 description = "Horama - color-managed RAW and image viewer built with Rust and egui"
 authors = ["MR"]
-# `cargo run` starts Horama (egui); the previous Slint interface is `--bin horama-slint`.
-default-run = "horama"
 
 [dependencies]
-# unstable-winit-030: files dropped from the file manager arrive only as winit events.
-slint = { version = "1.18", features = ["unstable-winit-030"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff", "webp", "bmp", "gif", "ico", "pnm", "tga"] }
 tiff = "0.11"
 img-parts = "0.4"
@@ -31,15 +27,11 @@ crossbeam-channel = "0.5"
 log = "0.4"
 # JPEG encoder that accepts the quantization tables of the original (see image_saver).
 jpeg-encoder = "0.7"
-# The interface of Horama (program horama).
-# glow (OpenGL) instead of the default wgpu: shares glutin with Slint and builds much faster.
+# The interface. glow (OpenGL) instead of the default wgpu: builds much faster.
 egui = "0.37"
 eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 notify = "8"
 sys-locale = "0.3"
-
-[build-dependencies]
-slint-build = "1.9"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1" 

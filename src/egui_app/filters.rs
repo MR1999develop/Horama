@@ -78,7 +78,7 @@ impl FileFacts for Facts<'_> {
         ratio(d.width, d.height)
     }
     fn color_profile(&self, path: &str) -> (String, bool) {
-        // Known only for images already decoded, as in the Slint interface.
+        // Known only for images already decoded.
         match self.cache.and_then(|c| c.peek(path)) {
             Some(d) => match &d.embedded_icc_name {
                 Some(name) => (name.clone(), true),
@@ -169,7 +169,7 @@ impl HoramaApp {
     }
 
     /// Adds a custom aspect ratio ("16:10") to the saved ones, or removes the one chosen in
-    /// the filter. Saved ratios are shared with the Slint interface. True if the filter
+    /// the filter. Saved ratios are kept in the settings. True if the filter
     /// changed.
     fn custom_ratio_row(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;

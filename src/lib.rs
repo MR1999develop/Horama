@@ -1,9 +1,8 @@
 //! Horama: color-managed RAW and image viewer.
 //!
 //! The library holds everything that does not depend on the user interface toolkit: decoding,
-//! color management, file operations, the browsing model and the view geometry. Two programs
-//! use it: `horama`, the egui interface ([`egui_app`]), and `horama-slint`, the previous
-//! interface, kept for one version.
+//! color management, file operations, the browsing model and the view geometry. The program
+//! `horama` adds the egui interface ([`egui_app`]).
 
 pub mod browse;
 pub mod cache_manager;

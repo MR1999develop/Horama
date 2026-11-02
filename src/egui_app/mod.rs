@@ -1,12 +1,11 @@
 //! The interface of Horama (program `horama`).
 //!
-//! Done so far: open a folder (menu, command line or drag and drop); folder tree with the
-//! same rules as the Slint interface ([`crate::browse`]); filmstrip with thumbnails and
-//! Ctrl/Shift selection; the current image color-managed, with fit / 100% / zoom around the
-//! cursor / pan ([`crate::view`]); the neighbours of the current image preloaded into the
-//! shared RAM cache; ratings (keys 0–5 or the stars in the status bar) and all the filters
-//! ([`filters`]); the info panel with histogram and metadata. Editing and the other tools
-//! come in later stages.
+//! Open a folder (menu, command line or drag and drop); folder tree ([`crate::browse`]);
+//! filmstrip with thumbnails and Ctrl/Shift selection; the current image color-managed, with
+//! fit / 100% / zoom around the cursor / pan ([`crate::view`]); the neighbours of the current
+//! image preloaded into the shared RAM cache; ratings (keys 0–5 or the stars in the status
+//! bar) and all the filters ([`filters`]); the info panel with histogram and metadata; crop,
+//! rotation, comparison and the file tools in their own modules.
 //!
 //! Only `egui` is used here, not `eframe`: the `horama` program puts [`HoramaApp`] in a
 //! native window. Disk reads and decoding run on worker threads; their results come back
@@ -338,8 +337,7 @@ impl HoramaApp {
         }
     }
 
-    /// Gives the window the size it had last time (shared with the Slint interface, which
-    /// stores it in physical pixels).
+    /// Gives the window the size it had last time (stored in physical pixels).
     fn restore_window_size(&self) {
         if self.settings.window_maximized {
             self.ctx
@@ -404,7 +402,7 @@ impl HoramaApp {
         self.close_notice();
         self.files_mode = false;
         self.folder = Some(folder.to_string());
-        // Shared with the Slint interface: last folder and recent folders.
+        // Last folder and recent folders.
         self.settings.add_recent_folder(folder);
         self.filters.tree = browse::TREE_ALL.to_string();
         self.expanded = HashSet::from([browse::TREE_ALL.to_string()]);

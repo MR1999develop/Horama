@@ -1,5 +1,4 @@
-//! The toolbar under the menus, with the controls the Slint interface had on its bar: open,
-//! save, undo and redo, previous and next, rotation and crop, zoom (with its percentage),
+//! The toolbar under the menus: open, save, undo and redo, previous and next, rotation and crop, zoom (with its percentage),
 //! color profile with its lock, zoom lock, info panel.
 
 use super::i18n::tr;

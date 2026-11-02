@@ -38,7 +38,7 @@ if errorlevel 1 goto :fail
 echo.
 echo [4/4] Release build (cargo build --release)
 rem A running Horama built here locks its .exe and the build would fail with "Access denied".
-powershell -NoProfile -Command "$t = Join-Path (Get-Location) 'target\*'; if (Get-Process horama,horama-slint -ErrorAction SilentlyContinue | Where-Object { $_.Path -like $t }) { exit 1 }"
+powershell -NoProfile -Command "$t = Join-Path (Get-Location) 'target\*'; if (Get-Process horama -ErrorAction SilentlyContinue | Where-Object { $_.Path -like $t }) { exit 1 }"
 if errorlevel 1 (
     echo Horama is running from target\: close it, then run the check again.
     goto :fail

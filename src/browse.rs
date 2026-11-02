@@ -2,8 +2,8 @@
 //! tree selection and filters) and which are selected.
 //!
 //! Pure logic, without UI toolkit, disk access or caches: what the filters need to know about
-//! a file comes from the caller through [`FileFacts`]. Every front end (today Slint, later
-//! egui) uses these functions, and they are tested without a window.
+//! a file comes from the caller through [`FileFacts`]. The interface uses these functions,
+//! and they are tested without a window.
 
 use crate::config::{path_key, same_path};
 use std::collections::{BTreeSet, HashMap, HashSet};

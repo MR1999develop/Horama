@@ -143,7 +143,7 @@ fn image_info(decoded: &DecodedImage) -> ImageInfo {
     }
 }
 
-/// Converts a decoded image to the monitor profile, as the Slint interface does. Returns the
+/// Converts a decoded image to the monitor profile. Returns the
 /// screen pixels and a short description (format and profile).
 fn render_for_screen(
     decoded: &DecodedImage,

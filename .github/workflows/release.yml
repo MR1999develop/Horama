@@ -40,9 +40,8 @@ jobs:
           # The version of rust-toolchain.toml.
           toolchain: "1.99"
 
-      # Both programs: horama (egui) and horama-slint (the previous interface, kept for one
-      # version). Build paths are replaced by short names so that no folder of the build
-      # machine ends up inside the executables.
+      # Build paths are replaced by short names so that no folder of the build machine ends
+      # up inside the executable.
       - name: Build Optimized Release Binaries
         shell: bash
         run: |
@@ -57,7 +56,6 @@ jobs:
         run: |
           mkdir staging
           Copy-Item target/release/horama.exe staging/
-          Copy-Item target/release/horama-slint.exe staging/
           Copy-Item LICENSE staging/
           Copy-Item README.md staging/
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.artifact_name }}
@@ -67,7 +65,6 @@ jobs:
         run: |
           mkdir staging
           cp target/release/horama staging/
-          cp target/release/horama-slint staging/
           cp LICENSE staging/
           cp README.md staging/
           tar -czvf ${{ matrix.artifact_name }} -C staging .
@@ -77,7 +74,6 @@ jobs:
         run: |
           mkdir staging
           cp target/release/horama staging/
-          cp target/release/horama-slint staging/
           cp LICENSE staging/
           cp README.md staging/
           tar -czvf ${{ matrix.artifact_name }} -C staging .

@@ -1,7 +1,7 @@
 //! Keyboard shortcuts of the egui interface.
 //!
-//! The customizable ones are those of the settings (`shortcuts`, shared with the Slint
-//! interface, same text format: "Ctrl+Shift+O", "Right", "+"); View > Keyboard Shortcuts
+//! The customizable ones are those of the settings (`shortcuts`, as text:
+//! "Ctrl+Shift+O", "Right", "+"); View > Keyboard Shortcuts
 //! changes them. A few keys are fixed: 0–5 ratings, F fit, I info panel, Ctrl+Shift+S Save As,
 //! F6 next panel, Enter/Esc in the crop.
 

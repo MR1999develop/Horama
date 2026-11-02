@@ -2,10 +2,10 @@
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/Rust-2021%20Edition-orange.svg)](https://www.rust-lang.org/)
-[![Slint UI](https://img.shields.io/badge/GUI-Slint%20v1.9-purple.svg)](https://slint.dev/)
+[![egui](https://img.shields.io/badge/GUI-egui%200.37-purple.svg)](https://github.com/emilk/egui)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
-**Horama** (dal greco ὅραμα, "ciò che si vede"; in precedenza *Horama*) è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** e **Slint UI**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
+**Horama** (dal greco ὅραμα, "ciò che si vede"; in precedenza *Horama*) è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** ed **egui**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
 
 ---
 
@@ -99,14 +99,13 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 
 ## Interfaccia
 
-Ora `horama` usa una nuova interfaccia basata su [egui](https://github.com/emilk/egui). L'interfaccia precedente, in Slint, resta per una versione come `horama-slint` (`horama-slint.exe` su Windows) e poi verrà tolta; le due condividono impostazioni, valutazioni e scorciatoie.
+L'interfaccia è basata su [egui](https://github.com/emilk/egui) (dalla versione 0.5 sostituisce quella precedente, in Slint, che è stata tolta).
 
 ```
 cargo run --release
-cargo run --release --bin horama-slint
 ```
 
-L'interfaccia egui fa tutto quello che faceva quella Slint:
+Cosa fa:
 
 - apre una cartella o un file (menu, cartelle recenti, riga di comando, trascinamento; trascinando più immagini apre solo quelle), con l'albero delle cartelle (riapre l'ultima sottocartella) e la filmstrip delle miniature, ricerca e selezione multipla; la cartella si aggiorna da sola quando altri programmi aggiungono, cancellano o rinominano file;
 - mostra l'immagine con gestione colore (profilo del monitor aggiornato quando la finestra passa a un altro schermo), adatta alla finestra, 100%, zoom sul cursore e spostamento; oltre il 100% i pixel si vedono netti; lente 4× (tasto centrale) e contagocce RGB/HSL (tasto destro);
@@ -117,12 +116,12 @@ L'interfaccia egui fa tutto quello che faceva quella Slint:
 - ritaglio (C) con proporzioni libere o fisse, Annulla/Ripeti (Ctrl+Z / Ctrl+Y) per ritagli, valutazioni, profili e rotazioni, salvataggio dei ritagli come nuovi file accanto agli originali (Ctrl+S) e richiesta alla chiusura se restano ritagli non salvati;
 - confronto fino a nove immagini selezionate, affiancate;
 - rotazione senza perdita (R / L; i RAW e i formati che non si possono riscrivere senza perdita ruotano solo a schermo), Cestino senza conferma con Annulla per 8 secondi (Canc), rinomina di uno o più file (F2), "Salva una copia come" con la scelta della qualità JPEG (Ctrl+Maiusc+S), "Apri con" dal menu del tasto destro sulla filmstrip;
-- scorciatoie personalizzabili (Visualizza > Scorciatoie da tastiera, condivise con Slint), F6 per passare da un pannello all'altro;
-- barra degli strumenti come nell'interfaccia Slint, con blocco dello zoom e del profilo colore;
+- scorciatoie personalizzabili (Visualizza > Scorciatoie da tastiera), F6 per passare da un pannello all'altro;
+- barra degli strumenti con blocco dello zoom e del profilo colore;
 - aspetto uniforme a Windows 11: colori di Windows 11, Segoe UI e icone di sistema; tema Sistema / Chiaro / Scuro e lingua italiana o inglese in File > Preferenze (Ctrl+,); menu Aiuto con scorciatoie e informazioni; nomi e stati dei controlli per i lettori di schermo;
-- server MCP (`horama --mcp`) con gli stessi strumenti di Slint.
+- server MCP (`horama --mcp`).
 
-Le valutazioni sono salvate nel file `ratings.jsonl`, accanto a `settings.json` nella cartella delle impostazioni, e sono condivise dalle due interfacce. Alla prima apertura le valutazioni salvate dalle versioni precedenti dentro `settings.json` vengono spostate lì; una copia del file com'era resta in `settings.json.before-ratings`.
+Le valutazioni sono salvate nel file `ratings.jsonl`, accanto a `settings.json` nella cartella delle impostazioni. Alla prima apertura le valutazioni salvate dalle versioni precedenti dentro `settings.json` vengono spostate lì; una copia del file com'era resta in `settings.json.before-ratings`.
 
 ## File di log
 

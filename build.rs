@@ -1,6 +1,4 @@
 fn main() {
-    slint_build::compile("ui/app.slint").expect("Failed to compile Slint UI");
-
     // Commit written in the log's first line, so a log can be matched to its source.
     let commit = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])

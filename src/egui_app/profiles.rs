@@ -3,7 +3,7 @@
 //!
 //! A chosen profile is *assigned* to an image without one, and the image is *converted* to it
 //! when it has an embedded profile ([`crate::color_manager::ColorManager::render`]). Custom
-//! ICC/ICM files are remembered in the settings, shared with the Slint interface.
+//! ICC/ICM files are remembered in the settings.
 
 use super::HoramaApp;
 use super::i18n::{tr, trf};

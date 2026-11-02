@@ -15,6 +15,7 @@ impl eframe::App for Shell {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.0.on_exit();
         // Settings and ratings are written by a background thread: let it finish.
         if !horama::persist::flush(std::time::Duration::from_secs(10)) {
             log::warn!("Settings or ratings may not have been saved before exit");

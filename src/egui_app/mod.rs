@@ -13,6 +13,7 @@
 //! through a channel read at every frame, and stale results (an older folder or image) are
 //! dropped by generation number.
 
+mod files;
 mod filters;
 mod loader;
 mod thumbs;
@@ -21,6 +22,7 @@ use crate::browse::{self, ClickMods, Filters};
 use crate::cache_manager::PreloadController;
 use crate::color_manager::ColorManager;
 use crate::config::{is_supported_file, normalize_path, scan_folder_and_subfolders, AppSettings};
+use crate::disk_ops::DiskQueue;
 use crate::view;
 use egui::{
     Align2, Color32, ColorImage, Key, KeyboardShortcut, Modifiers, Pos2, Rect, Sense, Stroke,
@@ -65,6 +67,8 @@ enum Msg {
         path: String,
         error: String,
     },
+    /// Outcome of a file operation on the disk queue ([`files`]).
+    File(files::FileResult),
 }
 
 /// The image on screen.
@@ -87,6 +91,9 @@ struct ViewState {
 
 pub struct HoramaApp {
     ctx: egui::Context,
+    color: ColorManager,
+    /// File writes (rotation, Recycle Bin, rename, save), one at a time and in order.
+    disk: DiskQueue,
     settings: AppSettings,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
@@ -127,6 +134,9 @@ pub struct HoramaApp {
     view: ViewState,
     /// The info panel (histogram and metadata) on the right.
     show_info: bool,
+    notice: Option<files::Notice>,
+    rename: Option<files::RenameDialog>,
+    quality: Option<files::QualityDialog>,
     status: String,
 }
 
@@ -141,9 +151,12 @@ impl HoramaApp {
         let thumb_loader =
             ThumbnailLoader::start(color.clone(), thumb_tx, move || repaint.request_repaint());
         let preloader = PreloadController::new();
-        let image_loader = ImageLoader::start(preloader.loader(), color, tx.clone(), ctx.clone());
+        let image_loader =
+            ImageLoader::start(preloader.loader(), color.clone(), tx.clone(), ctx.clone());
         HoramaApp {
             ctx,
+            color,
+            disk: DiskQueue::new(),
             settings: AppSettings::load(),
             tx,
             rx,
@@ -177,6 +190,9 @@ impl HoramaApp {
                 fit: true,
             },
             show_info: true,
+            notice: None,
+            rename: None,
+            quality: None,
             status: "Open a folder to view images".to_string(),
         }
     }
@@ -213,6 +229,7 @@ impl HoramaApp {
 
     /// Scans `folder` (with subfolders) on a worker thread; `select` is shown when done.
     fn open_folder(&mut self, folder: &str, select: Option<String>) {
+        self.close_notice();
         self.scan_generation += 1;
         let generation = self.scan_generation;
         self.folder = Some(folder.to_string());
@@ -445,6 +462,7 @@ impl HoramaApp {
                     self.status =
                         format!("Cannot display {}: {}", browse::file_name_of(&path), error);
                 }
+                Msg::File(result) => self.file_result(result),
                 _ => {} // result of an older request
             }
         }
@@ -453,6 +471,7 @@ impl HoramaApp {
     /// Draws the whole interface. Call once per frame with the window's root `Ui`.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.receive();
+        self.expire_notice();
         self.handle_keys(ui);
         self.handle_dropped_files(ui);
 
@@ -488,7 +507,14 @@ impl HoramaApp {
         }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(CANVAS))
-            .show(ui, |ui| self.image_view(ui));
+            .show(ui, |ui| {
+                let rect = ui.max_rect();
+                self.image_view(ui);
+                self.notice_overlay(ui, rect);
+            });
+        let ctx = ui.ctx().clone();
+        self.rename_window(&ctx);
+        self.quality_window(&ctx);
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -515,8 +541,55 @@ impl HoramaApp {
                     });
                 });
                 ui.separator();
+                let has_image = self.current.is_some();
+                if ui
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new("Save a Copy As…").shortcut_text("Ctrl+Shift+S"),
+                    )
+                    .clicked()
+                {
+                    self.save_as();
+                }
+                if ui
+                    .add_enabled(has_image, egui::Button::new("Rename…").shortcut_text("F2"))
+                    .clicked()
+                {
+                    self.start_rename();
+                }
+                if ui
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new("Move to Recycle Bin").shortcut_text("Del"),
+                    )
+                    .clicked()
+                {
+                    self.trash_selected();
+                }
+                ui.separator();
                 if ui.button("Exit").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
+            ui.menu_button("Image", |ui| {
+                let has_image = self.current.is_some();
+                if ui
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new("Rotate Right").shortcut_text("R"),
+                    )
+                    .clicked()
+                {
+                    self.rotate(true);
+                }
+                if ui
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new("Rotate Left").shortcut_text("L"),
+                    )
+                    .clicked()
+                {
+                    self.rotate(false);
                 }
             });
             ui.menu_button("View", |ui| {
@@ -581,9 +654,43 @@ impl HoramaApp {
     }
 
     fn handle_keys(&mut self, ui: &mut egui::Ui) {
-        // Keys go to text fields when one has the focus (the search box).
-        if ui.ctx().egui_wants_keyboard_input() {
+        // Keys go to text fields when one has the focus (the search box), and to the windows.
+        if ui.ctx().egui_wants_keyboard_input() || self.rename.is_some() || self.quality.is_some() {
             return;
+        }
+        let commands = ui.input_mut(|i| {
+            (
+                i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Z)),
+                i.consume_shortcut(&KeyboardShortcut::new(
+                    Modifiers::COMMAND | Modifiers::SHIFT,
+                    Key::S,
+                )),
+                i.key_pressed(Key::Delete),
+                i.key_pressed(Key::F2),
+                i.key_pressed(Key::R) && !i.modifiers.any(),
+                i.key_pressed(Key::L) && !i.modifiers.any(),
+            )
+        });
+        let (undo, save_as, delete, rename, rotate_right, rotate_left) = commands;
+        if undo && !self.undo_trash() {
+            self.status = "Nothing to undo.".to_string();
+        }
+        if self.current.is_some() {
+            if save_as {
+                self.save_as();
+            }
+            if delete {
+                self.trash_selected();
+            }
+            if rename {
+                self.start_rename();
+            }
+            if rotate_right {
+                self.rotate(true);
+            }
+            if rotate_left {
+                self.rotate(false);
+            }
         }
         let open = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
         const RATING_KEYS: [Key; 6] = [

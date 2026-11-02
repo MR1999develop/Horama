@@ -9,7 +9,7 @@
 use super::i18n::{tr, trf};
 use super::{theme, HoramaApp, Msg};
 use crate::browse;
-use crate::config::{path_key, same_path, DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED};
+use crate::config::{path_key, same_path};
 use crate::disk_ops::{self, RotationOutcome};
 use crate::image_saver::{export_image, generate_next_sequential_path, is_jpeg};
 use crate::rename::{compute_batch_rename_plan, execute_batch_rename};
@@ -396,6 +396,9 @@ impl HoramaApp {
                 *f = new.clone();
             }
             self.settings.rename_rating(old, new);
+            if let Some(p) = self.profile_overrides.remove(&path_key(old)) {
+                self.profile_overrides.insert(path_key(new), p);
+            }
             if let Ok(mut cache) = self.preloader.cache.lock() {
                 cache.rename_key(old, new);
             }
@@ -529,18 +532,14 @@ impl HoramaApp {
     fn start_save(&mut self, source: String, dest: PathBuf, jpeg_quality: u8) {
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         let (loader, color) = (self.preloader.loader(), self.color.clone());
+        let profile = self.profile_of(&source);
         self.status = trf(
             "Saving {}…",
             &[&browse::file_name_of(&dest.to_string_lossy())],
         );
         self.disk.submit(move || {
             let result = loader.get_or_load(&source).and_then(|decoded| {
-                let profile = if decoded.embedded_icc_name.is_some() {
-                    PROFILE_EMBEDDED
-                } else {
-                    DEFAULT_FALLBACK_PROFILE
-                };
-                export_image(&color, &decoded, profile, &dest, false, jpeg_quality)
+                export_image(&color, &decoded, &profile, &dest, false, jpeg_quality)
             });
             let _ = tx.send(Msg::File(FileResult::Saved { dest, result }));
             ctx.request_repaint();

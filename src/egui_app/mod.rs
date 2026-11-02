@@ -17,6 +17,7 @@ mod files;
 mod filters;
 mod i18n;
 mod loader;
+mod profiles;
 mod theme;
 mod thumbs;
 mod watch;
@@ -144,6 +145,8 @@ pub struct HoramaApp {
     view: ViewState,
     /// The info panel (histogram and metadata) on the right.
     show_info: bool,
+    /// Color profiles chosen by the user, by [`crate::config::path_key`].
+    profile_overrides: HashMap<String, String>,
     notice: Option<files::Notice>,
     rename: Option<files::RenameDialog>,
     quality: Option<files::QualityDialog>,
@@ -153,18 +156,18 @@ pub struct HoramaApp {
 impl HoramaApp {
     /// Creates the interface; `ctx` is kept so worker threads can ask for a repaint.
     pub fn new(ctx: egui::Context) -> Self {
-        let settings = AppSettings::load();
+        let mut settings = AppSettings::load();
         ctx.set_theme(theme::preference(settings.theme));
         i18n::set_language(&settings.language);
         let (tx, rx) = channel();
-        let color = ColorManager::new();
+        let mut color = ColorManager::new();
+        profiles::register_saved(&mut color, &mut settings);
         let (thumb_tx, thumb_rx) = channel();
         let repaint = ctx.clone();
         let thumb_loader =
             ThumbnailLoader::start(color.clone(), thumb_tx, move || repaint.request_repaint());
         let preloader = PreloadController::new();
-        let image_loader =
-            ImageLoader::start(preloader.loader(), color.clone(), tx.clone(), ctx.clone());
+        let image_loader = ImageLoader::start(preloader.loader(), tx.clone(), ctx.clone());
         HoramaApp {
             ctx,
             color,
@@ -204,6 +207,7 @@ impl HoramaApp {
                 fit: true,
             },
             show_info: true,
+            profile_overrides: HashMap::new(),
             notice: None,
             rename: None,
             quality: None,
@@ -300,6 +304,7 @@ impl HoramaApp {
             let cache = self.preloader.cache.lock().ok();
             let facts = filters::Facts {
                 settings: &self.settings,
+                overrides: &self.profile_overrides,
                 aspects: &self.aspects,
                 cache: cache.as_deref(),
             };
@@ -393,7 +398,13 @@ impl HoramaApp {
     fn load(&mut self, path: String) {
         self.load_generation += 1;
         self.loading = Some(path.clone());
-        self.image_loader.request(self.load_generation, path);
+        self.image_loader.request(loader::LoadJob {
+            generation: self.load_generation,
+            profile: self.profile_of(&path),
+            color: self.color.clone(),
+            edited: None,
+            path,
+        });
     }
 
     /// Applies the results the workers sent since the last frame.
@@ -467,6 +478,9 @@ impl HoramaApp {
                         ..TextureOptions::LINEAR
                     };
                     let texture = self.ctx.load_texture(path.clone(), image, options);
+                    // The same image again (another profile, a file changed on disk) keeps
+                    // the zoom and position.
+                    let same = self.shown.as_ref().map(|s| s.path == path).unwrap_or(false);
                     let histogram =
                         self.ctx
                             .load_texture("histogram", info.histogram, TextureOptions::LINEAR);
@@ -479,8 +493,10 @@ impl HoramaApp {
                         histogram,
                     });
                     self.loading = None;
-                    self.view.fit = true;
-                    self.view.pan = Vec2::ZERO;
+                    if !same {
+                        self.view.fit = true;
+                        self.view.pan = Vec2::ZERO;
+                    }
                 }
                 Msg::Failed {
                     generation,
@@ -613,6 +629,8 @@ impl HoramaApp {
             });
             ui.menu_button(tr("Image"), |ui| {
                 let has_image = self.current.is_some();
+                self.profile_menu(ui);
+                ui.separator();
                 if ui
                     .add_enabled(
                         has_image,
@@ -737,9 +755,13 @@ impl HoramaApp {
                 i.key_pressed(Key::F2),
                 i.key_pressed(Key::R) && !i.modifiers.any(),
                 i.key_pressed(Key::L) && !i.modifiers.any(),
+                i.key_pressed(Key::P) && !i.modifiers.any(),
             )
         });
-        let (undo, save_as, delete, rename, rotate_right, rotate_left) = commands;
+        let (undo, save_as, delete, rename, rotate_right, rotate_left, cycle) = commands;
+        if cycle && self.current.is_some() {
+            self.cycle_profile();
+        }
         if undo && !self.undo_trash() {
             self.status = tr("Nothing to undo.").to_string();
         }

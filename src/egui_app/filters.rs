@@ -50,6 +50,8 @@ const PROFILES: [(&str, &str); 7] = [
 /// What the filters know about a file in the egui interface.
 pub(super) struct Facts<'a> {
     pub settings: &'a AppSettings,
+    /// Profiles chosen by the user, by path key.
+    pub overrides: &'a HashMap<String, String>,
     /// Long side / short side measured so far (NaN = unreadable).
     pub aspects: &'a HashMap<String, f32>,
     /// Decoded images in the RAM cache, for their size and embedded profile.
@@ -63,8 +65,8 @@ impl FileFacts for Facts<'_> {
     fn is_cropped(&self, _path: &str) -> bool {
         false // no editing in the egui interface yet
     }
-    fn has_profile_override(&self, _path: &str) -> bool {
-        false
+    fn has_profile_override(&self, path: &str) -> bool {
+        self.overrides.contains_key(&crate::config::path_key(path))
     }
     fn aspect_ratio(&self, path: &str) -> Option<f32> {
         if let Some(r) = self.aspects.get(path) {

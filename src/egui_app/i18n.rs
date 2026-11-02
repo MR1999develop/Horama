@@ -201,6 +201,14 @@ const IT: &[(&str, &str)] = &[
     ("'{}' not saved: {}", "'{}' non salvato: {}"),
     ("Undo", "Annulla"),
     ("Close", "Chiudi"),
+    // Color profiles
+    ("Color Profile", "Profilo colore"),
+    ("Color profile: {}", "Profilo colore: {}"),
+    ("Embedded Profile", "Profilo incorporato"),
+    ("Load Custom ICC/ICM Profile", "Carica un profilo ICC/ICM personalizzato"),
+    ("Load Custom ICC/ICM Profile…", "Carica un profilo ICC/ICM personalizzato…"),
+    ("'{}' is not a valid RGB ICC profile.", "'{}' non è un profilo ICC RGB valido."),
+    ("Images with an embedded profile are converted; the others get it assigned.", "Le immagini con un profilo incorporato vengono convertite, alle altre viene assegnato."),
 ];
 
 #[cfg(test)]
@@ -248,6 +256,8 @@ mod tests {
             include_str!("mod.rs"),
             include_str!("filters.rs"),
             include_str!("files.rs"),
+            include_str!("profiles.rs"),
+            include_str!("watch.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

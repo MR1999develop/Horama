@@ -612,16 +612,21 @@ mod tests {
 
     #[test]
     fn a_box_moved_or_too_large_stays_inside_the_image() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
         let r = keep_inside(Rect::from_min_size(
             Pos2::new(0.8, -0.1),
             Vec2::new(0.5, 0.3),
         ));
-        assert_eq!(r.min, Pos2::new(0.5, 0.0));
-        assert_eq!(r.size(), Vec2::new(0.5, 0.3));
+        assert!(close(r.min.x, 0.5) && close(r.min.y, 0.0), "{:?}", r);
+        assert!(close(r.width(), 0.5) && close(r.height(), 0.3), "{:?}", r);
         let big = keep_inside(Rect::from_min_size(
             Pos2::new(-0.2, 0.0),
             Vec2::new(1.4, 0.5),
         ));
-        assert_eq!((big.min.x, big.width()), (0.0, 1.0));
+        assert!(
+            close(big.min.x, 0.0) && close(big.width(), 1.0),
+            "{:?}",
+            big
+        );
     }
 }

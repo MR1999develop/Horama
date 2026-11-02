@@ -97,6 +97,16 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 
 ---
 
+## Nuova interfaccia egui (anteprima)
+
+È in costruzione una nuova interfaccia basata su [egui](https://github.com/emilk/egui), accanto a quella attuale in Slint. Le due interfacce condividono la libreria del programma (decodifica, gestione colore, file, filtri e selezione, geometria della vista).
+
+```
+cargo run --release --bin horama-egui
+```
+
+In questa prima fase apre una cartella (menu, riga di comando o trascinamento), mostra l'elenco delle immagini con ricerca e selezione multipla, e visualizza l'immagine corrente con gestione colore, "adatta alla finestra", 100%, zoom sul cursore e spostamento. Valutazioni, modifiche, metadati e gli altri strumenti arriveranno nelle fasi successive.
+
 ## File di log
 
 Horama scrive un file di log, utile per capire un problema anche nella versione release (che non ha console):

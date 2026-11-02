@@ -439,6 +439,12 @@ pub struct RenderedPixels {
     pub info: ColorTransformInfo,
 }
 
+impl Default for ColorManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ColorManager {
     pub fn new() -> Self {
         let mut icc_bytes_map = HashMap::new();

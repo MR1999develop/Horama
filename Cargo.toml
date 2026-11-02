@@ -5,6 +5,8 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Horama - color-managed RAW and image viewer built with Rust and Slint"
 authors = ["Horama Contributors"]
+# `cargo run` keeps starting the current (Slint) interface; the egui one is `--bin horama-egui`.
+default-run = "horama"
 
 [dependencies]
 # unstable-winit-030: files dropped from the file manager arrive only as winit events.
@@ -26,6 +28,10 @@ serde_json = "1.0"
 dirs = "5.0"
 crossbeam-channel = "0.5"
 log = "0.4"
+# New interface (program horama-egui), under construction next to the Slint one.
+# glow (OpenGL) instead of the default wgpu: shares glutin with Slint and builds much faster.
+egui = "0.36"
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11", "winit/default"] }
 notify = "6.1"
 
 [build-dependencies]

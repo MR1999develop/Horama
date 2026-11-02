@@ -1,44 +1,28 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod browse;
-mod cache_manager;
-mod color_manager;
-mod config;
-mod cr3_parser;
-mod disk_ops;
-mod exif_orient;
 mod file_drop;
-mod file_watcher;
-mod image_loader;
-mod image_saver;
-mod logging;
-mod mcp_server;
-mod metadata;
-mod open_with;
 mod pyramid;
-mod rename;
-mod view;
 
-use mcp_server::{run_mcp_stdio_server, McpCommand};
+use horama::mcp_server::{run_mcp_stdio_server, McpCommand};
 use serde_json::{json, Value};
 
 slint::include_modules!();
 
-use crate::browse::{
+use horama::browse::{
     dir_prefix_key, file_name_of, parse_aspect_ratio_str, ClickMods, FileFacts, Filters,
 };
-use crate::cache_manager::{PreloadController, PreloadLoader};
-use crate::color_manager::{rgb_to_hsl, ColorManager, ColorTransformInfo};
-use crate::config::{
+use horama::cache_manager::{PreloadController, PreloadLoader};
+use horama::color_manager::{rgb_to_hsl, ColorManager, ColorTransformInfo};
+use horama::config::{
     normalize_path, path_key, same_path, scan_folder_and_subfolders, AppSettings, APP_NAME,
     BUILTIN_PROFILES, DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED, PROFILE_LOAD_CUSTOM,
 };
-use crate::disk_ops::{DiskQueue, RotationOutcome};
-use crate::image_loader::{load_thumbnail_rgba, DecodedImage};
-use crate::image_saver::{build_export_exif, generate_next_sequential_path, save_image_with_icc};
-use crate::metadata::{extract_metadata, render_histogram_rgba};
+use horama::disk_ops::{DiskQueue, RotationOutcome};
+use horama::image_loader::{load_thumbnail_rgba, DecodedImage};
+use horama::image_saver::{build_export_exif, generate_next_sequential_path, save_image_with_icc};
+use horama::metadata::{extract_metadata, render_histogram_rgba};
 #[cfg(test)]
-use crate::rename::compute_batch_rename_plan;
+use horama::rename::compute_batch_rename_plan;
 use slint::{
     Color, ComponentHandle, Image, Model, ModelRc, Rgb8Pixel, Rgba8Pixel, SharedPixelBuffer,
     SharedString, VecModel,
@@ -381,7 +365,7 @@ struct ViewerState {
     zoom_factor: f32,
     pan_x: f32,
     pan_y: f32,
-    folder_watcher: Option<crate::file_watcher::FolderWatcher>,
+    folder_watcher: Option<horama::file_watcher::FolderWatcher>,
     expanded_folders: HashSet<String>,
     filter_search_text: String,
     filter_rating: i32,
@@ -921,7 +905,7 @@ fn handle_filmstrip_click(
     };
     let len = state.visible_files.len();
     let current = state.current_index;
-    let show = crate::browse::apply_click(
+    let show = horama::browse::apply_click(
         &mut state.selected_indices,
         &mut state.selection_anchor,
         current,
@@ -1271,12 +1255,12 @@ fn calculate_fit_zoom(ui: &AppWindow, img_width: u32, img_height: u32) -> f32 {
         };
         ((w - 530.0).max(400.0), (h - 252.0).max(300.0))
     };
-    crate::view::fit_zoom(vw, vh, img_width, img_height, scale)
+    horama::view::fit_zoom(vw, vh, img_width, img_height, scale)
 }
 
 /// Image pixels per logical (UI) pixel.
 fn view_zoom(state: &ViewerState) -> f32 {
-    crate::view::logical_zoom(state.zoom_factor, state.display_scale)
+    horama::view::logical_zoom(state.zoom_factor, state.display_scale)
 }
 
 /// Keeps the UI's display scale in sync with the window (moving between monitors).
@@ -1333,7 +1317,7 @@ fn refresh_thumbnail_from_memory(
     img: &DecodedImage,
 ) {
     if let Some((tw, th, rgba)) =
-        crate::image_loader::create_thumbnail_from_decoded(img, Some(&state.color_manager))
+        horama::image_loader::create_thumbnail_from_decoded(img, Some(&state.color_manager))
     {
         let idx = state.visible_files.iter().position(|f| f == path);
         set_thumbnail_for_path(
@@ -1707,7 +1691,7 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
     // 2. Persist losslessly (serial queue: rotations of the same file never interleave).
     // Checks needing the disk (file still there, animation) run in the queue, not here.
     let p = PathBuf::from(path);
-    if !crate::disk_ops::rotation_format_supported(&p) {
+    if !horama::disk_ops::rotation_format_supported(&p) {
         ui.set_status_file_text(
             format!(
                 "Rotation shown only: '{}' files are never modified (RAW/unsupported format).",
@@ -1728,7 +1712,7 @@ fn rotate_path(ui: &AppWindow, state: &mut ViewerState, path: &str, cw: bool, re
     ui.set_status_file_text(format!("Saving rotation of {}…", name).into());
     *state.pending_rotations.entry(path.to_string()).or_insert(0) += 1;
     state.disk.submit(move || {
-        let result = crate::disk_ops::persist_rotation(&p, turns);
+        let result = horama::disk_ops::persist_rotation(&p, turns);
         post_to_ui(ui_w, st_w, move |ui, st| {
             let left = match st.pending_rotations.get_mut(&path_owned) {
                 Some(c) => {
@@ -2063,7 +2047,7 @@ fn set_ratings(
 }
 
 fn cycle_color_profile(ui: &AppWindow, state: &mut ViewerState) {
-    let mut profiles: Vec<String> = crate::config::BUILTIN_PROFILES
+    let mut profiles: Vec<String> = horama::config::BUILTIN_PROFILES
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -2076,7 +2060,7 @@ fn cycle_color_profile(ui: &AppWindow, state: &mut ViewerState) {
         .map(|d| d.embedded_icc.is_some())
         .unwrap_or(false);
     if !has_embedded {
-        profiles.retain(|p| p != crate::config::PROFILE_EMBEDDED);
+        profiles.retain(|p| p != horama::config::PROFILE_EMBEDDED);
     }
     if profiles.is_empty() {
         return;
@@ -2235,7 +2219,7 @@ fn get_image_aspect_ratio_norm(state: &ViewerState, path: &str) -> Option<f32> {
     ratio_of(dec.width, dec.height)
 }
 
-/// The application state as seen by the filters of [`crate::browse`].
+/// The application state as seen by the filters of [`horama::browse`].
 struct StateFacts<'a>(&'a ViewerState);
 
 impl FileFacts for StateFacts<'_> {
@@ -2309,7 +2293,7 @@ fn start_aspect_ratio_job(ui: &AppWindow, state: &mut ViewerState, pending: Vec<
                             break;
                         }
                         let p = &pending[i];
-                        let r = crate::image_loader::probe_dimensions(Path::new(p))
+                        let r = horama::image_loader::probe_dimensions(Path::new(p))
                             .filter(|(w, h)| *w > 0 && *h > 0)
                             .map(|(w, h)| w.max(h) as f32 / w.min(h) as f32)
                             .unwrap_or(f32::NAN); // NaN = unknown: excluded from ratio filters
@@ -2381,7 +2365,7 @@ fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
         cropped_only: state.filter_is_cropped,
         profile_modified_only: state.filter_is_profile_modified,
     };
-    let filtered = crate::browse::filter_files(
+    let filtered = horama::browse::filter_files(
         &state.all_folder_files,
         &root_norm,
         &filters,
@@ -2397,7 +2381,7 @@ fn apply_tree_filter_and_populate(ui: &AppWindow, state: &mut ViewerState) {
 
     // Keep the current image selected if it is still visible.
     let new_index =
-        crate::browse::index_after_refilter(previous_file.as_deref(), &state.visible_files);
+        horama::browse::index_after_refilter(previous_file.as_deref(), &state.visible_files);
 
     let mut film_items = Vec::with_capacity(state.visible_files.len());
     for (i, fpath) in state.visible_files.iter().enumerate() {
@@ -2500,7 +2484,7 @@ fn spawn_filmstrip_thumbnail_loader(ui: &AppWindow, state: &mut ViewerState) {
             let Some(&idx) = order.get(i) else { return };
             let path = &files[idx];
             let thumb = match edits.get(path) {
-                Some(edit) => crate::image_loader::create_thumbnail_from_decoded(edit, Some(&cm)),
+                Some(edit) => horama::image_loader::create_thumbnail_from_decoded(edit, Some(&cm)),
                 None => load_thumbnail_rgba(Path::new(path), Some(&cm)),
             };
             if gen_arc.load(Ordering::SeqCst) != gen {
@@ -2698,9 +2682,9 @@ fn is_known_folder(state: &ViewerState, path: &str) -> bool {
 fn handle_filesystem_sync(
     ui: &AppWindow,
     state: &mut ViewerState,
-    actions: Vec<crate::file_watcher::FileSyncAction>,
+    actions: Vec<horama::file_watcher::FileSyncAction>,
 ) {
-    use crate::file_watcher::FileSyncAction;
+    use horama::file_watcher::FileSyncAction;
     let model = ui.get_filmstrip_items();
     let Some(vm) = model.as_any().downcast_ref::<VecModel<FilmstripItemData>>() else {
         return;
@@ -2849,7 +2833,7 @@ fn handle_filesystem_sync(
             FileSyncAction::Modified(modified_path) => {
                 let norm_mod = normalize_path(&modified_path);
                 if !Path::new(&norm_mod).exists()
-                    || crate::disk_ops::is_recent_self_write(Path::new(&norm_mod))
+                    || horama::disk_ops::is_recent_self_write(Path::new(&norm_mod))
                 {
                     // Our own write (rotation / save): memory is already up to date.
                     continue;
@@ -3003,7 +2987,7 @@ fn start_folder_watcher(state: &mut ViewerState, folder: &str) {
     let Some((ui_w, st_w)) = weak_handles(state) else {
         return;
     };
-    match crate::file_watcher::FolderWatcher::start(folder, move |actions| {
+    match horama::file_watcher::FolderWatcher::start(folder, move |actions| {
         post_to_ui(ui_w.clone(), st_w.clone(), move |ui, st| {
             handle_filesystem_sync(ui, st, actions)
         });
@@ -3039,7 +3023,7 @@ fn open_external_path(ui: &AppWindow, st: &mut ViewerState, path: &str) {
             true,
             NoticeAction::None,
         );
-    } else if !crate::config::is_supported_file(p) {
+    } else if !horama::config::is_supported_file(p) {
         show_notice(
             ui,
             st,
@@ -3135,7 +3119,7 @@ fn open_dropped_paths(ui: &AppWindow, st: &mut ViewerState, paths: Vec<PathBuf>)
     }
     let images: Vec<String> = paths
         .iter()
-        .filter(|p| Path::new(p).is_file() && crate::config::is_supported_file(Path::new(p)))
+        .filter(|p| Path::new(p).is_file() && horama::config::is_supported_file(Path::new(p)))
         .map(|p| normalize_path(p))
         .collect();
     match images.len() {
@@ -3250,7 +3234,7 @@ fn viewport_to_image_coords(
     state: &ViewerState,
 ) -> Option<(u32, u32)> {
     let decoded = state.current_decoded.as_ref()?;
-    crate::view::view_to_image(
+    horama::view::view_to_image(
         (mx, my),
         (vw, vh),
         (decoded.width, decoded.height),
@@ -3417,7 +3401,7 @@ fn commit_pending_trash(ui: &AppWindow, st: &mut ViewerState) {
         let mut removed = Vec::new();
         let mut failed = Vec::new();
         for f in files {
-            match crate::disk_ops::move_to_trash(Path::new(&f)) {
+            match horama::disk_ops::move_to_trash(Path::new(&f)) {
                 Ok(()) => removed.push(f),
                 Err(e) => {
                     log::warn!("Not moved to the Recycle Bin: {}: {}", f, e);
@@ -3852,7 +3836,7 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
                 }
                 _ => rotate_current_image(ui, st, false),
             }
-            let how = if crate::disk_ops::rotation_format_supported(Path::new(&dec.path)) {
+            let how = if horama::disk_ops::rotation_format_supported(Path::new(&dec.path)) {
                 "the file is being updated losslessly (JPEG/TIFF orientation tag, lossless re-encode for PNG/WebP/BMP; animated files are left untouched)"
             } else {
                 "shown on screen only (RAW/unsupported formats are never modified)"
@@ -3882,7 +3866,7 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
             }
             "custom" => {
                 if let Some(f) = factor.filter(|f| f.is_finite() && *f > 0.0) {
-                    st.zoom_factor = crate::view::clamp_zoom(f);
+                    st.zoom_factor = horama::view::clamp_zoom(f);
                     st.is_fit_mode = false;
                     update_zoom_ui(ui, st);
                     let _ = resp.send(Ok(format!("Zoom set to {:.0}%", st.zoom_factor * 100.0)));
@@ -3984,7 +3968,7 @@ fn handle_mcp_command(ui: &AppWindow, state_arc: &StateArc, cmd: McpCommand) {
 // ----------------------------------------------------------------------------
 
 fn main() -> Result<(), slint::PlatformError> {
-    let log_path = logging::init(APP_NAME);
+    let log_path = horama::logging::init(APP_NAME);
     log::info!(
         "{} {} (commit {}, {}) started",
         APP_NAME,
@@ -4103,7 +4087,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 .set_title("Open Images")
                 .add_filter(
                     "Supported Images & RAW",
-                    &crate::config::dialog_extensions(),
+                    &horama::config::dialog_extensions(),
                 )
                 .add_filter("All Files (*.*)", &["*"]);
             if let Some(dir) = start_dir {
@@ -4113,7 +4097,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 let file_paths: Vec<String> = files
                     .into_iter()
                     .map(|p| normalize_path(&p.to_string_lossy()))
-                    .filter(|p| crate::config::is_supported_file(Path::new(p)))
+                    .filter(|p| horama::config::is_supported_file(Path::new(p)))
                     .collect();
                 if !file_paths.is_empty() {
                     open_specific_files(&ui, &mut lock_state(&state), file_paths);
@@ -4188,14 +4172,14 @@ fn main() -> Result<(), slint::PlatformError> {
             let ext = dest.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             if ext.is_empty() {
                 dest.set_extension("jpg");
-            } else if !crate::image_saver::EXPORT_EXTENSIONS.contains(&ext.as_str()) {
+            } else if !horama::image_saver::EXPORT_EXTENSIONS.contains(&ext.as_str()) {
                 show_notice(
                     &ui,
                     &mut lock_state(&state),
                     &format!(
                         "Not saved: '.{}' is not a supported export format. Use one of: {}.",
                         ext,
-                        crate::image_saver::EXPORT_EXTENSIONS.join(", ")
+                        horama::image_saver::EXPORT_EXTENSIONS.join(", ")
                     ),
                     true,
                     NoticeAction::None,
@@ -4329,7 +4313,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
             st.is_fit_mode = false;
-            st.zoom_factor = crate::view::clamp_zoom(st.zoom_factor * crate::view::ZOOM_STEP);
+            st.zoom_factor = horama::view::clamp_zoom(st.zoom_factor * horama::view::ZOOM_STEP);
             update_zoom_ui(&ui, &st);
         });
     }
@@ -4340,7 +4324,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
             st.is_fit_mode = false;
-            st.zoom_factor = crate::view::clamp_zoom(st.zoom_factor / crate::view::ZOOM_STEP);
+            st.zoom_factor = horama::view::clamp_zoom(st.zoom_factor / horama::view::ZOOM_STEP);
             update_zoom_ui(&ui, &st);
         });
     }
@@ -4382,7 +4366,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             let mut st = lock_state(&state);
             st.is_fit_mode = false;
-            st.zoom_factor = crate::view::clamp_zoom(factor);
+            st.zoom_factor = horama::view::clamp_zoom(factor);
             update_zoom_ui(&ui, &st);
         });
     }
@@ -4464,7 +4448,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_weak = ui.as_weak();
         ui.on_request_open_with_apps(move |file_path| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            let handlers = crate::open_with::get_handlers_for_file(file_path.as_str());
+            let handlers = horama::open_with::get_handlers_for_file(file_path.as_str());
             let items: Vec<OpenWithAppItem> = handlers
                 .into_iter()
                 .map(|h| {
@@ -4490,13 +4474,13 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_weak = ui.as_weak();
         ui.on_open_with_app_clicked(move |app_id, file_path| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            if let Err(e) = crate::open_with::launch_handler(file_path.as_str(), app_id) {
+            if let Err(e) = horama::open_with::launch_handler(file_path.as_str(), app_id) {
                 ui.set_status_file_text(format!("Failed to open in app: {}", e).into());
             }
         });
     }
     ui.on_open_with_dialog_clicked(move |file_path| {
-        crate::open_with::launch_open_with_dialog(file_path.as_str());
+        horama::open_with::launch_open_with_dialog(file_path.as_str());
     });
     ui.on_open_containing_folder_explorer(move |file_path| {
         reveal_in_file_manager(file_path.as_str())
@@ -4626,7 +4610,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_rename_dialog_visible(false);
                 return;
             }
-            let plan = match crate::rename::compute_batch_rename_plan(&files, new_name.as_str()) {
+            let plan = match horama::rename::compute_batch_rename_plan(&files, new_name.as_str()) {
                 Ok(p) => p,
                 Err(err_msg) => {
                     ui.set_rename_error_text(err_msg.into());
@@ -4644,7 +4628,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 );
                 return;
             }
-            if let Err(e) = crate::rename::execute_batch_rename(&plan) {
+            if let Err(e) = horama::rename::execute_batch_rename(&plan) {
                 ui.set_rename_error_text(e.into());
                 return;
             }
@@ -5086,7 +5070,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_reset_shortcuts_to_default(move || {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            st.settings.shortcuts = crate::config::default_shortcuts();
+            st.settings.shortcuts = horama::config::default_shortcuts();
             st.settings.save();
             populate_shortcuts_ui(&ui, &st.settings);
         });
@@ -5164,9 +5148,9 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_canvas_wheel(move |delta_y, mx, my, vw, vh| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = lock_state(&state);
-            let step = crate::view::WHEEL_STEP;
+            let step = horama::view::WHEEL_STEP;
             let factor = if delta_y > 0.0 { step } else { 1.0 / step };
-            let (zoom, pan) = crate::view::zoom_at_cursor(
+            let (zoom, pan) = horama::view::zoom_at_cursor(
                 st.zoom_factor,
                 (st.pan_x, st.pan_y),
                 factor,
@@ -5356,7 +5340,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         last_center = Some(center);
                         std::thread::spawn(move || {
                             let profile =
-                                crate::color_manager::detect_display_profile(Some(center));
+                                horama::color_manager::detect_display_profile(Some(center));
                             post_to_ui(ui_w, st_w, move |ui, st| {
                                 st.display_probe_running = false;
                                 if st.color_manager.set_display_profile(profile) {
@@ -5437,8 +5421,8 @@ fn main() -> Result<(), slint::PlatformError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::color_manager::extract_icc_description;
-    use crate::config::{PROFILE_ADOBE_RGB, PROFILE_PROPHOTO, PROFILE_SRGB};
+    use horama::color_manager::extract_icc_description;
+    use horama::config::{PROFILE_ADOBE_RGB, PROFILE_PROPHOTO, PROFILE_SRGB};
 
     #[test]
     fn rename_plan_is_reexported_for_ui() {

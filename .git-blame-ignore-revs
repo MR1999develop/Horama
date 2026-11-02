@@ -2,3 +2,5 @@
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
 # tidy: apply rustfmt to the whole code base
 ab627b871e204ab3f2d16f00dbe0a54209e04002
+# rustfmt with the 2024 style edition
+6ea21a79f9b0e33062678481e7a92387cebef6b6

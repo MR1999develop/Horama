@@ -105,7 +105,19 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 cargo run --release --bin horama-egui
 ```
 
-Per ora apre una cartella (menu, riga di comando o trascinamento), mostra l'albero delle cartelle e la filmstrip con le miniature, con ricerca e selezione multipla, visualizza l'immagine corrente con gestione colore, "adatta alla finestra", 100% (Ctrl+1), zoom sul cursore e spostamento, e precarica le immagini vicine. Le valutazioni si danno con i tasti 0–5 o con le stelle nella barra di stato; i filtri (stelle, formato, proporzioni, profilo colore) sono nel pannello a sinistra. Modifiche, metadati e gli altri strumenti arriveranno nelle fasi successive.
+Le release contengono anche `horama-egui` (`horama-egui.exe` su Windows). Per ora:
+
+- apre una cartella (menu, cartelle recenti, riga di comando o trascinamento), con l'albero delle cartelle e la filmstrip delle miniature, ricerca e selezione multipla;
+- mostra l'immagine con gestione colore, "adatta alla finestra" (F), 100% (Ctrl+1), zoom sul cursore e spostamento; oltre il 100% i pixel si vedono netti;
+- precarica le immagini vicine; un solo caricamento alla volta, così scorrendo veloce si decodifica solo l'immagine su cui ci si ferma;
+- valutazioni con i tasti 0–5 o con le stelle nella barra di stato, e tutti i filtri (stelle, formato, proporzioni, profilo colore) nel pannello a sinistra;
+- pannello informazioni con istogramma e metadati (I);
+- rotazione senza perdita (R / L), Cestino senza conferma con Annulla per 8 secondi (Canc, Ctrl+Z), rinomina di uno o più file (F2), salvataggio di una copia con la scelta della qualità JPEG (Ctrl+Maiusc+S);
+- tema Sistema / Chiaro / Scuro e lingua italiana o inglese (menu Visualizza); nomi e stati dei controlli per i lettori di schermo.
+
+Mancano ancora, rispetto all'interfaccia Slint: ritaglio e cronologia Annulla/Ripeti delle modifiche, scelta e conversione del profilo colore, profili personalizzati, confronto di più immagini, server MCP, aggiornamento automatico della cartella, editor delle scorciatoie.
+
+Le valutazioni sono salvate nel file `ratings.jsonl`, accanto a `settings.json` nella cartella delle impostazioni, e sono condivise dalle due interfacce. Alla prima apertura le valutazioni salvate dalle versioni precedenti dentro `settings.json` vengono spostate lì; una copia del file com'era resta in `settings.json.before-ratings`.
 
 ## File di log
 

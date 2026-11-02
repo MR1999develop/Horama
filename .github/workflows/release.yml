@@ -19,16 +19,10 @@ jobs:
         include:
           - os: windows-latest
             artifact_name: horama-windows-x64.zip
-            binary_name: horama.exe
-            target_path: target/release/horama.exe
           - os: ubuntu-latest
             artifact_name: horama-ubuntu-x64.tar.gz
-            binary_name: horama
-            target_path: target/release/horama
           - os: macos-latest
             artifact_name: horama-macos.tar.gz
-            binary_name: horama
-            target_path: target/release/horama
 
     steps:
       - name: Checkout repository
@@ -43,8 +37,16 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build Optimized Release Binary
-        run: cargo build --release
+      # Both programs: horama (Slint, the current interface) and horama-egui (the new one,
+      # in preview). Build paths are replaced by short names so that no folder of the build
+      # machine ends up inside the executables.
+      - name: Build Optimized Release Binaries
+        shell: bash
+        run: |
+          CARGO_DIR="${CARGO_HOME:-$HOME/.cargo}"
+          if [ "$RUNNER_OS" = "Windows" ]; then CARGO_DIR="$(cygpath -w "$CARGO_DIR")"; fi
+          export RUSTFLAGS="--remap-path-prefix=$GITHUB_WORKSPACE=horama --remap-path-prefix=$CARGO_DIR=cargo"
+          cargo build --release --bins
 
       - name: Package Windows Artifact
         if: runner.os == 'Windows'
@@ -52,6 +54,7 @@ jobs:
         run: |
           mkdir staging
           Copy-Item target/release/horama.exe staging/
+          Copy-Item target/release/horama-egui.exe staging/
           Copy-Item LICENSE staging/
           Copy-Item README.md staging/
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.artifact_name }}
@@ -61,6 +64,7 @@ jobs:
         run: |
           mkdir staging
           cp target/release/horama staging/
+          cp target/release/horama-egui staging/
           cp LICENSE staging/
           cp README.md staging/
           tar -czvf ${{ matrix.artifact_name }} -C staging .
@@ -70,6 +74,7 @@ jobs:
         run: |
           mkdir staging
           cp target/release/horama staging/
+          cp target/release/horama-egui staging/
           cp LICENSE staging/
           cp README.md staging/
           tar -czvf ${{ matrix.artifact_name }} -C staging .

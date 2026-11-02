@@ -118,7 +118,8 @@ L'interfaccia egui fa tutto quello che faceva quella Slint:
 - confronto fino a nove immagini selezionate, affiancate;
 - rotazione senza perdita (R / L; i RAW e i formati che non si possono riscrivere senza perdita ruotano solo a schermo), Cestino senza conferma con Annulla per 8 secondi (Canc), rinomina di uno o più file (F2), "Salva una copia come" con la scelta della qualità JPEG (Ctrl+Maiusc+S), "Apri con" dal menu del tasto destro sulla filmstrip;
 - scorciatoie personalizzabili (Visualizza > Scorciatoie da tastiera, condivise con Slint), F6 per passare da un pannello all'altro;
-- tema Sistema / Chiaro / Scuro e lingua italiana o inglese (menu Visualizza); nomi e stati dei controlli per i lettori di schermo;
+- barra degli strumenti come nell'interfaccia Slint, con blocco dello zoom e del profilo colore;
+- aspetto uniforme a Windows 11: colori di Windows 11, Segoe UI e icone di sistema; tema Sistema / Chiaro / Scuro e lingua italiana o inglese in File > Preferenze (Ctrl+,); menu Aiuto con scorciatoie e informazioni; nomi e stati dei controlli per i lettori di schermo;
 - server MCP (`horama --mcp`) con gli stessi strumenti di Slint.
 
 Le valutazioni sono salvate nel file `ratings.jsonl`, accanto a `settings.json` nella cartella delle impostazioni, e sono condivise dalle due interfacce. Alla prima apertura le valutazioni salvate dalle versioni precedenti dentro `settings.json` vengono spostate lì; una copia del file com'era resta in `settings.json.before-ratings`.

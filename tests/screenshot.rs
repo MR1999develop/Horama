@@ -19,9 +19,14 @@ fn window_in_both_themes() {
     let (config, photos) = (base.join("config"), base.join("Photos"));
     std::fs::create_dir_all(config.join("Horama")).unwrap();
     std::fs::create_dir_all(photos.join("Trip")).unwrap();
-    for (i, name) in ["sunset.jpg", "harbour.jpg", "Trip/hills.jpg", "Trip/lake.jpg"]
-        .iter()
-        .enumerate()
+    for (i, name) in [
+        "sunset.jpg",
+        "harbour.jpg",
+        "Trip/hills.jpg",
+        "Trip/lake.jpg",
+    ]
+    .iter()
+    .enumerate()
     {
         image::RgbImage::from_fn(600, 400, |x, y| {
             let k = i as u32 * 40;

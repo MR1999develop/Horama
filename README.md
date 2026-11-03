@@ -5,7 +5,7 @@
 [![Slint UI](https://img.shields.io/badge/GUI-Slint%20v1.9-purple.svg)](https://slint.dev/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
-**Horama** (dal greco ὅραμα, "ciò che si vede"; in precedenza *Horama*) è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** e **Slint UI**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
+**Horama** (dal greco ὅραμα, "ciò che si vede") è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** e **Slint UI**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
 
 ---
 

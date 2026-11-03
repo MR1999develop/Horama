@@ -4,8 +4,10 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+/// The top-level `uuid` box of a CR3 that holds the PRVW box (a JPEG of about 1620×1080),
+/// after 8 bytes of its own.
 const CANON_PRVW_UUID: [u8; 16] = [
-    0x85, 0xc0, 0xb6, 0x87, 0x82, 0x0f, 0x11, 0xe0, 0x81, 0x11, 0xf4, 0xce, 0x46, 0x2b, 0x02, 0x4e,
+    0xea, 0xf4, 0x2b, 0x5e, 0x1c, 0x98, 0x4b, 0x88, 0xb9, 0xfb, 0xb7, 0xdc, 0x40, 0x6e, 0x4d, 0x16,
 ];
 
 pub fn is_cr3_file(path: &Path) -> bool {
@@ -106,20 +108,10 @@ fn find_preview_in_boxes(
         if &box_type == b"uuid" && data_size >= 16 {
             let mut uuid = [0u8; 16];
             f.read_exact(&mut uuid).ok()?;
-            if uuid == CANON_PRVW_UUID && data_size >= 36 {
-                let mut prvw_hdr = [0u8; 20];
-                f.read_exact(&mut prvw_hdr).ok()?;
-                let jpeg_len = u32::from_be_bytes(prvw_hdr[16..20].try_into().ok()?) as u64;
-                if jpeg_len > 0 && jpeg_len <= data_size - 36 {
-                    let mut jpeg_bytes = vec![0u8; jpeg_len as usize];
-                    f.read_exact(&mut jpeg_bytes).ok()?;
-                    if jpeg_bytes.starts_with(&[0xFF, 0xD8]) {
-                        return Some(jpeg_bytes);
-                    }
-                }
-            }
-            if let Some(res) =
-                find_preview_in_boxes(f, data_pos + 16, data_pos + data_size, depth + 1)
+            let skip = if uuid == CANON_PRVW_UUID { 16 + 8 } else { 16 };
+            if data_size >= skip
+                && let Some(res) =
+                    find_preview_in_boxes(f, data_pos + skip, data_pos + data_size, depth + 1)
             {
                 return Some(res);
             }
@@ -253,37 +245,82 @@ pub fn jpeg_stream_end(buf: &[u8], start: usize) -> Option<usize> {
 const PREVIEW_SEARCH_LIMIT: u64 = 64 * 1024 * 1024;
 
 /// Finds embedded JPEG previews (at least 640×480) in a RAW file, largest first.
-/// At most `max` candidates are returned. For CR3 files the PRVW box is tried first.
+/// At most `max` candidates are returned.
 pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
-    extract_embedded_jpegs_within(path, max, PREVIEW_SEARCH_LIMIT)
-}
-
-/// Like [`extract_embedded_jpegs`], searching only the first `limit` bytes of the file (a
-/// preview cut by the limit is not found).
-pub fn extract_embedded_jpegs_within(path: &Path, max: usize, limit: u64) -> Vec<Vec<u8>> {
     // A RAF says where its only preview is: nothing to search.
     if let Some(raf) = extract_raf_preview(path) {
         return vec![raf];
     }
-    let mut out: Vec<Vec<u8>> = Vec::new();
-    if is_cr3_file(path)
-        && let Some(cr3) = extract_cr3_preview(path)
-    {
-        out.push(cr3);
-    }
-
-    let Ok(f) = File::open(path) else {
-        return out;
+    let Some(buf) = read_start(path, PREVIEW_SEARCH_LIMIT) else {
+        return Vec::new();
     };
-    let mut buf = Vec::new();
-    if f.take(limit.min(PREVIEW_SEARCH_LIMIT))
-        .read_to_end(&mut buf)
-        .is_err()
-    {
-        return out;
-    }
+    let mut found = scan_jpegs(&buf);
+    found.retain(|j| j.width >= 640 && j.height >= 480);
+    found.sort_by_key(|j| std::cmp::Reverse(j.pixels()));
+    found
+        .into_iter()
+        .take(max)
+        .map(|j| buf[j.start..j.end].to_vec())
+        .collect()
+}
 
-    let mut found: Vec<(u64, usize, usize)> = Vec::new();
+/// The smallest embedded JPEG preview of a RAW file with at least `long`×`short` pixels (in
+/// either orientation): what a thumbnail needs, decoded many times faster than the full-size
+/// preview. The CR3 PRVW box and the RAF preview are read directly; otherwise the start of the
+/// file is searched, then more of it only if nothing large enough turns up.
+pub fn extract_preview_at_least(path: &Path, long: u32, short: u32) -> Option<Vec<u8>> {
+    if let Some(raf) = extract_raf_preview(path) {
+        return Some(raf);
+    }
+    if is_cr3_file(path)
+        && let Some(prvw) = extract_cr3_preview(path)
+    {
+        return Some(prvw);
+    }
+    for limit in [1024 * 1024, 16 * 1024 * 1024, PREVIEW_SEARCH_LIMIT] {
+        let buf = read_start(path, limit)?;
+        let smallest = scan_jpegs(&buf)
+            .into_iter()
+            .filter(|j| j.width.max(j.height) >= long && j.width.min(j.height) >= short)
+            .min_by_key(|j| j.pixels());
+        if let Some(j) = smallest {
+            return Some(buf[j.start..j.end].to_vec());
+        }
+        if (buf.len() as u64) < limit {
+            break; // the whole file was searched
+        }
+    }
+    None
+}
+
+/// The first `limit` bytes of a file (at most [`PREVIEW_SEARCH_LIMIT`]).
+fn read_start(path: &Path, limit: u64) -> Option<Vec<u8>> {
+    let mut buf = Vec::new();
+    File::open(path)
+        .ok()?
+        .take(limit.min(PREVIEW_SEARCH_LIMIT))
+        .read_to_end(&mut buf)
+        .ok()?;
+    Some(buf)
+}
+
+/// A complete JPEG stream found in a buffer.
+struct FoundJpeg {
+    width: u32,
+    height: u32,
+    start: usize,
+    end: usize,
+}
+
+impl FoundJpeg {
+    fn pixels(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height)
+    }
+}
+
+/// Every complete JPEG stream in `buf` whose size can be read, in file order.
+fn scan_jpegs(buf: &[u8]) -> Vec<FoundJpeg> {
+    let mut found = Vec::new();
     let mut search_idx = 0;
     while search_idx + 4 < buf.len() {
         let Some(rel) = buf[search_idx..]
@@ -295,31 +332,27 @@ pub fn extract_embedded_jpegs_within(path: &Path, max: usize, limit: u64) -> Vec
         let start = search_idx + rel;
         let next_byte = buf.get(start + 3).copied().unwrap_or(0);
         if matches!(next_byte, 0xE0 | 0xE1 | 0xE2 | 0xDB | 0xEE | 0xC0 | 0xC4)
-            && let Some(end) = jpeg_stream_end(&buf, start)
+            && let Some(end) = jpeg_stream_end(buf, start)
         {
             let candidate = &buf[start..end];
-            if let Some((w, h)) = image::ImageReader::new(std::io::Cursor::new(candidate))
+            if let Some((width, height)) = image::ImageReader::new(std::io::Cursor::new(candidate))
                 .with_guessed_format()
                 .ok()
                 .and_then(|r| r.into_dimensions().ok())
-                && w >= 640
-                && h >= 480
             {
-                found.push((w as u64 * h as u64, start, end));
+                found.push(FoundJpeg {
+                    width,
+                    height,
+                    start,
+                    end,
+                });
             }
             search_idx = end;
             continue;
         }
         search_idx = start + 3;
     }
-    found.sort_by_key(|f| std::cmp::Reverse(f.0));
-    for (_, s, e) in found {
-        if out.len() >= max {
-            break;
-        }
-        out.push(buf[s..e].to_vec());
-    }
-    out
+    found
 }
 
 /// Largest embedded JPEG preview of a RAW file (see [`extract_embedded_jpegs`]).
@@ -396,6 +429,62 @@ mod tests {
         let found = extract_embedded_jpegs(&p, 3);
         assert_eq!(found.len(), 2);
         assert_eq!(found[0], big);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An ISOBMFF box: big-endian size, type, data.
+    fn mp4_box(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut b = ((data.len() + 8) as u32).to_be_bytes().to_vec();
+        b.extend_from_slice(kind);
+        b.extend_from_slice(data);
+        b
+    }
+
+    #[test]
+    fn cr3_prvw_preview_is_found_for_the_thumbnail() {
+        let dir = std::env::temp_dir().join(format!("mriv-prvw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("fake.cr3");
+        let prvw = jpeg_bytes(400, 300);
+        let full = jpeg_bytes(1600, 1200);
+        // The layout of a Canon CR3: ftyp, moov, uuid { 8 bytes, PRVW { 16 bytes, JPEG } }, mdat.
+        let mut prvw_data = vec![0u8; 16];
+        prvw_data.extend_from_slice(&prvw);
+        let mut uuid_data = CANON_PRVW_UUID.to_vec();
+        uuid_data.extend_from_slice(&[0u8; 8]);
+        uuid_data.extend_from_slice(&mp4_box(b"PRVW", &prvw_data));
+        let mut data = mp4_box(b"ftyp", b"crx \0\0\0\x01crx isom");
+        data.extend_from_slice(&mp4_box(b"moov", &[0u8; 40]));
+        data.extend_from_slice(&mp4_box(b"uuid", &uuid_data));
+        data.extend_from_slice(&mp4_box(b"mdat", &full));
+        std::fs::write(&p, &data).unwrap();
+        assert_eq!(extract_cr3_preview(&p), Some(prvw.clone()));
+        assert_eq!(extract_preview_at_least(&p, 280, 200), Some(prvw));
+        // The main image still comes from the full-size preview.
+        assert_eq!(extract_embedded_jpegs(&p, 1), vec![full]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn thumbnail_preview_is_the_smallest_large_enough() {
+        let dir = std::env::temp_dir().join(format!("mriv-small-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("fake.arw");
+        let portrait = jpeg_bytes(300, 400);
+        let mut data = vec![0x11u8; 2000];
+        for jpeg in [
+            jpeg_bytes(160, 120),
+            jpeg_bytes(1600, 1200),
+            portrait.clone(),
+            jpeg_bytes(640, 480),
+        ] {
+            data.extend_from_slice(&jpeg);
+            data.extend_from_slice(&[0x22u8; 500]);
+        }
+        std::fs::write(&p, &data).unwrap();
+        // 160×120 is too small; a portrait 300×400 is enough for 280×200.
+        assert_eq!(extract_preview_at_least(&p, 280, 200), Some(portrait));
+        assert_eq!(extract_preview_at_least(&p, 4000, 3000), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -130,6 +130,10 @@ const IT: &[(&str, &str)] = &[
         "Nessuna immagine supportata in questa cartella.",
     ),
     ("Cannot display {}: {}", "Impossibile mostrare {}: {}"),
+    (
+        crate::image_loader::NOT_A_RAW,
+        "il file non contiene una foto RAW: probabilmente è danneggiato o di un altro tipo",
+    ),
     ("Nothing to undo.", "Niente da annullare."),
     ("No folder open", "Nessuna cartella aperta"),
     ("Search file names", "Cerca nei nomi dei file"),

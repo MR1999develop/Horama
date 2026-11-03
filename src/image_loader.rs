@@ -2,21 +2,13 @@
 
 use crate::color_manager::{extract_icc_description, icc_color_space};
 use crate::config::{THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, is_raw_file};
-use crate::cr3_parser::{extract_embedded_jpegs, extract_embedded_jpegs_within};
+use crate::cr3_parser::{extract_embedded_jpegs, extract_preview_at_least};
 use image::{DynamicImage, ImageReader};
 use img_parts::ImageICC;
 use std::fs::{self, File};
 use std::io::{BufReader, Cursor, Read};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
-
-/// Fast EXIF thumbnail extractor (works for JPEG, TIFF, and RAW files with standard EXIF APP1/IFD1 thumbnail).
-pub fn extract_exif_thumbnail(path: &Path) -> Option<Vec<u8>> {
-    let file = File::open(path).ok()?;
-    let mut reader = BufReader::new(file);
-    let exif_data = exif::Reader::new().read_from_container(&mut reader).ok()?;
-    thumbnail_of_exif(&exif_data)
-}
 
 /// The JPEG thumbnail (IFD1) of parsed EXIF data.
 fn thumbnail_of_exif(exif_data: &exif::Exif) -> Option<Vec<u8>> {
@@ -273,16 +265,15 @@ fn read_exif_orientation_from_bytes(bytes: &[u8]) -> u32 {
 }
 
 pub fn read_exif_orientation_from_file(path: &Path) -> u32 {
-    if let Ok(file) = File::open(path) {
-        let mut reader = BufReader::new(file);
-        if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut reader)
-            && let Some(field) = exif_data.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
-            && let Some(v) = field.value.get_uint(0)
-        {
-            return v;
-        }
-    }
-    1
+    read_exif_from_start(path).map_or(1, |e| orientation_of(&e))
+}
+
+/// The EXIF orientation (1..=8), 1 when absent.
+fn orientation_of(exif_data: &exif::Exif) -> u32 {
+    exif_data
+        .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+        .and_then(|f| f.value.get_uint(0))
+        .unwrap_or(1)
 }
 
 /// Applies an EXIF orientation (1..=8) to an image.
@@ -384,6 +375,30 @@ fn raw_develop_size_ok(width: u64, height: u64, free_bytes: u64) -> Result<(), S
     Ok(())
 }
 
+/// Error of a file with a RAW extension whose content is not a RAW photo at all: a damaged
+/// file (overwritten by other data, zeroed) or another kind of file with the wrong name.
+pub const NOT_A_RAW: &str =
+    "the file does not contain a RAW photo: it is probably damaged or of another type";
+
+/// Whether the file starts like one of the RAW formats: TIFF based (CR2, NEF, ARW, DNG, RW2,
+/// ORF, PEF...), CR3, RAF, CRW, MRW or X3F.
+fn has_raw_signature(path: &Path) -> bool {
+    let mut head = [0u8; 16];
+    let Ok(mut f) = File::open(path) else {
+        return false;
+    };
+    if f.read_exact(&mut head).is_err() {
+        return false;
+    }
+    let tiff = [b"II*\0", b"MM\0*", b"IIRO", b"IIRS", b"MMOR", b"IIU\0"];
+    tiff.iter().any(|m| head.starts_with(*m))
+        || (&head[4..8] == b"ftyp" && &head[8..12] == b"crx ")
+        || head.starts_with(b"FUJIFILM")
+        || (head.starts_with(b"II\x1a\0\0\0") && &head[6..14] == b"HEAPCCDR")
+        || head.starts_with(b"\0MRM")
+        || head.starts_with(b"FOVb")
+}
+
 /// Decode a Camera RAW file using the embedded full-size preview or pure-Rust rawloader + imagepipe.
 fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String> {
     let ext = path
@@ -428,6 +443,9 @@ fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String>
 
     // 2. Full sensor demosaicing via rawloader + imagepipe: size checked before any large
     // allocation, one at a time (each needs several GB for a large sensor).
+    if !has_raw_signature(path) {
+        return Err(NOT_A_RAW.to_string());
+    }
     check_raw_develop_size(path)?;
     let _one_at_a_time = RAW_DEVELOP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let raw_image = rawloader::decode_file(path)
@@ -548,8 +566,24 @@ pub fn load_image(path: &Path) -> Result<DecodedImage, String> {
     }
 }
 
-/// Bytes of a RAW searched first for the preview of its thumbnail.
-const THUMB_PREVIEW_SEARCH: u64 = 16 * 1024 * 1024;
+/// The EXIF of a file, parsed from its first megabyte when that is enough: given the whole
+/// file, kamadak-exif reads all of a TIFF-based RAW (tens of megabytes) into memory.
+fn read_exif_from_start(path: &Path) -> Option<exif::Exif> {
+    if let Some(prefix) = read_prefix(path, 1024 * 1024) {
+        let parsed = if prefix.starts_with(b"II*\0") || prefix.starts_with(b"MM\0*") {
+            exif::Reader::new().read_raw(prefix)
+        } else {
+            exif::Reader::new().read_from_container(&mut Cursor::new(&prefix))
+        };
+        if let Ok(exif_data) = parsed {
+            return Some(exif_data);
+        }
+    }
+    let file = File::open(path).ok()?;
+    exif::Reader::new()
+        .read_from_container(&mut BufReader::new(file))
+        .ok()
+}
 
 /// Converts a decoded thumbnail to color-managed RGBA8.
 fn finish_thumbnail(
@@ -617,7 +651,8 @@ fn load_thumbnail_inner(
     path: &Path,
     cm: Option<&crate::color_manager::ColorManager>,
 ) -> Option<(u32, u32, Vec<u8>)> {
-    let file_orientation = read_exif_orientation_from_file(path);
+    let exif_data = read_exif_from_start(path);
+    let file_orientation = exif_data.as_ref().map_or(1, orientation_of);
     let is_jpeg = matches!(
         path.extension()
             .and_then(|e| e.to_str())
@@ -628,7 +663,7 @@ fn load_thumbnail_inner(
 
     // 1. Instant path: embedded EXIF thumbnail. The thumbnail JPEG has no EXIF of its own,
     //    so the orientation and ICC profile of the main file are used.
-    if let Some(thumb_bytes) = extract_exif_thumbnail(path)
+    if let Some(thumb_bytes) = exif_data.as_ref().and_then(thumbnail_of_exif)
         && let Some(img) = decode_bytes(&thumb_bytes)
     {
         let emb_icc = if is_jpeg {
@@ -655,12 +690,12 @@ fn load_thumbnail_inner(
         return Some(finish_thumbnail(apply_orientation(img, orient), icc, cm));
     }
 
-    // 3. RAW embedded preview path: the start of the file first, where previews usually are.
-    if is_raw_file(path) {
-        let mut previews = extract_embedded_jpegs_within(path, 2, THUMB_PREVIEW_SEARCH);
-        if previews.is_empty() {
-            previews = extract_embedded_jpegs(path, 2);
-        }
+    // 3. RAW: the smallest embedded preview that still gives a sharp thumbnail.
+    //    A file that is not a RAW at all (damaged) is not searched.
+    if is_raw_file(path) && has_raw_signature(path) {
+        let previews = extract_preview_at_least(path, 2 * THUMBNAIL_WIDTH, 2 * THUMBNAIL_HEIGHT)
+            .into_iter()
+            .chain(std::iter::once_with(|| extract_embedded_jpegs(path, 2)).flatten());
         for jpeg_bytes in previews {
             let Some(img) =
                 decode_jpeg_for_thumbnail(&jpeg_bytes).or_else(|| decode_bytes(&jpeg_bytes))
@@ -763,6 +798,25 @@ mod tests {
 
     fn near(a: [u8; 3], b: [u8; 3]) -> bool {
         a.iter().zip(b).all(|(x, y)| x.abs_diff(y) < 12)
+    }
+
+    #[test]
+    fn a_damaged_raw_is_reported_as_such() {
+        let dir = std::env::temp_dir().join(format!("mriv-notraw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // RAW files overwritten by zeros or by other data, as found in a real archive.
+        for (name, head) in [
+            ("zero.cr2", &[0u8; 8][..]),
+            ("movie.cr2", b"\0\0\0\x18ftypqt  "),
+        ] {
+            let p = dir.join(name);
+            let mut data = head.to_vec();
+            data.resize(100_000, 0x5A);
+            std::fs::write(&p, &data).unwrap();
+            assert_eq!(load_image(&p).err().as_deref(), Some(NOT_A_RAW), "{}", name);
+            assert!(load_thumbnail_rgba(&p, None).is_none());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

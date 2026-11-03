@@ -729,7 +729,8 @@ impl HoramaApp {
                     self.loading = None;
                     self.status = trf(
                         "Cannot display {}: {}",
-                        &[&browse::file_name_of(&path), &error],
+                        // Known loader errors (a damaged RAW) are translated.
+                        &[&browse::file_name_of(&path), &tr(&error)],
                     );
                 }
                 Msg::File(result) => self.file_result(result),

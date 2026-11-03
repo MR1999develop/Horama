@@ -5,7 +5,7 @@
 [![egui](https://img.shields.io/badge/GUI-egui%200.37-purple.svg)](https://github.com/emilk/egui)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
-**Horama** (dal greco ὅραμα, "ciò che si vede"; in precedenza *Horama*) è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** ed **egui**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
+**Horama** (dal greco ὅραμα, "ciò che si vede") è un visualizzatore di immagini e file Camera RAW ad alte prestazioni sviluppato in **Rust** ed **egui**, progettato per fotografi e professionisti dell'imaging con gestione avanzata dei profili colore ICC e interfaccia darkroom moderna.
 
 ---
 
@@ -132,10 +132,6 @@ Horama scrive un file di log, utile per capire un problema anche nella versione 
 - **macOS:** `~/Library/Application Support/Horama/logs/horama.log`
 
 La prima riga di ogni avvio riporta versione, commit e sistema operativo. Oltre 1 MB il file viene ruotato (`horama.1.log`, `horama.2.log`, `horama.3.log`; i più vecchi vengono cancellati). Il livello predefinito è `info`; la variabile d'ambiente `HORAMA_LOG` (`error`, `warn`, `info`, `debug`, `trace`) lo cambia. Il log contiene percorsi di file e cause degli errori, mai il contenuto delle immagini.
-
-## Aggiornamento da Horama
-
-Al primo avvio Horama copia le impostazioni della versione precedente (valutazioni, cartelle recenti, scorciatoie, dimensioni della finestra) dalla cartella `Horama` alla cartella `Horama` nelle impostazioni dell'utente (`%APPDATA%` su Windows, `~/.config` su Linux). I file vecchi restano dove sono. Nella configurazione MCP di Claude Desktop vanno aggiornati il nome del server (`horama`) e il percorso dell'eseguibile.
 
 ---
 

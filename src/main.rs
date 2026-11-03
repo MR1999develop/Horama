@@ -26,6 +26,7 @@ impl eframe::App for Shell {
 
 fn main() -> eframe::Result {
     let _log = horama::logging::init(APP_NAME);
+    horama::logging::log_panics();
     log::info!("{} {} started", APP_NAME, env!("CARGO_PKG_VERSION"));
     let launch = std::env::args()
         .skip(1)

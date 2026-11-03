@@ -106,6 +106,28 @@ pub fn init(app_name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+/// Writes every panic to the log, with its place and thread, before the default handling. The
+/// release build has no console: without this a panic would leave no trace. Call once, from
+/// `main`, after [`init`].
+pub fn log_panics() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let place = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_default();
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        log::error!("Panic at {}: {}", place, message);
+        log::logger().flush();
+        default_hook(info);
+    }));
+}
+
 /// `horama.log` → `horama.1.log` → … → `horama.<keep>.log`; the oldest is deleted.
 fn rotate(path: &Path, keep: u32) {
     let numbered = |n: u32| path.with_file_name(format!("{}.{}.log", LOG_FILE_STEM, n));

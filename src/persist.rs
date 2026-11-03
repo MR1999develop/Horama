@@ -5,7 +5,7 @@
 //! only the newest is written. Call [`flush`] before the program ends.
 
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -101,7 +101,15 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         fs::create_dir_all(dir)?;
     }
     let tmp = tmp_path(path);
-    let written = fs::write(&tmp, bytes).and_then(|_| fs::rename(&tmp, path));
+    // The data reaches the disk before the rename: after a crash the file is the old one or
+    // the new one, never an empty one.
+    let written = (|| {
+        let mut file = File::create(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, path)
+    })();
     if written.is_err() {
         let _ = fs::remove_file(&tmp);
     }
@@ -119,11 +127,9 @@ fn append_now(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?
-        .write_all(bytes)
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_data()
 }
 
 #[cfg(test)]

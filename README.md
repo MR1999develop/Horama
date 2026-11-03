@@ -48,7 +48,7 @@
 ## Avvio Rapido
 
 ### Prerequisiti
-- **Rust toolchain** (1.75+): [rustup.rs](https://rustup.rs/)
+- **Rust toolchain** 1.99 (la versione è fissata in `rust-toolchain.toml`): [rustup.rs](https://rustup.rs/)
 - **C Compiler (MinGW-w64 su Windows, GCC/Clang su Linux)**
 
 ### Esecuzione su Windows
@@ -68,9 +68,18 @@ horama.exe --mcp
 ```
 *(Vedi [`mcp_client_config.json`](mcp_client_config.json) per la configurazione con Claude Desktop: sostituire `C:\\path\\to\\horama.exe` con il percorso reale dell'eseguibile, ad es. `...\\target\\release\\horama.exe`).*
 
-In alternativa al flag si può impostare la variabile d'ambiente `HORAMA_MCP` (è ancora accettata la vecchia `HORAMA_MCP`).
+In alternativa al flag si può impostare la variabile d'ambiente `HORAMA_MCP`.
 
-Strumenti MCP disponibili: `open_folder`, `select_image`, `rotate_image` (rotazione lossless come sopra), `set_zoom`, `set_rating` (0–5), `filter_images` (testo, valutazione minima, formato `JPG`/`PNG`/`TIFF`/`WEBP`/`RAW`), `get_current_image_info`, `list_images`.
+Strumenti MCP disponibili: `open_folder`, `select_image`, `rotate_image` (rotazione lossless come sopra), `set_zoom`, `set_rating` (0–5), `filter_images` (testo, valutazione minima da −1 = solo senza valutazione a 5, formato `JPG`/`PNG`/`TIFF`/`WEBP`/`RAW`), `get_current_image_info`, `list_images`.
+
+Il server tratta il client come non fidato: ogni chiamata viene controllata (campi, valori, lunghezze) prima di arrivare all'interfaccia, e una chiamata non valida riceve un errore senza effetti. L'unico strumento che modifica file è `rotate_image`, senza perdita di qualità; i RAW non vengono mai modificati.
+
+### Sviluppo
+Prima di ogni merge in `main` si esegue un solo comando, lo stesso che esegue la CI:
+```powershell
+scripts\check.bat
+```
+(`scripts/check.sh` su Linux e macOS). Controlla formattazione, clippy, test, dipendenze e build di rilascio. Il controllo delle dipendenze (vulnerabilità note, licenze compatibili con GPL-3.0, sorgenti) usa `cargo-deny`, da installare una volta con `cargo install cargo-deny --locked`.
 
 ---
 
@@ -132,6 +141,12 @@ Horama scrive un file di log, utile per capire un problema anche nella versione 
 - **macOS:** `~/Library/Application Support/Horama/logs/horama.log`
 
 La prima riga di ogni avvio riporta versione, commit e sistema operativo. Oltre 1 MB il file viene ruotato (`horama.1.log`, `horama.2.log`, `horama.3.log`; i più vecchi vengono cancellati). Il livello predefinito è `info`; la variabile d'ambiente `HORAMA_LOG` (`error`, `warn`, `info`, `debug`, `trace`) lo cambia. Il log contiene percorsi di file e cause degli errori, mai il contenuto delle immagini.
+
+---
+
+## Sicurezza
+
+Le vulnerabilità si segnalano in privato, come descritto in [SECURITY.md](SECURITY.md). Le minacce considerate e i rischi accettati sono in [docs/threat-model.md](docs/threat-model.md).
 
 ---
 

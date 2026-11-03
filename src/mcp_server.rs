@@ -758,7 +758,8 @@ mod tests {
 
     #[test]
     fn valid_calls_reach_the_app_as_typed_commands() {
-        let cases: [(&str, Value, fn(&McpCommand) -> bool); 5] = [
+        type Expected = fn(&McpCommand) -> bool;
+        let cases: [(&str, Value, Expected); 5] = [
             ("rotate_image", json!({ "direction": "ccw" }), |c| {
                 matches!(
                     c,

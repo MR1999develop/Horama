@@ -187,6 +187,27 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     wait_for(&mut harness, "the saved file", |_| {
         image::image_dimensions(photos.join("renamed_1.jpg")).ok() == Some((58, 43))
     });
+    wait_for(&mut harness, "the original again", |h| shows(h, "64×48 px"));
+
+    // File > Overwrite Original writes a new crop over the file itself, after asking.
+    harness.key_press(egui::Key::C);
+    harness.step();
+    harness.key_press(egui::Key::Enter);
+    wait_for(&mut harness, "the second crop", |h| shows(h, "58×43 px"));
+    harness.get_by_label("File").click();
+    harness.run_steps(2);
+    harness.get_by_label("Overwrite Original…").click();
+    harness.run_steps(2);
+    assert_eq!(
+        image::image_dimensions(photos.join("renamed.jpg")).unwrap(),
+        (64, 48),
+        "nothing is written before the answer"
+    );
+    harness.get_by_label("Overwrite").click();
+    wait_for(&mut harness, "the overwritten original", |_| {
+        image::image_dimensions(photos.join("renamed.jpg")).ok() == Some((58, 43))
+    });
+    wait_for(&mut harness, "the notice", |h| shows(h, "overwritten"));
 
     // Shift+click in the filmstrip selects a range: the view compares the images side by
     // side; clicking one of them shows it alone.

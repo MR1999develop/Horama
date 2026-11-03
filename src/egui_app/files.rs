@@ -587,6 +587,14 @@ impl HoramaApp {
             Ok(()) => {
                 log::info!("Saved {}", dest.display());
                 self.edit_saved(&source);
+                if same_path(&dest.to_string_lossy(), &source) {
+                    self.overwritten(&source);
+                    return;
+                }
+                // The crop now lives in the copy: the original is shown as it is on disk.
+                if self.current_path().is_some_and(|c| same_path(&c, &source)) {
+                    self.reload_current();
+                }
                 self.notify(trf("Saved '{}'.", &[&name]), false);
                 // A copy saved inside the open folder joins the list.
                 let dest_s = crate::config::normalize_path(&dest.to_string_lossy());

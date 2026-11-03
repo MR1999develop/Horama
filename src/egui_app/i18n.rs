@@ -434,6 +434,40 @@ const IT: &[(&str, &str)] = &[
     ("Color Management", "Gestione colore"),
     ("Metadata", "Metadati"),
     ("e.g. 16:10", "es. 16:10"),
+    // Overwrite Original.
+    ("Overwrite Original…", "Sovrascrivi l'originale…"),
+    (
+        "Writes the image as shown over its own file (not for RAW files)",
+        "Scrive l'immagine com'è a schermo sul suo file (non per i RAW)",
+    ),
+    (
+        "RAW files are never overwritten: save a copy instead.",
+        "I file RAW non si sovrascrivono mai: salvane una copia.",
+    ),
+    (
+        "Horama cannot write this format: save a copy instead.",
+        "Horama non sa scrivere questo formato: salvane una copia.",
+    ),
+    (
+        "Nothing to save: crop, rotate or change the color profile first.",
+        "Niente da salvare: prima ritaglia, ruota o cambia il profilo colore.",
+    ),
+    ("Overwrite the original?", "Sovrascrivere l'originale?"),
+    (
+        "'{}' will be replaced by the image as shown, with its crop, rotation and color profile. The original cannot be recovered.",
+        "'{}' sarà sostituito dall'immagine com'è a schermo, con ritaglio, rotazione e profilo colore. L'originale non si potrà recuperare.",
+    ),
+    (
+        "JPEG: compressed like the original, to lose as little as possible.",
+        "JPEG: compresso come l'originale, per perdere il meno possibile.",
+    ),
+    (
+        "This file has more than 8 bits per channel or a profile that is not RGB: it will be saved as 8-bit RGB.",
+        "Questo file ha più di 8 bit per canale o un profilo non RGB: sarà salvato come RGB a 8 bit.",
+    ),
+    ("Overwrite", "Sovrascrivi"),
+    ("Save a Copy Instead…", "Salva invece una copia…"),
+    ("'{}' overwritten.", "'{}' sovrascritto."),
     ("Embedded profile", "Profilo incorporato"),
     ("Profile in use", "Profilo in uso"),
     ("Monitor", "Monitor"),
@@ -499,6 +533,7 @@ mod tests {
             include_str!("prefs.rs"),
             include_str!("display.rs"),
             include_str!("view_rotation.rs"),
+            include_str!("overwrite.rs"),
         ];
         let missing: Vec<String> = sources
             .iter()

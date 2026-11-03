@@ -113,7 +113,7 @@ Cosa fa:
 - valutazioni (0–5, stelle nella barra di stato o sulle miniature) e tutti i filtri (stelle, formato, proporzioni, profilo colore, profilo cambiato, ritagliate);
 - pannello informazioni con istogramma, gestione colore (profilo incorporato, profilo in uso, monitor) e metadati (I);
 - scelta e conversione del profilo colore (menu Immagine, P per il successivo) e profili ICC/ICM personalizzati;
-- ritaglio (C) con proporzioni libere o fisse, Annulla/Ripeti (Ctrl+Z / Ctrl+Y) per ritagli, valutazioni, profili e rotazioni, salvataggio dei ritagli come nuovi file accanto agli originali (Ctrl+S) e richiesta alla chiusura se restano ritagli non salvati;
+- ritaglio (C) con proporzioni libere o fisse, Annulla/Ripeti (Ctrl+Z / Ctrl+Y) per ritagli, valutazioni, profili e rotazioni, salvataggio dei ritagli come nuovi file accanto agli originali (Ctrl+S) oppure sopra l'originale con File > Sovrascrivi l'originale (non per i RAW, sempre dopo una conferma; i JPEG sono compressi come l'originale) e richiesta alla chiusura se restano ritagli non salvati;
 - confronto fino a nove immagini selezionate, affiancate;
 - rotazione senza perdita (R / L; i RAW e i formati che non si possono riscrivere senza perdita ruotano solo a schermo), Cestino senza conferma con Annulla per 8 secondi (Canc), rinomina di uno o più file (F2), "Salva una copia come" con la scelta della qualità JPEG (Ctrl+Maiusc+S), "Apri con" dal menu del tasto destro sulla filmstrip;
 - scorciatoie personalizzabili (Visualizza > Scorciatoie da tastiera), F6 per passare da un pannello all'altro;

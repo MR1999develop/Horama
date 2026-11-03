@@ -20,6 +20,7 @@ mod filters;
 mod i18n;
 mod loader;
 mod mcp;
+mod overwrite;
 mod prefs;
 mod profiles;
 mod shortcuts;
@@ -235,6 +236,8 @@ pub struct HoramaApp {
     notice: Option<files::Notice>,
     rename: Option<files::RenameDialog>,
     quality: Option<files::QualityDialog>,
+    /// File > Overwrite Original, waiting for the answer.
+    overwrite: Option<overwrite::OverwritePrompt>,
     status: String,
 }
 
@@ -327,6 +330,7 @@ impl HoramaApp {
             notice: None,
             rename: None,
             quality: None,
+            overwrite: None,
             status: tr("Open a folder to view images").to_string(),
         }
     }
@@ -806,6 +810,7 @@ impl HoramaApp {
         self.shortcuts_window(&ctx);
         self.rename_window(&ctx);
         self.quality_window(&ctx);
+        self.overwrite_window(&ctx);
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -866,6 +871,23 @@ impl HoramaApp {
                     .clicked()
                 {
                     self.save_as();
+                }
+                let blocker = self
+                    .current_path()
+                    .map(|p| self.overwrite_blocker(&p))
+                    .unwrap_or(Some(tr("No image")));
+                if ui
+                    .add_enabled(
+                        blocker.is_none(),
+                        egui::Button::new(tr("Overwrite Original…")),
+                    )
+                    .on_hover_text(tr(
+                        "Writes the image as shown over its own file (not for RAW files)",
+                    ))
+                    .on_disabled_hover_text(blocker.unwrap_or_default())
+                    .clicked()
+                {
+                    self.ask_overwrite();
                 }
                 if ui
                     .add_enabled(

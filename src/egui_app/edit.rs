@@ -1,8 +1,8 @@
 //! Crop, the Undo/Redo history and saving of the edited images.
 //!
-//! A crop never touches the file: the cropped pixels stay in memory ([`HoramaApp::edited`])
-//! until the user saves them (Ctrl+S writes a new file next to the original, never over it) or
-//! discards them. Undo/Redo (Ctrl+Z / Ctrl+Y) covers crops, ratings, color profiles and lossless
+//! A crop never touches the file by itself: the cropped pixels stay in memory
+//! ([`HoramaApp::edited`]) until the user saves them (Ctrl+S writes a new file next to the
+//! original; File > Overwrite Original replaces it, after asking) or discards them. Undo/Redo (Ctrl+Z / Ctrl+Y) covers crops, ratings, color profiles and lossless
 //! rotations. Closing the window with unsaved crops asks what to do with them.
 
 use super::i18n::{tr, trf};
@@ -57,6 +57,11 @@ pub(super) enum Action {
 impl Action {
     fn holds_pixels(&self) -> bool {
         matches!(self, Action::Crop { .. })
+    }
+
+    /// True for a change of the color profile of `path`.
+    pub(super) fn sets_profile_of(&self, path: &str) -> bool {
+        matches!(self, Action::Profile { paths, .. } if paths.iter().any(|p| same_path(p, path)))
     }
 
     /// True for a rotation of `path`.

@@ -1,6 +1,6 @@
 //! Tools of the image view and of the filmstrip:
 //!
-//! - 4× magnifier while the middle mouse button is held;
+//! - round 6× magnifier while the middle mouse button is held;
 //! - color picker (pixel position, RGB and HSL of the file's pixels) while the right button
 //!   is held on the image;
 //! - context menu of a filmstrip cell, with "Open With" and the registered applications.
@@ -11,9 +11,47 @@ use crate::color_manager::rgb_to_hsl;
 use crate::open_with::{self, OpenWithItem};
 use egui::{Color32, PointerButton, Pos2, Rect, Stroke, Vec2};
 
-/// Side of the magnifier, in points.
-const LENS: f32 = 220.0;
-const LENS_ZOOM: f32 = 4.0;
+/// Diameter of the magnifier, in points.
+const LENS: f32 = 260.0;
+/// Magnification of the lens over the image as shown.
+const LENS_ZOOM: f32 = 6.0;
+/// Sides of the polygon that draws the lens: enough for a smooth circle.
+const LENS_SIDES: usize = 96;
+/// Side of the color swatch of the picker, in points.
+const SWATCH: f32 = 56.0;
+
+/// The lens: a disc around `center` showing the texture around `uv`, `half` UV units on each
+/// side. Past the edges of the image the disc is cut, instead of smearing the edge pixels: each
+/// rim point is moved back inside the image, which keeps the shape convex for the fan.
+fn lens_mesh(
+    texture: egui::TextureId,
+    center: Pos2,
+    radius: f32,
+    uv: Pos2,
+    half: Vec2,
+) -> egui::Mesh {
+    let mut mesh = egui::Mesh::with_texture(texture);
+    let to_screen =
+        |t: Pos2| center + Vec2::new((t.x - uv.x) / half.x, (t.y - uv.y) / half.y) * radius;
+    let mut vertex = |t: Pos2| {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: to_screen(t),
+            uv: t,
+            color: Color32::WHITE,
+        });
+    };
+    vertex(uv);
+    for k in 0..LENS_SIDES {
+        let a = k as f32 / LENS_SIDES as f32 * std::f32::consts::TAU;
+        let t = Pos2::new(uv.x + a.cos() * half.x, uv.y + a.sin() * half.y);
+        vertex(Pos2::new(t.x.clamp(0.0, 1.0), t.y.clamp(0.0, 1.0)));
+    }
+    let sides = LENS_SIDES as u32;
+    for k in 0..sides {
+        mesh.add_triangle(0, 1 + k, 1 + (k + 1) % sides);
+    }
+    mesh
+}
 
 /// What the context menu of a filmstrip cell asked for.
 pub(super) enum CellAction {
@@ -46,23 +84,18 @@ impl HoramaApp {
         );
         let painter = ui.painter();
         if middle {
+            let radius = LENS / 2.0;
             let half = Vec2::new(
-                LENS / (2.0 * LENS_ZOOM * image.width()),
-                LENS / (2.0 * LENS_ZOOM * image.height()),
+                radius / (LENS_ZOOM * image.width()),
+                radius / (LENS_ZOOM * image.height()),
             );
-            let lens = Rect::from_center_size(pos, Vec2::splat(LENS));
-            painter.rect_filled(lens, 0.0, Color32::BLACK);
-            painter.image(
-                shown.texture.id(),
-                lens,
-                Rect::from_min_max(uv - half, uv + half),
-                Color32::WHITE,
-            );
-            painter.rect_stroke(
-                lens,
-                0.0,
-                Stroke::new(2.0, Color32::WHITE),
-                egui::StrokeKind::Outside,
+            painter.circle_filled(pos, radius, Color32::BLACK);
+            painter.add(lens_mesh(shown.texture.id(), pos, radius, uv, half));
+            painter.circle_stroke(pos, radius, Stroke::new(2.0, Color32::WHITE));
+            painter.circle_stroke(
+                pos,
+                radius + 2.0,
+                Stroke::new(1.0, Color32::from_black_alpha(160)),
             );
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
         } else if right {
@@ -88,21 +121,33 @@ impl HoramaApp {
             );
             let galley = painter.layout_no_wrap(
                 text,
-                egui::FontId::monospace(12.0),
+                egui::FontId::monospace(14.0),
                 ui.visuals().strong_text_color(),
             );
-            let at = pos + Vec2::new(18.0, 18.0);
-            let frame = Rect::from_min_size(at, galley.size() + Vec2::new(36.0, 12.0));
-            painter.rect_filled(frame, 4.0, ui.visuals().extreme_bg_color);
+            const PAD: f32 = 8.0;
+            let inner = Vec2::new(SWATCH + PAD + galley.size().x, SWATCH.max(galley.size().y));
+            let at = pos + Vec2::new(20.0, 20.0);
+            let frame = Rect::from_min_size(at, inner + Vec2::splat(2.0 * PAD));
+            painter.rect_filled(frame, 6.0, ui.visuals().extreme_bg_color);
             painter.rect_stroke(
                 frame,
+                6.0,
+                ui.visuals().window_stroke(),
+                egui::StrokeKind::Inside,
+            );
+            let swatch = Rect::from_min_size(at + Vec2::splat(PAD), Vec2::splat(SWATCH));
+            painter.rect_filled(swatch, 4.0, Color32::from_rgb(px[0], px[1], px[2]));
+            painter.rect_stroke(
+                swatch,
                 4.0,
                 ui.visuals().window_stroke(),
                 egui::StrokeKind::Inside,
             );
-            let swatch = Rect::from_min_size(at + Vec2::new(6.0, 6.0), Vec2::splat(18.0));
-            painter.rect_filled(swatch, 2.0, Color32::from_rgb(px[0], px[1], px[2]));
-            painter.galley(at + Vec2::new(30.0, 6.0), galley, Color32::WHITE);
+            let text_at = Pos2::new(
+                swatch.max.x + PAD,
+                swatch.center().y - galley.size().y / 2.0,
+            );
+            painter.galley(text_at, galley, Color32::WHITE);
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
     }

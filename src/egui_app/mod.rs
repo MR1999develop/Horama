@@ -80,8 +80,13 @@ enum Msg {
         image: ColorImage,
         details: String,
         color: loader::ColorInfo,
-        info: loader::ImageInfo,
         decoded: std::sync::Arc<crate::image_loader::DecodedImage>,
+    },
+    /// Histogram and metadata of the image just loaded, sent after it.
+    Info {
+        generation: u64,
+        path: String,
+        info: loader::ImageInfo,
     },
     Failed {
         generation: u64,
@@ -111,10 +116,10 @@ struct Shown {
     texture: TextureHandle,
     size: (u32, u32),
     details: String,
-    /// Metadata rows (label, value) for the info panel.
+    /// Metadata rows (label, value) for the info panel; empty until [`Msg::Info`] arrives.
     metadata: Vec<(String, String)>,
     color: loader::ColorInfo,
-    histogram: TextureHandle,
+    histogram: Option<TextureHandle>,
     /// The pixels on screen (edited ones included), for the crop.
     decoded: std::sync::Arc<crate::image_loader::DecodedImage>,
 }
@@ -177,6 +182,8 @@ pub struct HoramaApp {
 
     shown: Option<Shown>,
     loading: Option<String>,
+    /// When the image in `loading` was asked for.
+    loading_since: std::time::Instant,
     view: ViewState,
     /// The info panel (histogram and metadata) on the right.
     show_info: bool,
@@ -290,6 +297,7 @@ impl HoramaApp {
             current: None,
             shown: None,
             loading: None,
+            loading_since: std::time::Instant::now(),
             view: ViewState {
                 zoom: 1.0,
                 pan: Vec2::ZERO,
@@ -579,6 +587,7 @@ impl HoramaApp {
     fn load(&mut self, path: String) {
         self.load_generation += 1;
         self.loading = Some(path.clone());
+        self.loading_since = std::time::Instant::now();
         self.image_loader.request(loader::LoadJob {
             generation: self.load_generation,
             profile: self.profile_of(&path),
@@ -663,7 +672,6 @@ impl HoramaApp {
                     image,
                     details,
                     color,
-                    info,
                     decoded,
                 } if generation == self.load_generation => {
                     let size = (image.size[0] as u32, image.size[1] as u32);
@@ -678,15 +686,17 @@ impl HoramaApp {
                     // The same image again (another profile, a file changed on disk) keeps
                     // the zoom and position.
                     let same = self.shown.as_ref().map(|s| s.path == path).unwrap_or(false);
-                    let histogram =
-                        self.ctx
-                            .load_texture("histogram", info.histogram, TextureOptions::LINEAR);
+                    // The same file keeps its info until the new one arrives, without flicker.
+                    let (metadata, histogram) = match self.shown.take() {
+                        Some(s) if same => (s.metadata, s.histogram),
+                        _ => (Vec::new(), None),
+                    };
                     self.shown = Some(Shown {
                         path,
                         texture,
                         size,
                         details,
-                        metadata: info.metadata,
+                        metadata,
                         color,
                         decoded,
                         histogram,
@@ -695,6 +705,20 @@ impl HoramaApp {
                     if !same && !self.lock_zoom {
                         self.view.fit = true;
                         self.view.pan = Vec2::ZERO;
+                    }
+                }
+                Msg::Info {
+                    generation,
+                    path,
+                    info,
+                } if generation == self.load_generation => {
+                    if let Some(shown) = self.shown.as_mut().filter(|s| s.path == path) {
+                        shown.metadata = info.metadata;
+                        shown.histogram = Some(self.ctx.load_texture(
+                            "histogram",
+                            info.histogram,
+                            TextureOptions::LINEAR,
+                        ));
                     }
                 }
                 Msg::Failed {
@@ -1416,8 +1440,12 @@ impl HoramaApp {
         } else {
             None
         };
+        // The mouse wheel scrolls the strip sideways (without Shift), about one cell a notch.
+        ui.style_mut().always_scroll_the_only_direction = true;
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
+            // egui moves 40 points per notch.
+            .wheel_scroll_multiplier(Vec2::splat(CELL_W / 40.0))
             .show_viewport(ui, |ui, viewport| {
                 let origin = ui.max_rect().min;
                 ui.set_min_size(Vec2::new(n as f32 * CELL_W, cell.y));
@@ -1661,6 +1689,17 @@ impl HoramaApp {
             None => tr("Image view").to_string(),
         };
         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
+        if let Some(thumb) = self.loading_placeholder(ui.ctx()) {
+            let size = thumb.size_vec2();
+            let fit = (rect.width() / size.x).min(rect.height() / size.y);
+            ui.painter_at(rect).image(
+                thumb.id(),
+                Rect::from_center_size(rect.center(), size * fit),
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE,
+            );
+            return;
+        }
         let Some(shown) = &self.shown else {
             let text = if self.loading.is_some() {
                 tr("Loading…")
@@ -1752,6 +1791,30 @@ impl HoramaApp {
         }
     }
 
+    /// The thumbnail that stands in for the image being loaded, once loading takes long
+    /// enough to be noticed: a quick load (a preloaded neighbour) never flashes a blurry
+    /// frame. Not for images shown turned or edited, which the thumbnail does not match.
+    fn loading_placeholder(&self, ctx: &egui::Context) -> Option<TextureHandle> {
+        /// Loads quicker than this show no placeholder.
+        const AFTER: std::time::Duration = std::time::Duration::from_millis(100);
+        let path = self.loading.as_ref()?;
+        if self
+            .shown
+            .as_ref()
+            .is_some_and(|s| crate::config::same_path(&s.path, path))
+            || self.view_turns_of(path) != 0
+            || self.edited.contains_key(&crate::config::path_key(path))
+        {
+            return None;
+        }
+        let thumb = self.thumbs.get(path)?.as_ref()?;
+        if let Some(wait) = AFTER.checked_sub(self.loading_since.elapsed()) {
+            ctx.request_repaint_after(wait);
+            return None;
+        }
+        Some(thumb.clone())
+    }
+
     /// Histogram, color management and metadata of the image on screen.
     fn info_panel(&self, ui: &mut egui::Ui) {
         ui.add_space(theme::SPACE_M);
@@ -1774,12 +1837,14 @@ impl HoramaApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 widgets::section_title(ui, tr("Histogram"));
-                let size = shown.histogram.size_vec2();
-                let width = ui.available_width();
-                ui.add(
-                    egui::Image::new((shown.histogram.id(), Vec2::new(width, width * size.y / size.x)))
-                        .corner_radius(theme::RADIUS),
-                );
+                if let Some(histogram) = &shown.histogram {
+                    let size = histogram.size_vec2();
+                    let width = ui.available_width();
+                    ui.add(
+                        egui::Image::new((histogram.id(), Vec2::new(width, width * size.y / size.x)))
+                            .corner_radius(theme::RADIUS),
+                    );
+                }
                 ui.add_space(theme::SPACE_M);
                 widgets::section_title(ui, tr("Color Management"));
                 widgets::property_rows(ui, label_width, &color);

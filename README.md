@@ -18,7 +18,7 @@
   - Estrazione sub-millisecondo dei thumbnail EXIF IFD1 integrati nei file RAW/JPEG.
   - Cache RAM predittiva multi-gigabyte con decodifica in background.
   - Albero cartelle gerarchico espandibile/comprimibile con ripristino dell'ultima sottocartella all'avvio.
-  - Rullino orizzontale scorrevole con miniature sincronizzate in tempo reale.
+  - Rullino orizzontale con miniature sincronizzate in tempo reale, che scorre anche con la rotella del mouse.
 - **Editing & Precisione**:
   - Rotazione immagini (90° oraria, antioraria, 180°) salvata automaticamente su disco **senza perdita di qualità**:
     - **JPEG / TIFF**: viene aggiornato solo il tag di orientamento EXIF/TIFF (e XMP `tiff:Orientation`); i dati compressi e tutti i metadati restano identici byte per byte.
@@ -27,7 +27,7 @@
     - Le scritture sono atomiche (file temporaneo + rinomina) e serializzate; all'uscita l'app attende il completamento delle scritture in corso.
   - Ritaglio non distruttivo in memoria: salvataggio esplicito con *Salva / Esporta* (o "salva tutto" all'uscita, con nomi sequenziali `nome_1.jpg`).
   - Zoom al 100% centrato sul cursore del mouse con doppio click sinistro e modalità Adatta (*Fit*).
-  - Lente d'ingrandimento 4× (pressione tasto centrale del mouse) e Contagocce colore RGB/HSL (pressione tasto destro).
+  - Lente d'ingrandimento rotonda 6× (pressione tasto centrale del mouse) e Contagocce colore RGB/HSL (pressione tasto destro).
   - Ridenominazione file singola e multipla (F2) conforme agli standard di sistema: l'estensione originale viene sempre mantenuta, nessun file esistente viene mai sovrascritto e in caso di errore tutte le rinomine vengono annullate.
   - Eliminazione nel **Cestino** (Windows: Cestino di sistema; macOS: Finder; Linux: cestino freedesktop), senza conferma: un avviso nella vista offre "Undo" per qualche secondo; i dischi senza Cestino chiedono conferma prima di eliminare definitivamente.
   - Apertura di un'immagine da Esplora file ("Apri con…") o trascinandola nella finestra: si apre la sua cartella, con l'immagine selezionata e la cartella evidenziata nell'albero a sinistra. Trascinando più immagini si apre solo quella selezione; trascinando una cartella si apre la cartella.
@@ -108,7 +108,7 @@ cargo run --release
 Cosa fa:
 
 - apre una cartella o un file (menu, cartelle recenti, riga di comando, trascinamento; trascinando più immagini apre solo quelle), con l'albero delle cartelle (riapre l'ultima sottocartella) e la filmstrip delle miniature, ricerca e selezione multipla; la cartella si aggiorna da sola quando altri programmi aggiungono, cancellano o rinominano file, e le miniature di quei file portano il contrassegno Nuovo, Modificato o Rinominato (avvisa anche se l'immagine aperta viene eliminata); il pannello delle cartelle si nasconde da Visualizza > Cartelle;
-- mostra l'immagine con gestione colore (profilo del monitor aggiornato quando la finestra passa a un altro schermo), adatta alla finestra, 100%, zoom sul cursore, livelli di zoom predefiniti (10%–800%) e spostamento; il doppio clic passa al 100% nel punto cliccato e torna ad adattare; oltre il 100% i pixel si vedono netti; lente 4× (tasto centrale) e contagocce RGB/HSL (tasto destro);
+- mostra l'immagine con gestione colore (profilo del monitor aggiornato quando la finestra passa a un altro schermo), adatta alla finestra, 100%, zoom sul cursore, livelli di zoom predefiniti (10%–800%) e spostamento; il doppio clic passa al 100% nel punto cliccato e torna ad adattare; oltre il 100% i pixel si vedono netti; lente rotonda 6× (tasto centrale) e contagocce RGB/HSL (tasto destro);
 - precarica le immagini vicine (lo stato della cache RAM è nella barra di stato); un solo caricamento alla volta, così scorrendo veloce si decodifica solo l'immagine su cui ci si ferma;
 - valutazioni (0–5, stelle nella barra di stato o sulle miniature) e tutti i filtri (stelle, formato, proporzioni, profilo colore, profilo cambiato, ritagliate);
 - pannello informazioni con istogramma, gestione colore (profilo incorporato, profilo in uso, monitor) e metadati (I);

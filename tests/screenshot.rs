@@ -67,6 +67,36 @@ fn window_in_both_themes() {
             harness.run_steps(5);
             let image = harness.render().expect("rendered");
             image.save(out.join("horama-dark-filters.png")).unwrap();
+            // The magnifier (middle button) and the color picker (right button).
+            let center = harness
+                .get_by_label_contains("Vista dell'immagine")
+                .rect()
+                .center();
+            for (button, name) in [
+                (egui::PointerButton::Middle, "loupe"),
+                (egui::PointerButton::Secondary, "picker"),
+            ] {
+                harness.hover_at(center);
+                harness.event(egui::Event::PointerButton {
+                    pos: center,
+                    button,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                harness.run_steps(3);
+                let image = harness.render().expect("rendered");
+                image
+                    .save(out.join(format!("horama-{}.png", name)))
+                    .unwrap();
+                harness.event(egui::Event::PointerButton {
+                    pos: center,
+                    button,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                harness.key_press(egui::Key::Escape);
+                harness.run_steps(3);
+            }
         }
     }
     let _ = std::fs::remove_dir_all(&base);

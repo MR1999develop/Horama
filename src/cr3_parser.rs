@@ -1,4 +1,4 @@
-//! Fast Canon CR3 (ISOBMFF) and general RAW embedded JPEG preview extractor.
+//! Fast Canon CR3 (ISOBMFF), Fujifilm RAF and general RAW embedded JPEG preview extractor.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -39,6 +39,29 @@ pub fn extract_cr3_preview(path: &Path) -> Option<Vec<u8>> {
 
     let first_pos = if size > 0 { size } else { 8 };
     find_preview_in_boxes(&mut f, first_pos, file_size, 0)
+}
+
+/// The JPEG preview of a Fujifilm RAF, where its header says it is (big-endian offset and
+/// length at bytes 84 and 88). A RAF holds only this preview, at full size.
+pub fn extract_raf_preview(path: &Path) -> Option<Vec<u8>> {
+    let mut f = File::open(path).ok()?;
+    let mut header = [0u8; 92];
+    f.read_exact(&mut header).ok()?;
+    if !header.starts_with(b"FUJIFILMCCD-RAW") {
+        return None;
+    }
+    let offset = u32::from_be_bytes(header[84..88].try_into().ok()?);
+    let len = u32::from_be_bytes(header[88..92].try_into().ok()?);
+    let file_size = f.metadata().ok()?.len();
+    if len < 4 || u64::from(offset) + u64::from(len) > file_size {
+        return None;
+    }
+    f.seek(SeekFrom::Start(u64::from(offset))).ok()?;
+    let mut jpeg = vec![0u8; len as usize];
+    f.read_exact(&mut jpeg).ok()?;
+    let end = jpeg_stream_end(&jpeg, 0)?;
+    jpeg.truncate(end);
+    Some(jpeg)
 }
 
 fn find_preview_in_boxes(
@@ -226,9 +249,22 @@ pub fn jpeg_stream_end(buf: &[u8], start: usize) -> Option<usize> {
     }
 }
 
+/// Previews live near the start of RAW files; the search reads at most this much.
+const PREVIEW_SEARCH_LIMIT: u64 = 64 * 1024 * 1024;
+
 /// Finds embedded JPEG previews (at least 640×480) in a RAW file, largest first.
 /// At most `max` candidates are returned. For CR3 files the PRVW box is tried first.
 pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
+    extract_embedded_jpegs_within(path, max, PREVIEW_SEARCH_LIMIT)
+}
+
+/// Like [`extract_embedded_jpegs`], searching only the first `limit` bytes of the file (a
+/// preview cut by the limit is not found).
+pub fn extract_embedded_jpegs_within(path: &Path, max: usize, limit: u64) -> Vec<Vec<u8>> {
+    // A RAF says where its only preview is: nothing to search.
+    if let Some(raf) = extract_raf_preview(path) {
+        return vec![raf];
+    }
     let mut out: Vec<Vec<u8>> = Vec::new();
     if is_cr3_file(path)
         && let Some(cr3) = extract_cr3_preview(path)
@@ -236,14 +272,14 @@ pub fn extract_embedded_jpegs(path: &Path, max: usize) -> Vec<Vec<u8>> {
         out.push(cr3);
     }
 
-    let Ok(mut f) = File::open(path) else {
+    let Ok(f) = File::open(path) else {
         return out;
     };
-    let Ok(meta) = f.metadata() else { return out };
-    // Previews live near the start of RAW files; cap the read at 64 MB.
-    let read_limit = (meta.len() as usize).min(64 * 1024 * 1024);
-    let mut buf = vec![0u8; read_limit];
-    if f.read_exact(&mut buf).is_err() {
+    let mut buf = Vec::new();
+    if f.take(limit.min(PREVIEW_SEARCH_LIMIT))
+        .read_to_end(&mut buf)
+        .is_err()
+    {
         return out;
     }
 
@@ -318,6 +354,31 @@ mod tests {
         composed.extend_from_slice(&app1);
         composed.extend_from_slice(&big[2..]);
         assert_eq!(jpeg_stream_end(&composed, 0), Some(composed.len()));
+    }
+
+    #[test]
+    fn raf_preview_is_read_where_the_header_says() {
+        let dir = std::env::temp_dir().join(format!("mriv-raf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("fake.raf");
+        let preview = jpeg_bytes(800, 600);
+        let mut data = b"FUJIFILMCCD-RAW 0201FF383501".to_vec();
+        data.resize(84, 0);
+        data.extend_from_slice(&200u32.to_be_bytes());
+        // The declared length may run past the end of the stream: it is cut at its EOI.
+        data.extend_from_slice(&(preview.len() as u32 + 10).to_be_bytes());
+        data.resize(200, 0);
+        data.extend_from_slice(&preview);
+        data.extend_from_slice(&[0u8; 10]);
+        // A larger JPEG later in the file is not the preview and is not searched for.
+        data.extend_from_slice(&jpeg_bytes(1200, 800));
+        std::fs::write(&p, &data).unwrap();
+        assert_eq!(extract_embedded_jpegs(&p, 3), vec![preview]);
+        // A header pointing past the end of the file falls back to the search.
+        data[84..88].copy_from_slice(&u32::MAX.to_be_bytes());
+        std::fs::write(&p, &data).unwrap();
+        assert_eq!(extract_embedded_jpegs(&p, 3).len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

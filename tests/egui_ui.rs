@@ -317,7 +317,35 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         "the file is never written"
     );
 
+    // The mouse wheel over the filmstrip scrolls it sideways, without Shift.
+    let strip = temp_dir("strip");
+    for i in 0..30 {
+        write_jpeg(&strip.join(format!("p{:02}.jpg", i)));
+    }
+    harness.state_mut().open_path(&strip.to_string_lossy());
+    wait_for(&mut harness, "the long folder", |h| {
+        shows(h, "30 images shown")
+    });
+    assert!(!shows(&harness, "Thumbnail of p29.jpg"));
+    harness.get_by_label("Thumbnail of p01.jpg").hover();
+    harness.run_steps(2);
+    for _ in 0..30 {
+        harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, -1.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.step();
+    }
+    wait_for(&mut harness, "the end of the strip", |h| {
+        shows(h, "Thumbnail of p29.jpg")
+    });
+    assert!(!shows(&harness, "Thumbnail of p01.jpg"));
+
     drop(harness);
+    let _ = std::fs::remove_dir_all(&strip);
     let _ = std::fs::remove_dir_all(&photos);
     let _ = std::fs::remove_dir_all(&config);
 }

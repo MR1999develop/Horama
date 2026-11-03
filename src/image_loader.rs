@@ -2,7 +2,7 @@
 
 use crate::color_manager::{extract_icc_description, icc_color_space};
 use crate::config::{THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, is_raw_file};
-use crate::cr3_parser::extract_embedded_jpegs;
+use crate::cr3_parser::{extract_embedded_jpegs, extract_embedded_jpegs_within};
 use image::{DynamicImage, ImageReader};
 use img_parts::ImageICC;
 use std::fs::{self, File};
@@ -15,6 +15,11 @@ pub fn extract_exif_thumbnail(path: &Path) -> Option<Vec<u8>> {
     let file = File::open(path).ok()?;
     let mut reader = BufReader::new(file);
     let exif_data = exif::Reader::new().read_from_container(&mut reader).ok()?;
+    thumbnail_of_exif(&exif_data)
+}
+
+/// The JPEG thumbnail (IFD1) of parsed EXIF data.
+fn thumbnail_of_exif(exif_data: &exif::Exif) -> Option<Vec<u8>> {
     let off_field = exif_data.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
     let len_field =
         exif_data.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
@@ -302,6 +307,24 @@ fn decode_bytes(bytes: &[u8]) -> Option<DynamicImage> {
         .ok()
 }
 
+/// Decodes a JPEG at the smallest DCT scale (1/8, 1/4, 1/2 or 1) that still gives twice the
+/// thumbnail size: many times faster than a full decode, and the final resize still has
+/// pixels to average. `None` for what it cannot do (CMYK, 16 bits): decode in full instead.
+fn decode_jpeg_for_thumbnail(bytes: &[u8]) -> Option<DynamicImage> {
+    use jpeg_decoder::{Decoder, PixelFormat};
+    let mut decoder = Decoder::new(Cursor::new(bytes));
+    let (w, h) = decoder
+        .scale(2 * THUMBNAIL_WIDTH as u16, 2 * THUMBNAIL_HEIGHT as u16)
+        .ok()?;
+    let pixels = decoder.decode().ok()?;
+    let (w, h) = (u32::from(w), u32::from(h));
+    match decoder.info()?.pixel_format {
+        PixelFormat::RGB24 => image::RgbImage::from_raw(w, h, pixels).map(DynamicImage::ImageRgb8),
+        PixelFormat::L8 => image::GrayImage::from_raw(w, h, pixels).map(DynamicImage::ImageLuma8),
+        _ => None,
+    }
+}
+
 /// Largest sensor developed from raw data (pixels). Today's largest cameras have about 150 MP;
 /// anything far above is a corrupt or hostile header.
 const MAX_RAW_PIXELS: u64 = 200_000_000;
@@ -385,7 +408,8 @@ fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String>
         let oriented = apply_orientation(dyn_img, orient);
         let (embedded_icc, embedded_icc_name, ignored_icc_note) =
             classify_icc(extract_icc_from_bytes(&jpeg_bytes, "jpg"));
-        let rgb = oriented.to_rgb8();
+        // No copy when the image is already 8-bit RGB.
+        let rgb = oriented.into_rgb8();
         let (width, height) = rgb.dimensions();
         return Ok(DecodedImage {
             path: path.to_string_lossy().to_string(),
@@ -483,7 +507,7 @@ fn load_image_inner(path: &Path) -> Result<DecodedImage, String> {
     };
 
     let oriented = apply_orientation(dyn_img, orientation);
-    let rgb = oriented.to_rgb8();
+    let rgb = oriented.into_rgb8();
     let (width, height) = rgb.dimensions();
 
     Ok(DecodedImage {
@@ -524,6 +548,9 @@ pub fn load_image(path: &Path) -> Result<DecodedImage, String> {
     }
 }
 
+/// Bytes of a RAW searched first for the preview of its thumbnail.
+const THUMB_PREVIEW_SEARCH: u64 = 16 * 1024 * 1024;
+
 /// Converts a decoded thumbnail to color-managed RGBA8.
 fn finish_thumbnail(
     img: DynamicImage,
@@ -531,7 +558,7 @@ fn finish_thumbnail(
     cm: Option<&crate::color_manager::ColorManager>,
 ) -> (u32, u32, Vec<u8>) {
     let thumb = img.thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
-    let rgb = thumb.to_rgb8();
+    let rgb = thumb.into_rgb8();
     let (w, h) = rgb.dimensions();
     let (usable_icc, _, _) = classify_icc(emb_icc);
     let final_rgb = if let Some(mgr) = cm {
@@ -550,6 +577,32 @@ fn finish_thumbnail(
         rgba.extend_from_slice(&[*r, *g, *b, 255]);
     }
     (w, h, rgba)
+}
+
+/// In the first bytes of a RAW file: the EXIF thumbnail of the first embedded JPEG that has
+/// one, with that JPEG's orientation and ICC profile. Only a few JPEG starts are tried.
+fn preview_exif_thumbnail(prefix: &[u8]) -> Option<(Vec<u8>, u32, Option<Vec<u8>>)> {
+    const APP1_JPEG: [u8; 4] = [0xFF, 0xD8, 0xFF, 0xE1];
+    let mut from = 0;
+    for _ in 0..4 {
+        let start = from
+            + prefix
+                .get(from..)?
+                .windows(4)
+                .position(|w| w == APP1_JPEG)?;
+        let jpeg = &prefix[start..];
+        if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut Cursor::new(jpeg))
+            && let Some(thumb) = thumbnail_of_exif(&exif_data)
+        {
+            let orient = exif_data
+                .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                .and_then(|f| f.value.get_uint(0))
+                .unwrap_or(1);
+            return Some((thumb, orient, extract_jpeg_icc_from_header(jpeg)));
+        }
+        from = start + APP1_JPEG.len();
+    }
+    None
 }
 
 /// Reads at most `limit` bytes from the start of a file.
@@ -587,10 +640,31 @@ fn load_thumbnail_inner(
         return Some(finish_thumbnail(oriented, emb_icc, cm));
     }
 
-    // 2. RAW embedded preview path
+    // 2. RAW: the EXIF thumbnail of the JPEG preview embedded near the start of the file
+    //    (Fujifilm RAF, for one), read from the first megabyte only.
+    if is_raw_file(path)
+        && let Some(prefix) = read_prefix(path, 1024 * 1024)
+        && let Some((thumb_bytes, orient, icc)) = preview_exif_thumbnail(&prefix)
+        && let Some(img) = decode_bytes(&thumb_bytes)
+    {
+        let orient = if orient != 1 {
+            orient
+        } else {
+            file_orientation
+        };
+        return Some(finish_thumbnail(apply_orientation(img, orient), icc, cm));
+    }
+
+    // 3. RAW embedded preview path: the start of the file first, where previews usually are.
     if is_raw_file(path) {
-        for jpeg_bytes in extract_embedded_jpegs(path, 2) {
-            let Some(img) = decode_bytes(&jpeg_bytes) else {
+        let mut previews = extract_embedded_jpegs_within(path, 2, THUMB_PREVIEW_SEARCH);
+        if previews.is_empty() {
+            previews = extract_embedded_jpegs(path, 2);
+        }
+        for jpeg_bytes in previews {
+            let Some(img) =
+                decode_jpeg_for_thumbnail(&jpeg_bytes).or_else(|| decode_bytes(&jpeg_bytes))
+            else {
                 continue;
             };
             let jpeg_orient = read_exif_orientation_from_bytes(&jpeg_bytes);
@@ -608,7 +682,17 @@ fn load_thumbnail_inner(
         }
     }
 
-    // 3. Fallback: full decode (PNG, WebP, BMP, or images without embedded thumbnails)
+    // 4. A JPEG without EXIF thumbnail: decoded directly at a reduced scale.
+    if is_jpeg
+        && let Ok(bytes) = fs::read(path)
+        && let Some(img) = decode_jpeg_for_thumbnail(&bytes)
+    {
+        let emb_icc = extract_icc_from_bytes(&bytes, "jpg");
+        let oriented = apply_orientation(img, read_exif_orientation_from_bytes(&bytes));
+        return Some(finish_thumbnail(oriented, emb_icc, cm));
+    }
+
+    // 5. Fallback: full decode (PNG, WebP, BMP, CMYK JPEG...)
     let decoded = load_image(path).ok()?;
     let emb_icc = decoded.embedded_icc.clone();
     let rgb_img = image::RgbImage::from_raw(decoded.width, decoded.height, decoded.rgb_pixels)?;
@@ -659,6 +743,85 @@ pub fn probe_dimensions(path: &Path) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn jpeg_of(img: DynamicImage) -> Vec<u8> {
+        let mut v = Vec::new();
+        img.write_to(&mut Cursor::new(&mut v), image::ImageFormat::Jpeg)
+            .unwrap();
+        v
+    }
+
+    fn solid(w: u32, h: u32, rgb: [u8; 3]) -> DynamicImage {
+        DynamicImage::ImageRgb8(image::RgbImage::from_pixel(w, h, image::Rgb(rgb)))
+    }
+
+    /// Pixel (x, y) of an RGBA thumbnail.
+    fn pixel(t: &(u32, u32, Vec<u8>), x: u32, y: u32) -> [u8; 3] {
+        let i = ((y * t.0 + x) * 4) as usize;
+        [t.2[i], t.2[i + 1], t.2[i + 2]]
+    }
+
+    fn near(a: [u8; 3], b: [u8; 3]) -> bool {
+        a.iter().zip(b).all(|(x, y)| x.abs_diff(y) < 12)
+    }
+
+    #[test]
+    fn jpeg_without_exif_thumbnail_is_decoded_reduced() {
+        let dir = std::env::temp_dir().join(format!("mriv-thumbjpg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("big.jpg");
+        let mut img = image::RgbImage::from_pixel(1600, 1200, image::Rgb([20, 200, 40]));
+        for y in 0..1200 {
+            for x in 800..1600 {
+                img.put_pixel(x, y, image::Rgb([200, 30, 30]));
+            }
+        }
+        std::fs::write(&p, jpeg_of(DynamicImage::ImageRgb8(img))).unwrap();
+        let reduced = decode_jpeg_for_thumbnail(&fs::read(&p).unwrap()).unwrap();
+        assert_eq!((reduced.width(), reduced.height()), (400, 300));
+        let t = load_thumbnail_rgba(&p, None).unwrap();
+        assert_eq!((t.0, t.1), (133, 100));
+        assert!(near(pixel(&t, 10, 50), [20, 200, 40]));
+        assert!(near(pixel(&t, 120, 50), [200, 30, 30]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn raw_thumbnail_comes_from_the_exif_of_its_preview() {
+        use exif::experimental::Writer;
+        use exif::{Field, In, Tag, Value};
+        // Preview: green 800×600, with a red 16×12 EXIF thumbnail and orientation 6.
+        let thumb = jpeg_of(solid(16, 12, [220, 20, 20]));
+        let orientation = Field {
+            tag: Tag::Orientation,
+            ifd_num: In::PRIMARY,
+            value: Value::Short(vec![6]),
+        };
+        let mut writer = Writer::new();
+        writer.push_field(&orientation);
+        writer.set_jpeg(&thumb, In::THUMBNAIL);
+        let mut tiff = Cursor::new(Vec::new());
+        writer.write(&mut tiff, false).unwrap();
+        let mut app1 = b"Exif\0\0".to_vec();
+        app1.extend_from_slice(tiff.get_ref());
+        let big = jpeg_of(solid(800, 600, [20, 200, 40]));
+        let mut preview = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        preview.extend_from_slice(&((app1.len() + 2) as u16).to_be_bytes());
+        preview.extend_from_slice(&app1);
+        preview.extend_from_slice(&big[2..]);
+
+        let dir = std::env::temp_dir().join(format!("mriv-rawthumb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("fake.nef");
+        let mut data = vec![0x11u8; 3000];
+        data.extend_from_slice(&preview);
+        std::fs::write(&p, &data).unwrap();
+        let t = load_thumbnail_rgba(&p, None).unwrap();
+        // Turned upright (12×16) and red: the EXIF thumbnail, not the decoded preview.
+        assert_eq!((t.0, t.1), (75, 100));
+        assert!(near(pixel(&t, 37, 50), [220, 20, 20]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn raw_develop_limits() {

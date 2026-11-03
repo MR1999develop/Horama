@@ -10,9 +10,14 @@ use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 
-/// Thumbnails are decoded by this many threads: enough to hide disk latency, few enough to
-/// leave the CPU to the image on screen.
-const WORKERS: usize = 3;
+/// Thumbnails are decoded by all the cores but two, which are left to the image on screen and
+/// to the preloading of its neighbours; at least two threads, to hide disk latency.
+fn workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(2))
+        .unwrap_or(2)
+        .clamp(2, 8)
+}
 /// Thumbnails are made up to this many files away from the centre of interest.
 pub const RADIUS: usize = 300;
 /// Above this many textures (about 50 KB each) those beyond [`RADIUS`] are dropped.
@@ -48,7 +53,7 @@ impl ThumbnailLoader {
         on_result: impl Fn() + Send + Sync + Clone + 'static,
     ) -> Self {
         let queue: Arc<(Mutex<Queue>, Condvar)> = Arc::default();
-        for n in 0..WORKERS {
+        for n in 0..workers() {
             let (queue, color, tx, on_result) =
                 (queue.clone(), color.clone(), tx.clone(), on_result.clone());
             let spawned = std::thread::Builder::new()

@@ -3,13 +3,17 @@
 //! Pressing the arrow key ten times quickly decodes the image the user stops on, not the ten
 //! in between: a request that arrives while the worker is busy replaces the waiting one.
 //! Images already in the RAM cache (preloaded neighbours) come back at once.
+//!
+//! The image is sent as soon as its screen pixels are ready; the histogram and the metadata
+//! (reading them can take longer than decoding, for a RAW) follow in a second message.
 
 use super::Msg;
 use crate::cache_manager::PreloadLoader;
 use crate::color_manager::{ColorManager, ColorTransformInfo};
 use crate::image_loader::DecodedImage;
 use crate::metadata::{extract_metadata, render_histogram_rgba};
-use egui::ColorImage;
+use egui::{Color32, ColorImage};
+use rayon::prelude::*;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -113,26 +117,44 @@ fn worker(
         };
         let rendered =
             decoded.and_then(|d| render_for_screen(&d, &color, &profile).map(|r| (d, r)));
-        let msg = match rendered {
-            Ok((decoded, (image, details, color))) => Msg::Loaded {
-                generation,
-                path,
-                image,
-                details,
-                color,
-                info: image_info(&decoded),
-                decoded,
-            },
-            Err(error) => Msg::Failed {
-                generation,
-                path,
-                error,
-            },
+        let (msg, info) = match rendered {
+            Ok((decoded, (image, details, color))) => (
+                Msg::Loaded {
+                    generation,
+                    path: path.clone(),
+                    image,
+                    details,
+                    color,
+                    decoded: decoded.clone(),
+                },
+                Some(decoded),
+            ),
+            Err(error) => (
+                Msg::Failed {
+                    generation,
+                    path: path.clone(),
+                    error,
+                },
+                None,
+            ),
         };
         if tx.send(msg).is_err() {
             return; // the interface is gone
         }
         ctx.request_repaint();
+        // A newer request waiting: its image comes first, this one's info is not shown.
+        let superseded = lock.lock().unwrap_or_else(|e| e.into_inner()).job.is_some();
+        if let Some(decoded) = info.filter(|_| !superseded) {
+            let msg = Msg::Info {
+                generation,
+                path,
+                info: image_info(&decoded),
+            };
+            if tx.send(msg).is_err() {
+                return;
+            }
+            ctx.request_repaint();
+        }
     }
 }
 
@@ -160,7 +182,13 @@ fn render_for_screen(
     if rendered.display.len() != size[0] * size[1] * 3 {
         return Err("unexpected size of the rendered pixels".to_string());
     }
-    let image = ColorImage::from_rgb(size, &rendered.display);
+    // In parallel: for a large image this copy costs as much as the color conversion.
+    let pixels: Vec<Color32> = rendered
+        .display
+        .par_chunks_exact(3)
+        .map(|p| Color32::from_rgb(p[0], p[1], p[2]))
+        .collect();
+    let image = ColorImage::new(size, pixels);
     let details = format!("{} — {}", decoded.format_name, rendered.info.source_name);
     let info = ColorInfo {
         converted: rendered.document.is_some(),

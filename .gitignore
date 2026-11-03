@@ -23,3 +23,7 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# Local notes and scripts, not part of the project
+/TIDY.md
+/_workflow/

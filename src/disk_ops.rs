@@ -429,6 +429,10 @@ pub fn move_to_trash(path: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
+#[expect(
+    unsafe_code,
+    reason = "the Recycle Bin is reached through SHFileOperationW"
+)]
 mod imp {
     // Win32 structures keep their SDK names so they can be checked against the documentation.
     #![allow(clippy::upper_case_acronyms)]
@@ -486,6 +490,8 @@ mod imp {
             h_name_mappings: std::ptr::null_mut(),
             lpsz_progress_title: std::ptr::null(),
         };
+        // SAFETY: `op` points only into `wide`, a double-null-terminated UTF-16 list alive for
+        // the whole call; every other pointer is null, as FO_DELETE allows.
         let rc = unsafe { SHFileOperationW(&mut op) };
         if rc != 0 {
             return Err(format!("Recycle Bin operation failed (code {:#x})", rc));

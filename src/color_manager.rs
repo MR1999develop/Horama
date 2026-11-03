@@ -100,6 +100,7 @@ pub fn detect_display_profile(screen_point: Option<(i32, i32)>) -> DisplayProfil
 }
 
 #[cfg(target_os = "windows")]
+#[expect(unsafe_code, reason = "Win32 calls that find the profile of a monitor")]
 mod win_display {
     // Win32 structures keep their SDK names so they can be checked against the documentation.
     #![allow(clippy::upper_case_acronyms)]
@@ -143,7 +144,11 @@ mod win_display {
 
     const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
+    /// # Safety
+    /// `hdc` must be a valid device context for the whole call.
     unsafe fn icm_profile(hdc: *mut c_void) -> Option<PathBuf> {
+        // SAFETY: `buf` always holds the `size` UTF-16 units that GetICMProfileW is told about;
+        // the caller guarantees `hdc`.
         unsafe {
             let mut size: u32 = 1024;
             let mut buf: Vec<u16> = vec![0u16; size as usize];
@@ -164,6 +169,9 @@ mod win_display {
     }
 
     pub fn profile_path(screen_point: Option<(i32, i32)>) -> Option<PathBuf> {
+        // SAFETY: every handle is checked for null before use and released on every path
+        // (DeleteDC, ReleaseDC); MONITORINFOEXW is a plain C struct, valid when zeroed, with
+        // `cb_size` set as GetMonitorInfoW requires.
         unsafe {
             if let Some((x, y)) = screen_point {
                 let hmon = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);

@@ -14,6 +14,7 @@ pub struct OpenWithItem {
 /// absolute path, never looked up by name (a program with the same name next to Horama or in
 /// the `PATH` would run instead).
 #[cfg(target_os = "windows")]
+#[expect(unsafe_code, reason = "GetWindowsDirectoryW")]
 fn windows_dir() -> std::path::PathBuf {
     unsafe extern "system" {
         fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
@@ -30,6 +31,10 @@ fn windows_dir() -> std::path::PathBuf {
 
 /// Shows `path_str` selected in the file manager (Explorer, Finder) or, elsewhere, opens its
 /// folder.
+#[cfg_attr(
+    target_os = "windows",
+    expect(unsafe_code, reason = "AllowSetForegroundWindow")
+)]
 pub fn reveal_in_file_manager(path_str: &str) {
     let p = std::path::Path::new(path_str);
     if !p.exists() {
@@ -41,7 +46,9 @@ pub fn reveal_in_file_manager(path_str: &str) {
         unsafe extern "system" {
             fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
         }
-        // Let Explorer bring its window to the front (ASFW_ANY).
+        // Let Explorer bring its window to the front (ASFW_ANY: the request may be handed to
+        // the Explorer process already running, whose id is not known).
+        // SAFETY: no pointers; the call only changes a foreground permission.
         unsafe {
             AllowSetForegroundWindow(0xFFFF_FFFF);
         }
@@ -68,7 +75,15 @@ pub fn reveal_in_file_manager(path_str: &str) {
     }
 }
 
+/// Windows: the shell's association handlers, through COM.
+///
+/// The COM interfaces are called through their vtables, by slot number (IUnknown: 0 QueryInterface,
+/// 1 AddRef, 2 Release; IEnumAssocHandlers: 3 Next; IAssocHandler: 3 GetName, 4 GetUIName,
+/// 5 GetIconLocation, 8 Invoke; IShellItem: 3 BindToHandler), as declared in shobjidl_core.h.
+/// Every pointer is checked for null after the call that fills it, every object is released
+/// once, and every string returned by the shell is freed with CoTaskMemFree.
 #[cfg(target_os = "windows")]
+#[expect(unsafe_code, reason = "COM and Win32 calls of the Open With menu")]
 mod win_impl {
     // Win32 structures keep their SDK names so they can be checked against the documentation.
     #![allow(clippy::upper_case_acronyms)]
@@ -212,6 +227,7 @@ mod win_impl {
     impl ComGuard {
         fn new() -> Self {
             // COINIT_APARTMENTTHREADED = 2. S_OK (0) and S_FALSE (1) both require CoUninitialize.
+            // SAFETY: the reserved pointer must be null; the guard balances the call.
             let hr = unsafe { CoInitializeEx(ptr::null_mut(), 2) };
             ComGuard(hr >= 0)
         }
@@ -219,6 +235,7 @@ mod win_impl {
     impl Drop for ComGuard {
         fn drop(&mut self) {
             if self.0 {
+                // SAFETY: called once, on the thread whose CoInitializeEx succeeded.
                 unsafe { CoUninitialize() };
             }
         }
@@ -226,7 +243,12 @@ mod win_impl {
 
     type VTable = *const *const usize;
 
+    /// Releases a COM object (vtable slot 2, IUnknown::Release).
+    ///
+    /// # Safety
+    /// `p` is null or a live COM interface pointer owned by the caller, not used afterwards.
     unsafe fn call_release(p: *mut c_void) {
+        // SAFETY: see the function's contract; every COM interface starts with IUnknown.
         unsafe {
             if !p.is_null() {
                 let vt = *(p as VTable);
@@ -238,7 +260,13 @@ mod win_impl {
     }
 
     /// Extract 16x16 32-bit RGBA pixels from an HICON.
+    ///
+    /// # Safety
+    /// `h_icon` is null or a valid icon handle; the caller still owns and destroys it.
     unsafe fn hicon_to_rgba(h_icon: *mut c_void) -> Option<(u32, u32, Vec<u8>)> {
+        // SAFETY: the bitmap size is capped at 256×256 and `buf` holds exactly the
+        // width × height × 4 bytes GetDIBits writes for a top-down 32-bit bitmap; the bitmaps
+        // and the screen DC are released on every path.
         unsafe {
             if h_icon.is_null() {
                 return None;
@@ -331,7 +359,12 @@ mod win_impl {
     }
 
     /// Extract icon for a given file path or application name.
+    ///
+    /// # Safety
+    /// None beyond the Win32 calls themselves: the path is a null-terminated copy.
     unsafe fn extract_app_icon(app_path: &str, icon_index: i32) -> Option<(u32, u32, Vec<u8>)> {
+        // SAFETY: `wide` is null-terminated and outlives the calls; each icon handle returned
+        // is checked and destroyed once.
         unsafe {
             let wide: Vec<u16> = app_path.encode_utf16().chain(std::iter::once(0)).collect();
 
@@ -378,6 +411,8 @@ mod win_impl {
         let ext_wide: Vec<u16> = ext.encode_utf16().chain(std::iter::once(0)).collect();
 
         let _com = ComGuard::new();
+        // SAFETY: see the module documentation (vtable slots, null checks, one Release per
+        // object, CoTaskMemFree for each returned string); strings are read up to their null.
         unsafe {
             let mut enum_handlers: *mut c_void = ptr::null_mut();
             // ASSOC_FILTER_RECOMMENDED = 1
@@ -515,6 +550,8 @@ mod win_impl {
         let file_wide: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
 
         let _com = ComGuard::new();
+        // SAFETY: see the module documentation; `file_wide` and `ext_wide` are null-terminated
+        // and outlive the calls, and every object is released on every path.
         unsafe {
             // 1. Create ShellItem and DataObject for the file
             let mut shell_item: *mut c_void = ptr::null_mut();

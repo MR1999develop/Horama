@@ -4,6 +4,7 @@
 //! Command line: `horama [--mcp] [file or folder]`, as used by "Open with"; `--mcp` (or the
 //! `HORAMA_MCP` variable) starts the MCP server on stdin/stdout.
 #![windows_subsystem = "windows"]
+#![forbid(unsafe_code)]
 
 use horama::config::APP_NAME;
 use horama::egui_app::HoramaApp;

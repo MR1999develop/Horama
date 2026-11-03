@@ -3,6 +3,11 @@
 //! The library holds everything that does not depend on the user interface toolkit: decoding,
 //! color management, file operations, the browsing model and the view geometry. The program
 //! `horama` adds the egui interface ([`egui_app`]).
+//!
+//! No `unsafe` code, except in the few modules that call the Windows API directly: each of them
+//! says so with `#[expect(unsafe_code)]`, and each `unsafe` block states why it is sound.
+#![deny(unsafe_code)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 pub mod browse;
 pub mod cache_manager;

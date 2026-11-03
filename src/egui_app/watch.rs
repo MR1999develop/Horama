@@ -4,13 +4,55 @@
 //! The watcher ([`FolderWatcher`]) reports batches of changes from its own thread; they come
 //! back as a [`Msg`] and are applied here. Changes made by Horama itself (rotation, rename,
 //! Recycle Bin, Save As) are already in the list and are recognised as such.
+//!
+//! Files another program added, changed or renamed carry a mark ([`DiskBadge`]) on their
+//! thumbnail and over the image until another folder is opened; when the image on screen is
+//! deleted, a notice says so.
 
+use super::i18n::{tr, trf};
 use super::{HoramaApp, Msg};
 use crate::config::{is_supported_file, normalize_path, path_key, same_path};
 use crate::file_watcher::{FileSyncAction, FolderWatcher};
 use std::path::Path;
 
+/// What another program did to a file of the open folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DiskBadge {
+    New,
+    Modified,
+    Renamed,
+}
+
+impl DiskBadge {
+    /// The short mark on the thumbnail.
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            DiskBadge::New => tr("New"),
+            DiskBadge::Modified => tr("Changed"),
+            DiskBadge::Renamed => tr("Renamed"),
+        }
+    }
+
+    /// The longer text over the image.
+    pub(super) fn description(self) -> &'static str {
+        match self {
+            DiskBadge::New => tr("New file"),
+            DiskBadge::Modified => tr("Changed on disk by another program"),
+            DiskBadge::Renamed => tr("Renamed by another program"),
+        }
+    }
+}
+
 impl HoramaApp {
+    /// The mark of `path`, if another program touched it.
+    pub(super) fn disk_badge(&self, path: &str) -> Option<DiskBadge> {
+        self.disk_badges.get(&path_key(path)).copied()
+    }
+
+    fn set_disk_badge(&mut self, path: &str, badge: DiskBadge) {
+        self.disk_badges.insert(path_key(path), badge);
+    }
+
     /// Starts watching `folder` (and its subfolders); the previous watcher stops.
     pub(super) fn watch_folder(&mut self, folder: &str) {
         self.watcher = None;
@@ -45,6 +87,16 @@ impl HoramaApp {
                     if self.is_known_folder(&p) {
                         rescan = true;
                     } else if self.knows(&p) {
+                        if self.current_path().is_some_and(|c| same_path(&c, &p)) {
+                            self.notify(
+                                trf(
+                                    "{} was deleted by another program.",
+                                    &[&crate::browse::file_name_of(&p)],
+                                ),
+                                false,
+                            );
+                        }
+                        self.disk_badges.remove(&path_key(&p));
                         self.all_files.retain(|f| !same_path(f, &p));
                         if let Ok(mut cache) = self.preloader.cache.lock() {
                             cache.remove(&p);
@@ -54,26 +106,40 @@ impl HoramaApp {
                     }
                 }
                 FileSyncAction::Created(p) | FileSyncAction::Restored(p) => {
-                    list_changed |= self.add_file(&p);
+                    if self.add_file(&p) {
+                        self.set_disk_badge(&p, DiskBadge::New);
+                        list_changed = true;
+                    }
                 }
                 FileSyncAction::Renamed { old_path, new_path } => {
                     if self.knows(&new_path) {
                         continue; // renamed by Horama: the list already has the new name
                     }
                     if self.knows(&old_path) {
-                        self.renamed(vec![(old_path, normalize_path(&new_path))], Ok(()));
-                    } else {
-                        list_changed |= self.add_file(&new_path);
+                        let new_path = normalize_path(&new_path);
+                        self.disk_badges.remove(&path_key(&old_path));
+                        self.renamed(vec![(old_path, new_path.clone())], Ok(()));
+                        self.set_disk_badge(&new_path, DiskBadge::Renamed);
+                    } else if self.add_file(&new_path) {
+                        self.set_disk_badge(&new_path, DiskBadge::New);
+                        list_changed = true;
                     }
                 }
                 FileSyncAction::Modified(p) => {
                     let p = normalize_path(&p);
                     if !self.knows(&p) {
                         // An atomic write of a new file (e.g. saved by another program).
-                        list_changed |= self.add_file(&p);
+                        if self.add_file(&p) {
+                            self.set_disk_badge(&p, DiskBadge::New);
+                            list_changed = true;
+                        }
                     } else if Path::new(&p).exists()
                         && !crate::disk_ops::is_recent_self_write(Path::new(&p))
                     {
+                        // A new file keeps its mark: it is still new to the user.
+                        if self.disk_badge(&p) != Some(DiskBadge::New) {
+                            self.set_disk_badge(&p, DiskBadge::Modified);
+                        }
                         self.aspects.remove(&p);
                         self.forget_pixels(&p);
                     }

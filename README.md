@@ -107,11 +107,11 @@ cargo run --release
 
 Cosa fa:
 
-- apre una cartella o un file (menu, cartelle recenti, riga di comando, trascinamento; trascinando più immagini apre solo quelle), con l'albero delle cartelle (riapre l'ultima sottocartella) e la filmstrip delle miniature, ricerca e selezione multipla; la cartella si aggiorna da sola quando altri programmi aggiungono, cancellano o rinominano file;
-- mostra l'immagine con gestione colore (profilo del monitor aggiornato quando la finestra passa a un altro schermo), adatta alla finestra, 100%, zoom sul cursore e spostamento; oltre il 100% i pixel si vedono netti; lente 4× (tasto centrale) e contagocce RGB/HSL (tasto destro);
-- precarica le immagini vicine; un solo caricamento alla volta, così scorrendo veloce si decodifica solo l'immagine su cui ci si ferma;
-- valutazioni (0–5 o stelle nella barra di stato) e tutti i filtri (stelle, formato, proporzioni, profilo colore, profilo cambiato, ritagliate);
-- pannello informazioni con istogramma e metadati (I);
+- apre una cartella o un file (menu, cartelle recenti, riga di comando, trascinamento; trascinando più immagini apre solo quelle), con l'albero delle cartelle (riapre l'ultima sottocartella) e la filmstrip delle miniature, ricerca e selezione multipla; la cartella si aggiorna da sola quando altri programmi aggiungono, cancellano o rinominano file, e le miniature di quei file portano il contrassegno Nuovo, Modificato o Rinominato (avvisa anche se l'immagine aperta viene eliminata); il pannello delle cartelle si nasconde da Visualizza > Cartelle;
+- mostra l'immagine con gestione colore (profilo del monitor aggiornato quando la finestra passa a un altro schermo), adatta alla finestra, 100%, zoom sul cursore, livelli di zoom predefiniti (10%–800%) e spostamento; il doppio clic passa al 100% nel punto cliccato e torna ad adattare; oltre il 100% i pixel si vedono netti; lente 4× (tasto centrale) e contagocce RGB/HSL (tasto destro);
+- precarica le immagini vicine (lo stato della cache RAM è nella barra di stato); un solo caricamento alla volta, così scorrendo veloce si decodifica solo l'immagine su cui ci si ferma;
+- valutazioni (0–5, stelle nella barra di stato o sulle miniature) e tutti i filtri (stelle, formato, proporzioni, profilo colore, profilo cambiato, ritagliate);
+- pannello informazioni con istogramma, gestione colore (profilo incorporato, profilo in uso, monitor) e metadati (I);
 - scelta e conversione del profilo colore (menu Immagine, P per il successivo) e profili ICC/ICM personalizzati;
 - ritaglio (C) con proporzioni libere o fisse, Annulla/Ripeti (Ctrl+Z / Ctrl+Y) per ritagli, valutazioni, profili e rotazioni, salvataggio dei ritagli come nuovi file accanto agli originali (Ctrl+S) e richiesta alla chiusura se restano ritagli non salvati;
 - confronto fino a nove immagini selezionate, affiancate;

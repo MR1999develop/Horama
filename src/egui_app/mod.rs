@@ -53,6 +53,10 @@ use thumbs::{ThumbResult, ThumbnailLoader};
 const CELL_W: f32 = 132.0;
 const THUMB_BOX: Vec2 = Vec2::new(120.0, 84.0);
 const FILMSTRIP_H: f32 = 126.0;
+/// Stars at the bottom of a thumbnail: small when only shown, larger under the pointer,
+/// where they can be clicked.
+const CELL_STAR: f32 = 9.0;
+const CELL_STAR_HOVER: f32 = 14.0;
 
 /// Results of the worker threads.
 enum Msg {
@@ -71,6 +75,7 @@ enum Msg {
         path: String,
         image: ColorImage,
         details: String,
+        color: loader::ColorInfo,
         info: loader::ImageInfo,
         decoded: std::sync::Arc<crate::image_loader::DecodedImage>,
     },
@@ -104,6 +109,7 @@ struct Shown {
     details: String,
     /// Metadata rows (label, value) for the info panel.
     metadata: Vec<(String, String)>,
+    color: loader::ColorInfo,
     histogram: TextureHandle,
     /// The pixels on screen (edited ones included), for the crop.
     decoded: std::sync::Arc<crate::image_loader::DecodedImage>,
@@ -170,6 +176,11 @@ pub struct HoramaApp {
     view: ViewState,
     /// The info panel (histogram and metadata) on the right.
     show_info: bool,
+    /// The folder panel on the left.
+    show_folders: bool,
+    /// Files of the open folder that another program added, changed or renamed (by
+    /// [`crate::config::path_key`]).
+    disk_badges: HashMap<String, watch::DiskBadge>,
     show_prefs: bool,
     show_about: bool,
     /// Toolbar locks: the zoom and position stay when the image changes; the profile is
@@ -279,6 +290,8 @@ impl HoramaApp {
                 fit: true,
             },
             show_info: true,
+            show_folders: true,
+            disk_badges: HashMap::new(),
             show_prefs: false,
             show_about: false,
             lock_zoom: false,
@@ -407,6 +420,7 @@ impl HoramaApp {
         self.filters.tree = browse::TREE_ALL.to_string();
         self.expanded = HashSet::from([browse::TREE_ALL.to_string()]);
         self.aspects.clear();
+        self.disk_badges.clear();
         // Thumbnails of the previous folder are dropped, and its late results ignored.
         self.thumbs.clear();
         self.thumb_folder_generation = self.thumb_loader.request(Vec::new());
@@ -641,6 +655,7 @@ impl HoramaApp {
                     path,
                     image,
                     details,
+                    color,
                     info,
                     decoded,
                 } if generation == self.load_generation => {
@@ -665,6 +680,7 @@ impl HoramaApp {
                         size,
                         details,
                         metadata: info.metadata,
+                        color,
                         decoded,
                         histogram,
                     });
@@ -727,25 +743,33 @@ impl HoramaApp {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(self.status_text());
-                if let Some(path) = self.current_path() {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(path) = self.current_path() {
                         let current = self.settings.get_rating(&path);
                         if let Some(stars) = filters::star_picker(ui, current) {
                             self.set_rating(stars);
                         }
-                    });
-                }
+                        ui.separator();
+                    }
+                    if let Some(text) = self.cache_text() {
+                        ui.label(egui::RichText::new(text).weak()).on_hover_text(tr(
+                            "Decoded images kept in memory for instant browsing",
+                        ));
+                    }
+                });
             });
         });
         egui::Panel::bottom("filmstrip")
             .resizable(false)
             .exact_size(FILMSTRIP_H)
             .show(ui, |ui| self.filmstrip(ui));
-        egui::Panel::left("folders")
-            .resizable(true)
-            .default_size(theme::SIDE_PANEL_WIDTH)
-            .size_range(180.0..=600.0)
-            .show(ui, |ui| self.folder_tree(ui));
+        if self.show_folders {
+            egui::Panel::left("folders")
+                .resizable(true)
+                .default_size(theme::SIDE_PANEL_WIDTH)
+                .size_range(180.0..=600.0)
+                .show(ui, |ui| self.folder_tree(ui));
+        }
         if self.show_info {
             egui::Panel::right("info")
                 .resizable(true)
@@ -948,6 +972,14 @@ impl HoramaApp {
                 {
                     self.show_info = info;
                 }
+                let mut folders = self.show_folders;
+                if ui
+                    .add(egui::Checkbox::new(&mut folders, tr("Folders")))
+                    .on_hover_text(tr("Folder tree, search and filters"))
+                    .changed()
+                {
+                    self.show_folders = folders;
+                }
                 ui.separator();
                 if ui
                     .add_enabled(
@@ -1138,6 +1170,10 @@ impl HoramaApp {
     /// F6: the keyboard focus goes to the next panel (folders, filmstrip, image).
     fn focus_next_panel(&mut self) {
         self.focus_panel = (self.focus_panel + 1) % 3;
+        // A hidden folder panel is skipped.
+        if self.focus_panel == 0 && !self.show_folders {
+            self.focus_panel = 1;
+        }
         self.pending_focus = Some(self.focus_panel);
     }
 
@@ -1309,6 +1345,7 @@ impl HoramaApp {
         // Context menu: the applications of "Open With" are read when it opens.
         let mut right_clicked: Option<usize> = None;
         let mut menu_action: Option<(usize, tools::CellAction)> = None;
+        let mut rated: Option<(usize, u8)> = None;
         let menu_handlers = self.open_with.clone();
         // F6 brings the focus to the cell of the current image.
         let focus_cell = if self.pending_focus == Some(1) {
@@ -1334,18 +1371,43 @@ impl HoramaApp {
                         ui.interact(rect, ui.scope_id().with(("cell", i)), Sense::click());
                     let name = browse::file_name_of(&self.visible[i]);
                     let selected = self.selected.contains(&i);
+                    // The mark of a file changed by another program is read out with it.
+                    let label = match self.disk_badge(&self.visible[i]) {
+                        Some(b) => trf("Thumbnail of {} ({})", &[&name, &b.label()]),
+                        None => trf("Thumbnail of {}", &[&name]),
+                    };
                     response.widget_info(|| {
-                        egui::WidgetInfo::selected(
-                            egui::Role::ListItem,
-                            true,
-                            selected,
-                            trf("Thumbnail of {}", &[&name]),
-                        )
+                        egui::WidgetInfo::selected(egui::Role::ListItem, true, selected, &label)
                     });
                     if focus_cell == Some(i) {
                         response.request_focus();
                     }
-                    self.paint_cell(ui, i, rect, response.hovered());
+                    // The stars of the cell rate its image alone, without selecting it.
+                    let (star_left, star_size) = star_row(thumb_area(rect), true);
+                    let star_rect = Rect::from_min_size(
+                        star_left - Vec2::new(0.0, star_size / 2.0),
+                        Vec2::new(star_size * 5.0, star_size),
+                    );
+                    let stars =
+                        ui.interact(star_rect, ui.scope_id().with(("stars", i)), Sense::click());
+                    let rating = self.settings.get_rating(&self.visible[i]);
+                    stars.widget_info(|| {
+                        egui::WidgetInfo::slider(
+                            true,
+                            f64::from(rating),
+                            trf("Rating of {}", &[&name]),
+                        )
+                    });
+                    let star_hover = stars
+                        .hover_pos()
+                        .map(|p| filters::star_under(star_left.x, star_size, p));
+                    if stars.clicked()
+                        && let Some(s) = star_hover
+                    {
+                        rated = Some((i, if s == rating { 0 } else { s }));
+                    }
+                    let hover = (response.hovered() || stars.hovered()).then_some(star_hover);
+                    self.paint_cell(ui, i, rect, hover);
                     if response.has_focus() {
                         ui.painter().rect_stroke(
                             rect.expand(2.0),
@@ -1397,6 +1459,11 @@ impl HoramaApp {
             let path = self.visible[i].clone();
             self.open_with_handlers(&path);
         }
+        if let Some((i, stars)) = rated
+            && let Some(path) = self.visible.get(i).cloned()
+        {
+            self.rate(vec![path], stars);
+        }
         if let Some((i, action)) = menu_action
             && let Some(path) = self.visible.get(i).cloned()
         {
@@ -1417,16 +1484,15 @@ impl HoramaApp {
         }
     }
 
-    fn paint_cell(&self, ui: &mut egui::Ui, i: usize, rect: Rect, hovered: bool) {
+    /// Draws a filmstrip cell. `hover` is `Some` while the pointer is over the cell, with the
+    /// star under it, if any.
+    fn paint_cell(&self, ui: &mut egui::Ui, i: usize, rect: Rect, hover: Option<Option<u8>>) {
         let path = &self.visible[i];
         let painter = ui.painter_at(rect);
         let selected = self.selected.contains(&i);
         let visuals = ui.visuals();
-        painter.rect_filled(rect, 4.0, theme::cell(visuals, hovered));
-        let thumb_area = Rect::from_min_size(
-            rect.min + Vec2::new((rect.width() - THUMB_BOX.x) / 2.0, 4.0),
-            THUMB_BOX,
-        );
+        painter.rect_filled(rect, 4.0, theme::cell(visuals, hover.is_some()));
+        let thumb_area = thumb_area(rect);
         match self.thumbs.get(path) {
             Some(Some(tex)) => {
                 let size = tex.size_vec2();
@@ -1474,10 +1540,13 @@ impl HoramaApp {
                 theme::accent(visuals),
             );
         }
+        if let Some(badge) = self.disk_badge(path) {
+            let pos = thumb_area.left_top() + Vec2::splat(2.0);
+            widgets::badge(ui, pos, Align2::LEFT_TOP, badge.label(), 10.0);
+        }
         let stars = self.settings.get_rating(path);
-        if stars > 0 {
-            let size = 9.0;
-            let left = Pos2::new(thumb_area.min.x + 2.0, thumb_area.max.y - size / 2.0 - 2.0);
+        if stars > 0 || hover.is_some() {
+            let (left, size) = star_row(thumb_area, hover.is_some());
             painter.rect_filled(
                 Rect::from_min_size(
                     left - Vec2::new(1.0, size / 2.0 + 1.0),
@@ -1486,7 +1555,8 @@ impl HoramaApp {
                 2.0,
                 Color32::from_black_alpha(160),
             );
-            filters::paint_stars(&painter, left, size, stars);
+            let shown = hover.flatten().unwrap_or(stars);
+            filters::paint_stars(&painter, left, size, shown);
         }
         let label_rect = Rect::from_min_max(
             Pos2::new(rect.min.x + 4.0, thumb_area.max.y + 2.0),
@@ -1551,7 +1621,8 @@ impl HoramaApp {
                 view::fit_zoom(view_size.0, view_size.1, shown.size.0, shown.size.1, scale);
         }
 
-        // Wheel: zoom around the cursor. Drag: pan. Double click: fit.
+        // Wheel: zoom around the cursor. Drag: pan. Double click: 100% around the cursor,
+        // and back to fit.
         if response.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0
@@ -1578,8 +1649,26 @@ impl HoramaApp {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         if response.double_clicked() {
-            self.view.fit = true;
-            self.view.pan = Vec2::ZERO;
+            let actual = (self.view.zoom - 1.0).abs() < 0.01 && !self.view.fit;
+            match response.interact_pointer_pos() {
+                Some(pos) if !actual => {
+                    let cursor = (pos.x - rect.min.x, pos.y - rect.min.y);
+                    let (zoom, pan) = view::zoom_at_cursor(
+                        self.view.zoom,
+                        (self.view.pan.x, self.view.pan.y),
+                        1.0 / self.view.zoom.max(0.0001),
+                        cursor,
+                        view_size,
+                    );
+                    self.view.zoom = zoom;
+                    self.view.pan = Vec2::new(pan.0, pan.1);
+                    self.view.fit = false;
+                }
+                _ => {
+                    self.view.fit = true;
+                    self.view.pan = Vec2::ZERO;
+                }
+            }
         }
 
         let lz = view::logical_zoom(self.view.zoom, scale);
@@ -1589,10 +1678,15 @@ impl HoramaApp {
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         ui.painter_at(rect)
             .image(shown.texture.id(), image_rect, uv, Color32::WHITE);
+        let badge = self.disk_badge(&shown.path);
         if self.crop.is_some() {
             self.crop_overlay(ui, &response, image_rect);
         } else {
             self.image_tools(ui, image_rect);
+        }
+        if let Some(badge) = badge {
+            let pos = rect.left_top() + Vec2::splat(theme::SPACE_M);
+            widgets::badge(ui, pos, Align2::LEFT_TOP, badge.description(), 13.0);
         }
     }
 
@@ -1614,6 +1708,27 @@ impl HoramaApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                widgets::section_title(ui, tr("Color Management"));
+                egui::Grid::new("color")
+                    .num_columns(2)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        for (label, value) in color_rows(&shown.color) {
+                            ui.label(egui::RichText::new(label).weak());
+                            ui.add(egui::Label::new(value).wrap());
+                            ui.end_row();
+                        }
+                    });
+                if shown.color.converted {
+                    ui.label(
+                        egui::RichText::new(tr(
+                            "Converted: same look on screen; pixel values and histogram change.",
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                }
+                ui.separator();
                 egui::Grid::new("metadata")
                     .num_columns(2)
                     .striped(true)
@@ -1626,6 +1741,19 @@ impl HoramaApp {
                         }
                     });
             });
+    }
+
+    /// Images in the RAM cache, out of the visible ones, and memory used of the budget.
+    fn cache_text(&self) -> Option<String> {
+        if self.visible.is_empty() {
+            return None;
+        }
+        let (count, used, budget) = self.preloader.cache.lock().ok()?.stats();
+        let mb = |b: usize| format!("{:.0}", b as f64 / (1024.0 * 1024.0));
+        Some(trf(
+            "RAM cache: {} / {} ({} / {} MB)",
+            &[&count, &self.visible.len(), &mb(used), &mb(budget)],
+        ))
     }
 
     fn status_text(&self) -> String {
@@ -1651,6 +1779,39 @@ impl HoramaApp {
             loading
         )
     }
+}
+
+/// Where the thumbnail of a filmstrip cell goes.
+fn thumb_area(cell: Rect) -> Rect {
+    Rect::from_min_size(
+        cell.min + Vec2::new((cell.width() - THUMB_BOX.x) / 2.0, 4.0),
+        THUMB_BOX,
+    )
+}
+
+/// The left centre and size of the stars of a cell (larger under the pointer).
+fn star_row(thumb_area: Rect, large: bool) -> (Pos2, f32) {
+    let size = if large { CELL_STAR_HOVER } else { CELL_STAR };
+    let left = Pos2::new(thumb_area.min.x + 2.0, thumb_area.max.y - size / 2.0 - 2.0);
+    (left, size)
+}
+
+/// The rows of the color section of the info panel: embedded profile, profile in use,
+/// monitor profile.
+fn color_rows(color: &loader::ColorInfo) -> [(&'static str, String); 3] {
+    let t = &color.transform;
+    let embedded = match &t.embedded_name {
+        Some(name) => name.clone(),
+        None => trf(
+            "None ({} assumed)",
+            &[&crate::config::DEFAULT_FALLBACK_PROFILE],
+        ),
+    };
+    [
+        (tr("Embedded profile"), embedded),
+        (tr("Profile in use"), t.source_name.clone()),
+        (tr("Monitor"), t.display_name.clone()),
+    ]
 }
 
 /// Expand / collapse arrow of a tree row (an empty space of the same width if `enabled` is

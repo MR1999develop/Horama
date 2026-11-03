@@ -6,7 +6,7 @@
 
 use super::Msg;
 use crate::cache_manager::PreloadLoader;
-use crate::color_manager::ColorManager;
+use crate::color_manager::{ColorManager, ColorTransformInfo};
 use crate::image_loader::DecodedImage;
 use crate::metadata::{extract_metadata, render_histogram_rgba};
 use egui::ColorImage;
@@ -114,11 +114,12 @@ fn worker(
         let rendered =
             decoded.and_then(|d| render_for_screen(&d, &color, &profile).map(|r| (d, r)));
         let msg = match rendered {
-            Ok((decoded, (image, details))) => Msg::Loaded {
+            Ok((decoded, (image, details, color))) => Msg::Loaded {
                 generation,
                 path,
                 image,
                 details,
+                color,
                 info: image_info(&decoded),
                 decoded,
             },
@@ -143,13 +144,13 @@ fn image_info(decoded: &DecodedImage) -> ImageInfo {
     }
 }
 
-/// Converts a decoded image to the monitor profile. Returns the
-/// screen pixels and a short description (format and profile).
+/// Converts a decoded image to the monitor profile. Returns the screen pixels, a short
+/// description (format and profile) and the profiles used.
 fn render_for_screen(
     decoded: &DecodedImage,
     color: &ColorManager,
     profile: &str,
-) -> Result<(ColorImage, String), String> {
+) -> Result<(ColorImage, String, ColorInfo), String> {
     let rendered = color.render(
         &decoded.rgb_pixels,
         profile,
@@ -160,8 +161,18 @@ fn render_for_screen(
         return Err("unexpected size of the rendered pixels".to_string());
     }
     let image = ColorImage::from_rgb(size, &rendered.display);
-    Ok((
-        image,
-        format!("{} — {}", decoded.format_name, rendered.info.source_name),
-    ))
+    let details = format!("{} — {}", decoded.format_name, rendered.info.source_name);
+    let info = ColorInfo {
+        converted: rendered.document.is_some(),
+        transform: rendered.info,
+    };
+    Ok((image, details, info))
+}
+
+/// The profiles of the image on screen, for the info panel.
+pub(super) struct ColorInfo {
+    pub transform: ColorTransformInfo,
+    /// The embedded profile is converted to the chosen one (pixel values change), instead
+    /// of the chosen one being assigned.
+    pub converted: bool,
 }

@@ -110,6 +110,22 @@ pub fn toggle_button(ui: &mut Ui, on: bool, icon: &str, hint: impl Into<String>)
     resp
 }
 
+/// A short mark over an image (a thumbnail, the canvas): text on a dark rounded fill, readable
+/// over any picture. `anchor` says which corner of the mark is at `pos`.
+pub fn badge(ui: &Ui, pos: egui::Pos2, anchor: egui::Align2, text: &str, size: f32) -> egui::Rect {
+    let painter = ui.painter();
+    let galley = painter.layout_no_wrap(
+        text.to_string(),
+        egui::FontId::new(size, theme::semibold()),
+        egui::Color32::WHITE,
+    );
+    let pad = egui::vec2(size * 0.5, size * 0.2);
+    let rect = anchor.anchor_size(pos, galley.size() + 2.0 * pad);
+    painter.rect_filled(rect, theme::RADIUS, egui::Color32::from_black_alpha(180));
+    painter.galley(rect.min + pad, galley, egui::Color32::WHITE);
+    rect
+}
+
 /// An icon button whose icon is drawn by `paint` (for icons no system font has), with the
 /// size and behaviour of [`icon_button`].
 pub fn painted_icon_button(

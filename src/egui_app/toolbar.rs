@@ -8,6 +8,9 @@ use super::{HoramaApp, symbol, view, widgets};
 /// Zoom range of the percentage field, as the view allows.
 const ZOOM_PERCENT: std::ops::RangeInclusive<f32> = 1.0..=3200.0;
 
+/// The zoom levels of the menu next to the percentage, in percent.
+const ZOOM_PRESETS: [u16; 12] = [800, 700, 600, 500, 400, 300, 200, 100, 75, 50, 25, 10];
+
 impl HoramaApp {
     pub(super) fn toolbar(&mut self, ui: &mut egui::Ui) {
         let has_image = self.current.is_some();
@@ -80,6 +83,7 @@ impl HoramaApp {
                 self.view.fit = false;
             }
             field.on_hover_text(tr("Zoom"));
+            self.zoom_presets(ui, shown);
             self.tool(ui, shown, symbol::zoom_in(), "Zoom In", Command::ZoomIn);
             self.tool(ui, shown, symbol::fit(), "Fit to Window", Command::Fit);
             self.tool(
@@ -119,6 +123,30 @@ impl HoramaApp {
                 }
             });
         });
+    }
+
+    /// The menu of the usual zoom levels, next to the percentage.
+    fn zoom_presets(&mut self, ui: &mut egui::Ui, enabled: bool) {
+        let mut chosen = None;
+        ui.add_enabled_ui(enabled, |ui| {
+            let menu = ui.menu_button(symbol::chevron_down(), |ui| {
+                for percent in ZOOM_PRESETS {
+                    let level = f32::from(percent) / 100.0;
+                    let on = !self.view.fit && (self.view.zoom - level).abs() < 0.005;
+                    if ui.selectable_label(on, format!("{percent}%")).clicked() {
+                        chosen = Some(level);
+                        ui.close();
+                    }
+                }
+            });
+            menu.response
+                .on_hover_text(tr("Zoom Levels"))
+                .accessible_name(tr("Zoom Levels"));
+        });
+        if let Some(level) = chosen {
+            self.view.zoom = view::clamp_zoom(level);
+            self.view.fit = false;
+        }
     }
 
     /// An icon button that runs `cmd`; its tooltip names the action and its key.

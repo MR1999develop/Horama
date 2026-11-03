@@ -139,6 +139,7 @@ const IT: &[(&str, &str)] = &[
     ("Collapse", "Comprimi"),
     ("Expand", "Espandi"),
     ("Thumbnail of {}", "Miniatura di {}"),
+    ("Thumbnail of {} ({})", "Miniatura di {} ({})"),
     ("Folder {}", "Cartella {}"),
     ("Image view", "Vista dell'immagine"),
     // Info panel
@@ -395,6 +396,49 @@ const IT: &[(&str, &str)] = &[
     (
         "Open a folder or an image (File menu), or drop one here",
         "Apri una cartella o un'immagine (menu File), o trascinala qui",
+    ),
+    // Files changed by other programs.
+    ("New", "Nuovo"),
+    ("Changed", "Modificato"),
+    ("Renamed", "Rinominato"),
+    ("New file", "File nuovo"),
+    (
+        "Changed on disk by another program",
+        "Modificato sul disco da un altro programma",
+    ),
+    (
+        "Renamed by another program",
+        "Rinominato da un altro programma",
+    ),
+    (
+        "{} was deleted by another program.",
+        "{} è stato eliminato da un altro programma.",
+    ),
+    // Status bar, panels, zoom.
+    (
+        "Decoded images kept in memory for instant browsing",
+        "Immagini decodificate tenute in memoria per scorrere senza attese",
+    ),
+    (
+        "RAM cache: {} / {} ({} / {} MB)",
+        "Cache RAM: {} / {} ({} / {} MB)",
+    ),
+    ("Folders", "Cartelle"),
+    (
+        "Folder tree, search and filters",
+        "Albero delle cartelle, ricerca e filtri",
+    ),
+    ("Zoom Levels", "Livelli di zoom"),
+    ("Rating of {}", "Valutazione di {}"),
+    // Color section of the info panel.
+    ("Color Management", "Gestione colore"),
+    ("Embedded profile", "Profilo incorporato"),
+    ("Profile in use", "Profilo in uso"),
+    ("Monitor", "Monitor"),
+    ("None ({} assumed)", "Nessuno (si presume {})"),
+    (
+        "Converted: same look on screen; pixel values and histogram change.",
+        "Convertito: a schermo appare uguale; cambiano i valori dei pixel e l'istogramma.",
     ),
 ];
 

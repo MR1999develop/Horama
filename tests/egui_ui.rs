@@ -125,9 +125,42 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
         shows(h, "renamed.jpg —")
     });
 
-    // Files added or deleted by another program appear and disappear by themselves.
+    // The stars of a thumbnail rate that image alone (the middle one: 3 stars).
+    harness.get_by_label("Rating of b.jpg").click();
+    harness.step();
+    assert!(horama::persist::flush(Duration::from_secs(10)));
+    let ratings = std::fs::read_to_string(config.join("Horama").join("ratings.jsonl")).unwrap();
+    assert!(
+        ratings
+            .lines()
+            .any(|l| l.contains("b.jpg") && l.contains("\"r\":3")),
+        "{}",
+        ratings
+    );
+    assert!(shows(&harness, "renamed.jpg —"), "the current image stays");
+
+    // The zoom levels menu next to the percentage; the status bar shows the RAM cache and
+    // the info panel the profiles in use.
+    harness.get_by_label("Zoom Levels").click();
+    harness.run_steps(2);
+    harness.get_by_label("200%").click();
+    wait_for(&mut harness, "the 200% zoom", |h| shows(h, "— 200%"));
+    assert!(shows(&harness, "RAM cache:"));
+    assert!(shows(&harness, "Profile in use"));
+
+    // Files added, changed or deleted by another program appear, are marked and disappear
+    // by themselves.
     write_jpeg(&photos.join("d.jpg"));
     wait_for(&mut harness, "the new file", |h| shows(h, "4 images shown"));
+    wait_for(&mut harness, "the mark of the new file", |h| {
+        shows(h, "Thumbnail of d.jpg (New)")
+    });
+    image::RgbImage::from_pixel(64, 48, image::Rgb([200, 10, 10]))
+        .save(photos.join("b.jpg"))
+        .unwrap();
+    wait_for(&mut harness, "the mark of the changed file", |h| {
+        shows(h, "Thumbnail of b.jpg (Changed)")
+    });
     std::fs::remove_file(photos.join("d.jpg")).unwrap();
     wait_for(&mut harness, "the deleted file", |h| {
         shows(h, "3 images shown")

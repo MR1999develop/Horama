@@ -140,6 +140,11 @@ impl HoramaApp {
                 .filter_map(|&i| self.visible.get(i).cloned())
                 .collect()
         };
+        self.rate(targets, stars);
+    }
+
+    /// Sets the rating of `targets`, 0–5 stars, as one step of Undo.
+    pub(super) fn rate(&mut self, targets: Vec<String>, stars: u8) {
         if targets.is_empty() {
             return;
         }
@@ -365,7 +370,7 @@ pub(super) fn star_picker(ui: &mut egui::Ui, current: u8) -> Option<u8> {
     let (rect, response) = ui.allocate_exact_size(Vec2::new(size * 5.0, size), Sense::click());
     let hover = response
         .hover_pos()
-        .map(|p| (((p.x - rect.min.x) / size).floor() as i32 + 1).clamp(1, 5) as u8);
+        .map(|p| star_under(rect.min.x, size, p));
     let shown = hover.unwrap_or(current);
     paint_stars(ui.painter(), rect.left_center(), size, shown);
     if response.hovered() {
@@ -381,4 +386,9 @@ pub(super) fn star_picker(ui: &mut egui::Ui, current: u8) -> Option<u8> {
     response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(current), tr("Rating")));
     response.on_hover_text(tr("Rating (keys 0–5)"));
     clicked.map(|s| if s == current { 0 } else { s })
+}
+
+/// The star (1–5) under `pos` in a row of five stars of `size` starting at `left`.
+pub(super) fn star_under(left: f32, size: f32, pos: Pos2) -> u8 {
+    (((pos.x - left) / size).floor() as i32 + 1).clamp(1, 5) as u8
 }

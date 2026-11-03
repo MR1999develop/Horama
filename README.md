@@ -99,7 +99,7 @@ Tutte le scorciatoie sono completamente personalizzabili dall'applicazione trami
 
 ## Interfaccia
 
-L'interfaccia è basata su [egui](https://github.com/emilk/egui) (dalla versione 0.5 sostituisce quella precedente, in Slint, che è stata tolta).
+L'interfaccia è basata su [egui](https://github.com/emilk/egui).
 
 ```
 cargo run --release

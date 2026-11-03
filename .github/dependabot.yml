@@ -4,7 +4,11 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
+    # New versions wait a few days (security fixes do not), so a compromised release is
+    # usually caught by others first.
+    cooldown:
+      default-days: 3
     open-pull-requests-limit: 3
     labels:
       - "dependencies"
@@ -15,6 +19,8 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     labels:
       - "dependencies"

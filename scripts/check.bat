@@ -21,29 +21,34 @@ for /f "delims=" %%c in ('git rev-parse HEAD 2^>nul') do echo Commit: %%c
 for /f "delims=" %%c in ('rustc -V') do echo Toolchain: %%c
 
 echo.
-echo [1/4] Formatting (cargo fmt --check)
+echo [1/5] Formatting (cargo fmt --check)
 cargo fmt --all -- --check
 if errorlevel 1 goto :fail
 
 echo.
-echo [2/4] Lints (cargo clippy, warnings are errors)
-cargo clippy --all-targets -- -D warnings
+echo [2/5] Lints (cargo clippy, warnings are errors)
+cargo clippy --locked --all-targets -- -D warnings
 if errorlevel 1 goto :fail
 
 echo.
-echo [3/4] Tests (cargo test)
-cargo test
+echo [3/5] Tests (cargo test)
+cargo test --locked
 if errorlevel 1 goto :fail
 
 echo.
-echo [4/4] Release build (cargo build --release)
+echo [4/5] Dependencies (cargo deny: vulnerabilities, licenses, sources)
+cargo deny --locked check
+if errorlevel 1 goto :fail
+
+echo.
+echo [5/5] Release build (cargo build --release)
 rem A running Horama built here locks its .exe and the build would fail with "Access denied".
 powershell -NoProfile -Command "$t = Join-Path (Get-Location) 'target\*'; if (Get-Process horama -ErrorAction SilentlyContinue | Where-Object { $_.Path -like $t }) { exit 1 }"
 if errorlevel 1 (
     echo Horama is running from target\: close it, then run the check again.
     goto :fail
 )
-cargo build --release
+cargo build --locked --release
 if errorlevel 1 goto :fail
 
 echo.

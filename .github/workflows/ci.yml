@@ -5,6 +5,13 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
+  # New advisories appear for code that does not change: check every day.
+  schedule:
+    - cron: "17 5 * * *"
+
+# Read-only token; third-party actions pinned to a commit (the tag in the comment).
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +27,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -29,14 +38,19 @@ jobs:
           sudo apt-get install -y libfontconfig1-dev libx11-dev libxkbcommon-dev libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev libgl1-mesa-dev
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           # The version of rust-toolchain.toml.
           toolchain: "1.99"
           components: rustfmt, clippy
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-deny
 
       # The same single command used locally before every merge.
       - name: Run all checks (Windows)

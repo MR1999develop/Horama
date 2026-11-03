@@ -14,14 +14,16 @@ run_checks() {
     echo "Branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
     echo "Commit: $(git rev-parse HEAD 2>/dev/null)"
     echo "Toolchain: $(rustc -V)"
-    echo; echo "[1/4] Formatting (cargo fmt --check)"
+    echo; echo "[1/5] Formatting (cargo fmt --check)"
     cargo fmt --all -- --check
-    echo; echo "[2/4] Lints (cargo clippy, warnings are errors)"
-    cargo clippy --all-targets -- -D warnings
-    echo; echo "[3/4] Tests (cargo test)"
-    cargo test
-    echo; echo "[4/4] Release build (cargo build --release)"
-    cargo build --release
+    echo; echo "[2/5] Lints (cargo clippy, warnings are errors)"
+    cargo clippy --locked --all-targets -- -D warnings
+    echo; echo "[3/5] Tests (cargo test)"
+    cargo test --locked
+    echo; echo "[4/5] Dependencies (cargo deny: vulnerabilities, licenses, sources)"
+    cargo deny --locked check
+    echo; echo "[5/5] Release build (cargo build --release)"
+    cargo build --locked --release
     echo; echo "ALL CHECKS PASSED"
 }
 

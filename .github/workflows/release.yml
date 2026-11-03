@@ -6,6 +6,8 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Writing is needed only to attach the files to the release; third-party actions are pinned
+# to a commit (the tag in the comment).
 permissions:
   contents: write
 
@@ -26,7 +28,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
@@ -35,7 +39,7 @@ jobs:
           sudo apt-get install -y libfontconfig1-dev libx11-dev libxkbcommon-dev libxcb-shape0-dev libxcb-xfixes0-dev libwayland-dev libgl1-mesa-dev
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           # The version of rust-toolchain.toml.
           toolchain: "1.99"
@@ -48,7 +52,7 @@ jobs:
           CARGO_DIR="${CARGO_HOME:-$HOME/.cargo}"
           if [ "$RUNNER_OS" = "Windows" ]; then CARGO_DIR="$(cygpath -w "$CARGO_DIR")"; fi
           export RUSTFLAGS="--remap-path-prefix=$GITHUB_WORKSPACE=horama --remap-path-prefix=$CARGO_DIR=cargo"
-          cargo build --release --bins
+          cargo build --locked --release --bins
 
       - name: Package Windows Artifact
         if: runner.os == 'Windows'
@@ -79,7 +83,7 @@ jobs:
           tar -czvf ${{ matrix.artifact_name }} -C staging .
 
       - name: Upload Release Asset
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: ${{ matrix.artifact_name }}
           generate_release_notes: true

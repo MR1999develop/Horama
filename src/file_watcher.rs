@@ -5,7 +5,7 @@ use crate::config::{is_supported_file, normalize_path};
 use crossbeam_channel::unbounded;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -42,6 +42,15 @@ pub struct FolderWatcher {
     active: Arc<AtomicBool>,
 }
 
+/// `path` moved from under `real_root` to under `shown_root`; unchanged if it is not under
+/// `real_root`.
+fn under_shown_root(path: &Path, real_root: &Path, shown_root: &Path) -> PathBuf {
+    match path.strip_prefix(real_root) {
+        Ok(rest) => shown_root.join(rest),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
 impl FolderWatcher {
     /// Start watching the given root directory recursively.
     /// Debounced events are passed to the `callback` closure.
@@ -57,10 +66,19 @@ impl FolderWatcher {
         let (raw_tx, raw_rx) = unbounded::<Event>();
         let active = Arc::new(AtomicBool::new(true));
         let active_clone = active.clone();
+        // The system may report the real path of a folder opened through a link (macOS:
+        // /var/... is /private/var/...): events are given back under the path that was opened.
+        let shown_root = root.clone();
+        let real_root = root.canonicalize().ok().filter(|real| *real != root);
 
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
-                if let Ok(ev) = res {
+                if let Ok(mut ev) = res {
+                    if let Some(real_root) = &real_root {
+                        for p in ev.paths.iter_mut() {
+                            *p = under_shown_root(p, real_root, &shown_root);
+                        }
+                    }
                     let _ = raw_tx.send(ev);
                 }
             },
@@ -309,5 +327,24 @@ impl FolderWatcher {
 impl Drop for FolderWatcher {
     fn drop(&mut self) {
         self.active.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn events_under_the_real_path_come_back_under_the_opened_one() {
+        let real = Path::new("/private/var/photos");
+        let shown = Path::new("/var/photos");
+        assert_eq!(
+            under_shown_root(Path::new("/private/var/photos/2026/a.jpg"), real, shown),
+            PathBuf::from("/var/photos/2026/a.jpg")
+        );
+        assert_eq!(
+            under_shown_root(Path::new("/elsewhere/a.jpg"), real, shown),
+            PathBuf::from("/elsewhere/a.jpg")
+        );
     }
 }

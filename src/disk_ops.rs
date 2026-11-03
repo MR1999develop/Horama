@@ -551,10 +551,10 @@ mod imp {
     }
 
     fn home_trash() -> Option<PathBuf> {
-        if let Ok(x) = std::env::var("XDG_DATA_HOME") {
-            if !x.is_empty() {
-                return Some(PathBuf::from(x).join("Trash"));
-            }
+        if let Ok(x) = std::env::var("XDG_DATA_HOME")
+            && !x.is_empty()
+        {
+            return Some(PathBuf::from(x).join("Trash"));
         }
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/Trash"))
     }
@@ -673,10 +673,16 @@ mod imp {
     }
 
     pub fn move_to_trash(path: &Path) -> Result<(), String> {
+        move_to_trash_with(path, home_trash())
+    }
+
+    /// [`move_to_trash`] with the user's trash folder given (`None`: only the trash of the
+    /// file's own file system is tried).
+    pub(super) fn move_to_trash_with(path: &Path, home: Option<PathBuf>) -> Result<(), String> {
         let abs = fs::canonicalize(path).map_err(|e| e.to_string())?;
         let abs_str = abs.to_string_lossy().to_string();
         let mut errors = Vec::new();
-        if let Some(home) = home_trash() {
+        if let Some(home) = home {
             match try_trash_dir(&home, &abs, &percent_encode(&abs_str)) {
                 Ok(()) => return Ok(()),
                 Err(e) => errors.push(format!("{}: {}", home.display(), e)),
@@ -977,10 +983,10 @@ mod tests {
     fn linux_trash_moves_file_and_writes_info() {
         let d = tmpdir("trash");
         let data_home = d.join("xdg");
-        std::env::set_var("XDG_DATA_HOME", &data_home);
+        let trash = || Some(data_home.join("Trash"));
         let p = d.join("photo one.jpg");
         fs::write(&p, b"x").unwrap();
-        move_to_trash(&p).unwrap();
+        imp::move_to_trash_with(&p, trash()).unwrap();
         assert!(!p.exists());
         assert!(data_home.join("Trash/files/photo one.jpg").exists());
         let info =
@@ -988,9 +994,8 @@ mod tests {
         assert!(info.contains("Path=") && info.contains("photo%20one.jpg"));
         // Same name again gets a unique suffix.
         fs::write(&p, b"y").unwrap();
-        move_to_trash(&p).unwrap();
+        imp::move_to_trash_with(&p, trash()).unwrap();
         assert!(data_home.join("Trash/files/photo one (1).jpg").exists());
-        std::env::remove_var("XDG_DATA_HOME");
         let _ = fs::remove_dir_all(&d);
     }
 }

@@ -204,7 +204,8 @@ mod linux_display {
     use std::process::Command;
 
     fn run(args: &[&str]) -> Option<String> {
-        let out = Command::new("colormgr").args(args).output().ok()?;
+        // By absolute path: never a program of the same name found in the PATH.
+        let out = Command::new("/usr/bin/colormgr").args(args).output().ok()?;
         out.status
             .success()
             .then(|| String::from_utf8_lossy(&out.stdout).to_string())

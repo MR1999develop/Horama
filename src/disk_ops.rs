@@ -511,7 +511,7 @@ mod imp {
             "tell application \"Finder\" to delete POSIX file \"{}\"",
             esc
         );
-        let out = std::process::Command::new("osascript")
+        let out = std::process::Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(&script)
             .output()

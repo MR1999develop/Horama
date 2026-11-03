@@ -10,6 +10,24 @@ pub struct OpenWithItem {
     pub icon_height: u32,
 }
 
+/// The Windows folder (`C:\Windows`), where `explorer.exe` is. System programs are started by
+/// absolute path, never looked up by name (a program with the same name next to Horama or in
+/// the `PATH` would run instead).
+#[cfg(target_os = "windows")]
+fn windows_dir() -> std::path::PathBuf {
+    unsafe extern "system" {
+        fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+    let mut buf = [0u16; 260];
+    // SAFETY: the buffer is valid for `buf.len()` UTF-16 units; the call writes at most that many
+    // and returns the length written (0 on failure, more than the size if it does not fit).
+    let len = unsafe { GetWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    if len == 0 || len >= buf.len() {
+        return std::path::PathBuf::from(r"C:\Windows");
+    }
+    std::path::PathBuf::from(String::from_utf16_lossy(&buf[..len]))
+}
+
 /// Shows `path_str` selected in the file manager (Explorer, Finder) or, elsewhere, opens its
 /// folder.
 pub fn reveal_in_file_manager(path_str: &str) {
@@ -29,13 +47,13 @@ pub fn reveal_in_file_manager(path_str: &str) {
         }
         // explorer.exe needs the /select argument as one token: /select,"C:\path\file.jpg"
         let win_path = path_str.replace('/', "\\");
-        let _ = std::process::Command::new("explorer.exe")
+        let _ = std::process::Command::new(windows_dir().join("explorer.exe"))
             .raw_arg(format!("/select,\"{}\"", win_path))
             .spawn();
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open")
+        let _ = std::process::Command::new("/usr/bin/open")
             .arg("-R")
             .arg(path_str)
             .spawn();
@@ -43,7 +61,9 @@ pub fn reveal_in_file_manager(path_str: &str) {
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         if let Some(parent) = p.parent() {
-            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+            let _ = std::process::Command::new("/usr/bin/xdg-open")
+                .arg(parent)
+                .spawn();
         }
     }
 }
@@ -595,7 +615,8 @@ mod win_impl {
     pub fn launch_open_with_dialog(file_path: &str) {
         use std::process::Command;
         let win_path = file_path.replace('/', "\\");
-        let _ = Command::new("rundll32.exe")
+        let rundll32 = super::windows_dir().join("System32").join("rundll32.exe");
+        let _ = Command::new(rundll32)
             .args(["shell32.dll,OpenAs_RunDLL", &win_path])
             .spawn();
     }
@@ -647,7 +668,9 @@ mod macos_impl {
         for (name, p) in &standard_apps {
             if Path::new(p).exists() {
                 if idx == target_idx {
-                    let res = Command::new("open").args(["-a", p, file_path]).spawn();
+                    let res = Command::new("/usr/bin/open")
+                        .args(["-a", p, file_path])
+                        .spawn();
                     return match res {
                         Ok(_) => Ok(()),
                         Err(e) => Err(format!("Failed to launch {}: {}", name, e)),
@@ -660,7 +683,7 @@ mod macos_impl {
     }
 
     pub fn launch_open_with_dialog(file_path: &str) {
-        let _ = Command::new("open").arg(file_path).spawn();
+        let _ = Command::new("/usr/bin/open").arg(file_path).spawn();
     }
 }
 
@@ -677,7 +700,7 @@ mod unix_impl {
     }
 
     pub fn launch_open_with_dialog(file_path: &str) {
-        let _ = std::process::Command::new("xdg-open")
+        let _ = std::process::Command::new("/usr/bin/xdg-open")
             .arg(file_path)
             .spawn();
     }

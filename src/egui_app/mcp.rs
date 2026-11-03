@@ -160,6 +160,7 @@ impl HoramaApp {
             McpCommand::SetRating { stars, resp } => {
                 let _ = resp.send(match self.current_path() {
                     Some(path) => {
+                        let stars = stars.min(5);
                         let keep = std::mem::take(&mut self.selected);
                         self.set_rating(stars);
                         self.selected = keep;

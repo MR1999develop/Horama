@@ -260,7 +260,7 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     });
     assert!(selected.unwrap().ends_with("a.jpg"));
     let rated = ask(&mut harness, |resp| McpCommand::SetRating {
-        rating: 9,
+        stars: 5,
         resp,
     });
     assert!(rated.is_ok());

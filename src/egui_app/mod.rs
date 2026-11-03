@@ -57,6 +57,9 @@ const FILMSTRIP_H: f32 = 126.0;
 /// where they can be clicked.
 const CELL_STAR: f32 = 9.0;
 const CELL_STAR_HOVER: f32 = 14.0;
+/// Indent of each level of the folder tree, and the room of its arrow.
+const TREE_INDENT: f32 = 14.0;
+const TREE_EXPANDER: f32 = 16.0;
 
 /// Results of the worker threads.
 enum Msg {
@@ -768,14 +771,22 @@ impl HoramaApp {
                 .resizable(true)
                 .default_size(theme::SIDE_PANEL_WIDTH)
                 .size_range(180.0..=600.0)
-                .show(ui, |ui| self.folder_tree(ui));
+                .show(ui, |ui| {
+                    // A panel is as wide as its content: filling it keeps the width chosen
+                    // (or the default) also while it has little to show.
+                    ui.set_min_width(ui.available_width());
+                    self.folder_tree(ui)
+                });
         }
         if self.show_info {
             egui::Panel::right("info")
                 .resizable(true)
-                .default_size(300.0)
+                .default_size(320.0)
                 .size_range(240.0..=520.0)
-                .show(ui, |ui| self.info_panel(ui));
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    self.info_panel(ui)
+                });
         }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(theme::canvas(&ui.ctx().global_style().visuals)))
@@ -1258,11 +1269,11 @@ impl HoramaApp {
     }
 
     fn folder_tree(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(theme::SPACE_M);
         let Some(root) = self.folder.clone() else {
-            ui.label(tr("No folder open"));
+            ui.label(egui::RichText::new(tr("No folder open")).weak());
             return;
         };
-        ui.add_space(theme::SPACE_M);
         let title = if self.files_mode {
             trf("{} selected files", &[&self.all_files.len()])
         } else {
@@ -1283,7 +1294,7 @@ impl HoramaApp {
             self.refilter();
         }
         self.filters_panel(ui);
-        ui.label(trf("{} images shown", &[&self.visible.len()]));
+        ui.label(egui::RichText::new(trf("{} images shown", &[&self.visible.len()])).weak());
         ui.separator();
 
         let rows = browse::tree_rows(
@@ -1298,23 +1309,52 @@ impl HoramaApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                // Rows close together, as in the navigation pane of Windows 11.
+                ui.spacing_mut().item_spacing.y = 2.0;
                 for row in &rows {
-                    ui.horizontal(|ui| {
-                        ui.add_space(row.depth as f32 * 14.0);
-                        if expander(ui, row.has_children, row.expanded).clicked() {
+                    let name = if row.key == browse::TREE_ROOT_ONLY {
+                        tr("[This folder]").to_string()
+                    } else {
+                        row.name.clone()
+                    };
+                    let label = format!("{} ({})", name, row.count);
+                    // The whole row is selected and hovered; the arrow sits inside it.
+                    let level = row.depth as f32 * TREE_INDENT;
+                    let item =
+                        widgets::list_item(ui, row.selected, label.into(), level + TREE_EXPANDER);
+                    item.clone().on_hover_text(&row.name);
+                    if item.clicked() {
+                        chosen = Some(row.key.clone());
+                    }
+                    if row.has_children {
+                        let center = Pos2::new(
+                            item.rect.left() + theme::SPACE_S + level + TREE_EXPANDER / 2.0 - 3.0,
+                            item.rect.center().y,
+                        );
+                        let arrow = ui.interact(
+                            Rect::from_center_size(center, Vec2::splat(TREE_EXPANDER)),
+                            item.id.with("expand"),
+                            Sense::click(),
+                        );
+                        let state = if row.expanded {
+                            tr("Collapse")
+                        } else {
+                            tr("Expand")
+                        };
+                        arrow.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::Role::Button, true, state)
+                        });
+                        let color = if arrow.hovered() {
+                            ui.visuals().strong_text_color()
+                        } else {
+                            ui.visuals().weak_text_color()
+                        };
+                        widgets::paint_disclosure(ui.painter(), center, row.expanded, color);
+                        // The arrow, or a double click on the row, opens and closes it.
+                        if arrow.on_hover_text(state).clicked() || item.double_clicked() {
                             toggled = Some(row.key.clone());
                         }
-                        let name = if row.key == browse::TREE_ROOT_ONLY {
-                            tr("[This folder]").to_string()
-                        } else {
-                            row.name.clone()
-                        };
-                        let label = format!("{} ({})", name, row.count);
-                        let item = widgets::list_item(ui, row.selected, label.into(), 0.0);
-                        if item.clicked() {
-                            chosen = Some(row.key.clone());
-                        }
-                    });
+                    }
                 }
             });
         // Changes are applied after the rows are drawn, never while iterating them.
@@ -1690,56 +1730,53 @@ impl HoramaApp {
         }
     }
 
-    /// Histogram and metadata of the image on screen.
+    /// Histogram, color management and metadata of the image on screen.
     fn info_panel(&self, ui: &mut egui::Ui) {
+        ui.add_space(theme::SPACE_M);
         let Some(shown) = &self.shown else {
             ui.label(egui::RichText::new(tr("No image")).weak());
             return;
         };
-        ui.add_space(theme::SPACE_M);
-        widgets::section_title(ui, tr("Histogram"));
-        let size = shown.histogram.size_vec2();
-        let width = ui.available_width();
-        ui.add(egui::Image::new((
-            shown.histogram.id(),
-            Vec2::new(width, width * size.y / size.x),
-        )));
-        ui.separator();
+        let color = color_rows(&shown.color);
+        let metadata: Vec<(&str, String)> = shown
+            .metadata
+            .iter()
+            .map(|(label, value)| (tr(label), metadata_value(value)))
+            .collect();
+        // One label column for both tables, so their values line up.
+        let label_width = widgets::property_label_width(
+            ui,
+            color.iter().chain(&metadata).map(|(label, _)| *label),
+        );
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                widgets::section_title(ui, tr("Histogram"));
+                let size = shown.histogram.size_vec2();
+                let width = ui.available_width();
+                ui.add(
+                    egui::Image::new((shown.histogram.id(), Vec2::new(width, width * size.y / size.x)))
+                        .corner_radius(theme::RADIUS),
+                );
+                ui.add_space(theme::SPACE_M);
                 widgets::section_title(ui, tr("Color Management"));
-                egui::Grid::new("color")
-                    .num_columns(2)
-                    .spacing([12.0, 4.0])
-                    .show(ui, |ui| {
-                        for (label, value) in color_rows(&shown.color) {
-                            ui.label(egui::RichText::new(label).weak());
-                            ui.add(egui::Label::new(value).wrap());
-                            ui.end_row();
-                        }
-                    });
+                widgets::property_rows(ui, label_width, &color);
                 if shown.color.converted {
-                    ui.label(
-                        egui::RichText::new(tr(
-                            "Converted: same look on screen; pixel values and histogram change.",
-                        ))
-                        .small()
-                        .weak(),
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(tr(
+                                "Converted: same look on screen; pixel values and histogram change.",
+                            ))
+                            .small()
+                            .weak(),
+                        )
+                        .wrap(),
                     );
                 }
-                ui.separator();
-                egui::Grid::new("metadata")
-                    .num_columns(2)
-                    .striped(true)
-                    .spacing([12.0, 4.0])
-                    .show(ui, |ui| {
-                        for (label, value) in &shown.metadata {
-                            ui.label(egui::RichText::new(tr(label)).weak());
-                            ui.add(egui::Label::new(metadata_value(value)).wrap());
-                            ui.end_row();
-                        }
-                    });
+                ui.add_space(theme::SPACE_M);
+                widgets::section_title(ui, tr("Metadata"));
+                widgets::property_rows(ui, label_width, &metadata);
+                ui.add_space(theme::SPACE_M);
             });
     }
 
@@ -1812,48 +1849,6 @@ fn color_rows(color: &loader::ColorInfo) -> [(&'static str, String); 3] {
         (tr("Profile in use"), t.source_name.clone()),
         (tr("Monitor"), t.display_name.clone()),
     ]
-}
-
-/// Expand / collapse arrow of a tree row (an empty space of the same width if `enabled` is
-/// false, so names stay aligned).
-fn expander(ui: &mut egui::Ui, enabled: bool, expanded: bool) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::click());
-    if enabled {
-        let c = rect.center();
-        let color = if response.hovered() {
-            ui.visuals().strong_text_color()
-        } else {
-            ui.visuals().text_color()
-        };
-        let state = if expanded {
-            tr("Collapse")
-        } else {
-            tr("Expand")
-        };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, state));
-        let points = if expanded {
-            vec![
-                c + Vec2::new(-4.0, -2.0),
-                c + Vec2::new(4.0, -2.0),
-                c + Vec2::new(0.0, 3.0),
-            ]
-        } else {
-            vec![
-                c + Vec2::new(-2.0, -4.0),
-                c + Vec2::new(3.0, 0.0),
-                c + Vec2::new(-2.0, 4.0),
-            ]
-        };
-        ui.painter()
-            .add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
-        response.on_hover_text(if expanded {
-            tr("Collapse")
-        } else {
-            tr("Expand")
-        })
-    } else {
-        response
-    }
 }
 
 /// A metadata value as the library writes it, in the language of the interface.

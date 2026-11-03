@@ -432,6 +432,8 @@ const IT: &[(&str, &str)] = &[
     ("Rating of {}", "Valutazione di {}"),
     // Color section of the info panel.
     ("Color Management", "Gestione colore"),
+    ("Metadata", "Metadati"),
+    ("e.g. 16:10", "es. 16:10"),
     ("Embedded profile", "Profilo incorporato"),
     ("Profile in use", "Profilo in uso"),
     ("Monitor", "Monitor"),

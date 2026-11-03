@@ -178,57 +178,68 @@ impl HoramaApp {
     /// changed.
     fn custom_ratio_row(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        ui.horizontal(|ui| {
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut self.ratio_input)
-                    .hint_text("16:10")
-                    .desired_width(70.0),
-            );
-            let value = self.ratio_input.trim().replace([':', '/'], "x");
-            let valid = browse::parse_aspect_ratio_str(&value).is_some();
-            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if ui
-                .add_enabled(valid, egui::Button::new(tr("Add")))
-                .on_hover_text(tr("Save this aspect ratio among the filters"))
-                .clicked()
-                || (enter && valid)
-            {
-                if !self.settings.saved_aspect_ratios.contains(&value) {
-                    self.settings.saved_aspect_ratios.push(value.clone());
-                    self.settings.save();
-                }
-                self.filters.aspect = value;
-                self.ratio_input.clear();
-                changed = true;
-            }
-            let custom = self
-                .settings
-                .saved_aspect_ratios
-                .iter()
-                .position(|r| *r == self.filters.aspect);
-            if let Some(i) = custom
-                && ui
+        let custom = self
+            .settings
+            .saved_aspect_ratios
+            .iter()
+            .position(|r| *r == self.filters.aspect);
+        let value = self.ratio_input.trim().replace([':', '/'], "x");
+        let valid = browse::parse_aspect_ratio_str(&value).is_some();
+        let (mut add, mut remove) = (false, false);
+        // Right to left: the buttons keep their size at the right edge and the field takes
+        // the rest, so the row never makes the panel wider.
+        let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+        let layout = egui::Layout::right_to_left(egui::Align::Center);
+        ui.allocate_ui_with_layout(row, layout, |ui| {
+            if custom.is_some() {
+                remove = ui
                     .button(tr("Remove"))
                     .on_hover_text(tr("Remove this aspect ratio from the filters"))
-                    .clicked()
-            {
-                self.settings.saved_aspect_ratios.remove(i);
-                self.settings.save();
-                self.filters.aspect = "ALL".to_string();
-                changed = true;
+                    .clicked();
             }
+            add = ui
+                .add_enabled(valid, egui::Button::new(tr("Add")))
+                .on_hover_text(tr("Save this aspect ratio among the filters"))
+                .clicked();
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut self.ratio_input)
+                    .hint_text(tr("e.g. 16:10"))
+                    .desired_width(ui.available_width()),
+            );
+            add |= valid && field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         });
+        if add {
+            if !self.settings.saved_aspect_ratios.contains(&value) {
+                self.settings.saved_aspect_ratios.push(value.clone());
+                self.settings.save();
+            }
+            self.filters.aspect = value;
+            self.ratio_input.clear();
+            changed = true;
+        }
+        if let Some(i) = custom
+            && remove
+        {
+            self.settings.saved_aspect_ratios.remove(i);
+            self.settings.save();
+            self.filters.aspect = "ALL".to_string();
+            changed = true;
+        }
         changed
     }
 
     pub(super) fn filters_panel(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
+        // Unindented: the content lines up with the rest of the panel.
         egui::CollapsingHeader::new(super::widgets::section_text(tr("Filters")))
             .id_salt("filters")
             .default_open(false)
-            .show(ui, |ui| {
-                ui.label(tr("Rating (stars)"));
+            .show_unindented(ui, |ui| {
+                field_label(ui, tr("Rating (stars)"));
                 ui.horizontal_wrapped(|ui| {
+                    // Compact, so the six choices fit on one row of the default panel.
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    ui.spacing_mut().button_padding.x = 6.0;
                     for stars in 0..=5u8 {
                         let bit = 1u8 << stars;
                         let on = self.filters.ratings_mask & bit != 0;
@@ -243,7 +254,6 @@ impl HoramaApp {
                         }
                     }
                 });
-                ui.add_space(4.0);
                 changed |= combo(ui, tr("Format"), &mut self.filters.format, &FORMATS);
                 let mut aspects: Vec<(String, String)> = ASPECTS
                     .iter()
@@ -260,7 +270,7 @@ impl HoramaApp {
                     &mut self.filters.color_profile,
                     &PROFILES,
                 );
-                ui.add_space(4.0);
+                ui.add_space(theme::SPACE_XS);
                 let any = self.filters.ratings_mask != 0
                     || self.filters.format != "ALL"
                     || self.filters.aspect != "ALL"
@@ -293,6 +303,12 @@ impl HoramaApp {
     }
 }
 
+/// The name of a filter, above its control.
+fn field_label(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(theme::SPACE_XS);
+    ui.label(egui::RichText::new(text).weak());
+}
+
 fn combo(ui: &mut egui::Ui, label: &str, value: &mut String, options: &[(&str, &str)]) -> bool {
     let owned: Vec<(String, String)> = options
         .iter()
@@ -313,19 +329,20 @@ fn combo_owned(
         .map(|(_, l)| tr(l).to_string())
         .unwrap_or_else(|| value.clone());
     let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(label);
-        egui::ComboBox::from_id_salt(label)
-            .selected_text(shown)
-            .show_ui(ui, |ui| {
-                for (v, l) in options {
-                    if ui.selectable_label(value == v, tr(l)).clicked() && value != v {
-                        *value = v.clone();
-                        changed = true;
-                    }
+    field_label(ui, label);
+    egui::ComboBox::from_id_salt(label)
+        .selected_text(shown)
+        .width(ui.available_width())
+        .show_ui(ui, |ui| {
+            for (v, l) in options {
+                if ui.selectable_label(value == v, tr(l)).clicked() && value != v {
+                    *value = v.clone();
+                    changed = true;
                 }
-            });
-    });
+            }
+        })
+        .response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, label));
     changed
 }
 

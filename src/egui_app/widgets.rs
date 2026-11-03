@@ -94,6 +94,91 @@ pub fn list_item(ui: &mut Ui, selected: bool, title: RichText, indent: f32) -> R
     resp
 }
 
+/// The width of the label column of [`property_rows`] for these labels: the longest one,
+/// but at most 45% of the space, so values keep room to breathe.
+pub fn property_label_width<'a>(ui: &Ui, labels: impl IntoIterator<Item = &'a str>) -> f32 {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let longest = labels
+        .into_iter()
+        .map(|l| {
+            ui.painter()
+                .layout_no_wrap(l.to_string(), font.clone(), egui::Color32::WHITE)
+                .size()
+                .x
+        })
+        .fold(0.0_f32, f32::max);
+    let gutter = theme::SPACE_XS + theme::SPACE_S + 1.0;
+    (longest + gutter).min((ui.available_width() * 0.45).max(60.0))
+}
+
+/// Label–value rows as wide as the panel, striped, with the labels in a column of
+/// `label_width` (the same for every section of a panel, so the values line up) and the
+/// values wrapped in the rest. Values can be selected and copied.
+pub fn property_rows(ui: &mut Ui, label_width: f32, rows: &[(&str, String)]) {
+    let t = Tokens::current(ui);
+    let width = ui.available_width();
+    let pad = egui::vec2(theme::SPACE_XS, 3.0);
+    let saved = ui.spacing().item_spacing;
+    ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+    for (k, (label, value)) in rows.iter().enumerate() {
+        // The stripe goes under the row, so it is drawn once the row is measured.
+        let stripe = ui.painter().add(egui::Shape::Noop);
+        let top = ui.cursor().min;
+        let row = ui.allocate_ui_with_layout(
+            egui::vec2(width, 0.0),
+            egui::Layout::left_to_right(egui::Align::Min),
+            |ui| {
+                ui.add_space(pad.x);
+                let label_room = label_width - pad.x - theme::SPACE_S;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(label_room, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(label_room);
+                        ui.add_space(pad.y);
+                        ui.add(egui::Label::new(RichText::new(*label).color(t.text_weak)).wrap());
+                        ui.add_space(pad.y);
+                    },
+                );
+                ui.add_space(theme::SPACE_S);
+                ui.vertical(|ui| {
+                    ui.set_width(width - label_width - pad.x);
+                    ui.add_space(pad.y);
+                    ui.add(egui::Label::new(value.as_str()).wrap());
+                    ui.add_space(pad.y);
+                });
+            },
+        );
+        let rect = egui::Rect::from_min_size(top, egui::vec2(width, row.response.rect.height()));
+        if k % 2 == 1 {
+            ui.painter().set(
+                stripe,
+                egui::Shape::rect_filled(rect, theme::RADIUS, t.control),
+            );
+        }
+    }
+    ui.spacing_mut().item_spacing = saved;
+}
+
+/// The small triangle of a tree row: pointing right when closed, down when open.
+pub fn paint_disclosure(p: &egui::Painter, center: egui::Pos2, open: bool, color: egui::Color32) {
+    let v = egui::vec2;
+    let points = if open {
+        vec![
+            center + v(-4.0, -2.0),
+            center + v(4.0, -2.0),
+            center + v(0.0, 3.0),
+        ]
+    } else {
+        vec![
+            center + v(-2.0, -4.0),
+            center + v(3.0, 0.0),
+            center + v(-2.0, 4.0),
+        ]
+    };
+    p.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+}
+
 /// An icon button that stays highlighted while its option is on (locks, panels).
 pub fn toggle_button(ui: &mut Ui, on: bool, icon: &str, hint: impl Into<String>) -> Response {
     let t = Tokens::current(ui);

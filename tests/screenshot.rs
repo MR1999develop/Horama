@@ -3,6 +3,7 @@
 //! Ignored by default: it needs a graphics adapter.
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use horama::egui_app::HoramaApp;
 use std::path::Path;
 use std::time::Duration;
@@ -60,6 +61,13 @@ fn window_in_both_themes() {
         image
             .save(out.join(format!("horama-{}.png", theme.to_lowercase())))
             .unwrap();
+        if theme == "Dark" {
+            // The filters open, to see the whole folder panel.
+            harness.get_by_label("Filtri").click();
+            harness.run_steps(5);
+            let image = harness.render().expect("rendered");
+            image.save(out.join("horama-dark-filters.png")).unwrap();
+        }
     }
     let _ = std::fs::remove_dir_all(&base);
 }

@@ -7,7 +7,7 @@
 use super::HoramaApp;
 use crate::browse;
 use crate::config::{normalize_path, path_key, same_path};
-use crate::mcp_server::{McpCommand, run_mcp_stdio_server};
+use crate::mcp_server::{McpCommand, RatingFilter, Rotation, ZoomRequest, run_mcp_stdio_server};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::mpsc::{Receiver, channel};
@@ -111,20 +111,15 @@ impl HoramaApp {
                     None => Err(format!("Image '{}' not found in current folder", filename)),
                 });
             }
-            McpCommand::RotateImage { direction, resp } => {
+            McpCommand::RotateImage { rotation, resp } => {
                 let Some(path) = self.current_path() else {
                     let _ = resp.send(Err("No image selected".to_string()));
                     return;
                 };
-                let turns = match direction.trim().to_lowercase().as_str() {
-                    "cw" | "90" => 1,
-                    "180" => 2,
-                    "ccw" | "-90" | "270" => 3,
-                    _ => {
-                        let _ =
-                            resp.send(Err(format!("Invalid rotation direction: '{}'", direction)));
-                        return;
-                    }
+                let turns = match rotation {
+                    Rotation::Clockwise => 1,
+                    Rotation::HalfTurn => 2,
+                    Rotation::CounterClockwise => 3,
                 };
                 let how = if crate::disk_ops::rotation_format_supported(Path::new(&path)) {
                     "the file is being updated losslessly"
@@ -140,38 +135,31 @@ impl HoramaApp {
                 }
                 let _ = resp.send(Ok(format!("Image rotated {}°; {}", turns * 90, how)));
             }
-            McpCommand::SetZoom { mode, factor, resp } => {
+            McpCommand::SetZoom { zoom, resp } => {
                 if self.shown.is_none() {
                     let _ = resp.send(Err("No image loaded".to_string()));
                     return;
                 }
-                let _ = resp.send(match mode.as_str() {
-                    "fit" => {
+                let _ = resp.send(Ok(match zoom {
+                    ZoomRequest::Fit => {
                         self.view.fit = true;
                         self.view.pan = egui::Vec2::ZERO;
-                        Ok("Zoom set to fit window".to_string())
+                        "Zoom set to fit window".to_string()
                     }
-                    "100" => {
+                    ZoomRequest::ActualSize => {
                         self.set_zoom(1.0);
                         self.view.pan = egui::Vec2::ZERO;
-                        Ok("Zoom set to 100%".to_string())
+                        "Zoom set to 100%".to_string()
                     }
-                    "custom" => match factor.filter(|f| f.is_finite() && *f > 0.0) {
-                        Some(f) => {
-                            self.set_zoom(f);
-                            Ok(format!("Zoom set to {:.0}%", self.view.zoom * 100.0))
-                        }
-                        None => {
-                            Err("Missing or invalid 'factor' parameter for custom zoom".to_string())
-                        }
-                    },
-                    _ => Err(format!("Unknown zoom mode: '{}'", mode)),
-                });
+                    ZoomRequest::Factor(f) => {
+                        self.set_zoom(f);
+                        format!("Zoom set to {:.0}%", self.view.zoom * 100.0)
+                    }
+                }));
             }
-            McpCommand::SetRating { rating, resp } => {
+            McpCommand::SetRating { stars, resp } => {
                 let _ = resp.send(match self.current_path() {
                     Some(path) => {
-                        let stars = rating.clamp(0, 5) as u8;
                         let keep = std::mem::take(&mut self.selected);
                         self.set_rating(stars);
                         self.selected = keep;
@@ -182,23 +170,23 @@ impl HoramaApp {
             }
             McpCommand::FilterImages {
                 query,
-                min_rating,
+                ratings,
                 format,
                 resp,
             } => {
                 if let Some(q) = query {
                     self.filters.search = q;
                 }
-                if let Some(r) = min_rating {
-                    let r = r.clamp(0, 5) as u8;
-                    self.filters.ratings_mask = if r == 0 {
-                        0
-                    } else {
-                        (r..=5).fold(0u8, |m, k| m | (1 << k))
+                // Bit k of the mask shows the images with k stars (0 = unrated); no bit = all.
+                if let Some(r) = ratings {
+                    self.filters.ratings_mask = match r {
+                        RatingFilter::All => 0,
+                        RatingFilter::UnratedOnly => 1,
+                        RatingFilter::AtLeast(min) => (min..=5).fold(0u8, |m, k| m | (1 << k)),
                     };
                 }
                 if let Some(f) = format {
-                    self.filters.format = f.trim().to_uppercase();
+                    self.filters.format = f;
                 }
                 self.refilter();
                 let _ = resp.send(Ok(format!(

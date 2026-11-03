@@ -485,14 +485,58 @@ fn decode_raw_image(path: &Path, file_size: u64) -> Result<DecodedImage, String>
     })
 }
 
+/// Largest image file read into memory. A larger one holds more pixels than the decoders
+/// accept anyway, and reading a file of tens of gigabytes would exhaust the memory and end the
+/// program: a failed allocation is not an error that can be reported.
+pub const MAX_IMAGE_FILE_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// The whole content of an image file. A file larger than [`MAX_IMAGE_FILE_BYTES`] is refused
+/// with `ErrorKind::FileTooLarge` before anything is read.
+pub fn read_image_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    read_at_most(path, MAX_IMAGE_FILE_BYTES)
+}
+
+fn read_at_most(path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>> {
+    let too_large = || {
+        std::io::Error::new(
+            std::io::ErrorKind::FileTooLarge,
+            format!(
+                "the file is larger than {} MB, the most Horama opens",
+                max_bytes / (1024 * 1024)
+            ),
+        )
+    };
+    // Size and content from the same open file, and never more than the limit even if the
+    // file grows meanwhile.
+    let file = File::open(path)?;
+    let len = file.metadata()?.len();
+    if len > max_bytes {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::with_capacity(len as usize);
+    file.take(max_bytes + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(too_large());
+    }
+    Ok(bytes)
+}
+
 fn load_image_inner(path: &Path) -> Result<DecodedImage, String> {
     let file_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
     if is_raw_file(path) {
+        if file_size > MAX_IMAGE_FILE_BYTES {
+            return Err(format!(
+                "Failed to read {}: the file is larger than {} MB, the most Horama opens",
+                path.display(),
+                MAX_IMAGE_FILE_BYTES / (1024 * 1024)
+            ));
+        }
         return decode_raw_image(path, file_size);
     }
 
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+    let bytes =
+        read_image_file(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -719,7 +763,7 @@ fn load_thumbnail_inner(
 
     // 4. A JPEG without EXIF thumbnail: decoded directly at a reduced scale.
     if is_jpeg
-        && let Ok(bytes) = fs::read(path)
+        && let Ok(bytes) = read_image_file(path)
         && let Some(img) = decode_jpeg_for_thumbnail(&bytes)
     {
         let emb_icc = extract_icc_from_bytes(&bytes, "jpg");
@@ -798,6 +842,18 @@ mod tests {
 
     fn near(a: [u8; 3], b: [u8; 3]) -> bool {
         a.iter().zip(b).all(|(x, y)| x.abs_diff(y) < 12)
+    }
+
+    #[test]
+    fn files_over_the_limit_are_not_read() {
+        let dir = std::env::temp_dir().join(format!("mriv-toolarge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("big.jpg");
+        std::fs::write(&p, [7u8; 100]).unwrap();
+        assert_eq!(read_at_most(&p, 100).unwrap().len(), 100);
+        let e = read_at_most(&p, 99).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::FileTooLarge);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

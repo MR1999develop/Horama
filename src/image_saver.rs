@@ -15,7 +15,7 @@
 use crate::color_manager::ColorManager;
 use crate::config::{DEFAULT_FALLBACK_PROFILE, PROFILE_EMBEDDED};
 use crate::disk_ops::atomic_write;
-use crate::image_loader::DecodedImage;
+use crate::image_loader::{DecodedImage, read_image_file};
 use image::{ColorType, ImageEncoder};
 use img_parts::{Bytes, ImageEXIF, ImageICC};
 use std::fs::File;
@@ -180,8 +180,8 @@ fn encode_jpeg(
 /// replaced (a profile assigned to the image). Saving over the source with nothing to change
 /// writes nothing.
 pub fn save_jpeg_unchanged(source: &Path, dest: &Path, icc: Option<&[u8]>) -> Result<(), String> {
-    let bytes =
-        std::fs::read(source).map_err(|e| format!("Cannot read '{}': {}", source.display(), e))?;
+    let bytes = read_image_file(source)
+        .map_err(|e| format!("Cannot read '{}': {}", source.display(), e))?;
     let out = match icc {
         Some(icc) => {
             let mut jpeg = img_parts::jpeg::Jpeg::from_bytes(Bytes::from(bytes.clone()))
@@ -234,7 +234,7 @@ pub fn export_image(
     } else {
         // Recompressed JPEGs reuse the tables of the original, so repeated saves do not wear it.
         is_jpeg(source)
-            .then(|| std::fs::read(source).ok())
+            .then(|| read_image_file(source).ok())
             .flatten()
             .and_then(|b| jpeg_settings_of(&b))
             .map(|s| JpegCompression::Like(Box::new(s)))

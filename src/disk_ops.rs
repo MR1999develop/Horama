@@ -3,7 +3,7 @@
 //! writes to the same file can never interleave.
 
 use crate::exif_orient;
-use crate::image_loader::apply_orientation;
+use crate::image_loader::{apply_orientation, read_image_file};
 use image::{DynamicImage, ImageReader};
 use std::collections::HashMap;
 use std::fs;
@@ -180,7 +180,7 @@ pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<RotationOut
             ext_lower(path).to_uppercase()
         )));
     }
-    let bytes = match fs::read(path) {
+    let bytes = match read_image_file(path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(ShownOnly("the file is no longer on disk".into()));

@@ -1,6 +1,5 @@
-//! The look of the window, in one place:
-//! colour tokens for the light and dark themes, the type scale, spacing and
-//! corners. The rest of the interface uses only these values.
+//! The look of the window, in one place: colour tokens for the light and dark themes, the
+//! type scale, spacing and corners. The rest of the interface uses only these values.
 //!
 //! Colours follow Windows 11 (neutral greys, one blue accent for what can be clicked); text
 //! and controls keep the WCAG contrasts checked by the tests below. The image itself sits on

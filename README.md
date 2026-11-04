@@ -127,7 +127,7 @@ Cosa fa:
 - rotazione senza perdita (R / L; i RAW e i formati che non si possono riscrivere senza perdita ruotano solo a schermo), Cestino senza conferma con Annulla per 8 secondi (Canc), rinomina di uno o più file (F2), "Salva una copia come" con la scelta della qualità JPEG (Ctrl+Maiusc+S), "Apri con" dal menu del tasto destro sulla filmstrip;
 - scorciatoie personalizzabili (Visualizza > Scorciatoie da tastiera), F6 per passare da un pannello all'altro;
 - barra degli strumenti con blocco dello zoom e del profilo colore;
-- aspetto uniforme a Windows 11: colori di Windows 11, Segoe UI e icone di sistema; tema Sistema / Chiaro / Scuro e lingua (inglese predefinito, italiano, tedesco, francese, spagnolo, cinese o quella del sistema) in File > Preferenze (Ctrl+,); il cinese usa un font di sistema (Microsoft YaHei, PingFang, Noto Sans CJK); menu Aiuto con scorciatoie e informazioni; nomi e stati dei controlli per i lettori di schermo;
+- aspetto in linea con Windows 11: colori, Segoe UI e icone di sistema; tema Sistema / Chiaro / Scuro e lingua (inglese predefinito, italiano, tedesco, francese, spagnolo, cinese o quella del sistema) in File > Preferenze (Ctrl+,); il cinese usa un font di sistema (Microsoft YaHei, PingFang, Noto Sans CJK); menu Aiuto con scorciatoie e informazioni; nomi e stati dei controlli per i lettori di schermo;
 - server MCP (`horama --mcp`).
 
 Le valutazioni sono salvate nel file `ratings.jsonl`, accanto a `settings.json` nella cartella delle impostazioni. Alla prima apertura le valutazioni salvate dalle versioni precedenti dentro `settings.json` vengono spostate lì; una copia del file com'era resta in `settings.json.before-ratings`.

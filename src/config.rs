@@ -10,9 +10,6 @@ use std::time::Duration;
 use walkdir::WalkDir;
 
 pub const APP_NAME: &str = "Horama";
-/// Names used by earlier versions of the program; their settings are copied once at the
-/// first start under the current name (the old files are left untouched).
-const LEGACY_APP_NAMES: &[&str] = &["Horama"];
 pub const MAX_RECENT_FOLDERS: usize = 10;
 pub const THUMBNAIL_WIDTH: u32 = 140;
 pub const THUMBNAIL_HEIGHT: u32 = 100;
@@ -203,9 +200,6 @@ impl AppSettings {
     }
 
     fn load_settings_file() -> Self {
-        if let Some(src) = migrate_legacy_settings(&config_base_dir()) {
-            log::info!("Settings copied from {}", src.display());
-        }
         let path = Self::config_file_path();
         let data = match fs::read_to_string(&path) {
             Ok(data) => data,
@@ -297,23 +291,6 @@ fn config_base_dir() -> PathBuf {
 
 fn settings_path_in(base: &Path, app_name: &str) -> PathBuf {
     base.join(app_name).join("settings.json")
-}
-
-/// If there are no settings for the current program name, copies the settings file of the
-/// first previous name that has one (ratings, recent folders, shortcuts, window size).
-/// Returns the file that was copied, if any.
-fn migrate_legacy_settings(base: &Path) -> Option<PathBuf> {
-    let dest = settings_path_in(base, APP_NAME);
-    if dest.exists() {
-        return None;
-    }
-    let src = LEGACY_APP_NAMES
-        .iter()
-        .map(|old| settings_path_in(base, old))
-        .find(|p| p.is_file())?;
-    fs::create_dir_all(dest.parent()?).ok()?;
-    fs::copy(&src, &dest).ok()?;
-    Some(src)
 }
 
 /// Key used to identify a file in persistent maps: case-insensitive on Windows only,
@@ -546,25 +523,5 @@ mod tests {
         assert_eq!(s.get_rating("/p/b.jpg"), 5);
         s.set_rating("/p/b.jpg", 0);
         assert!(s.ratings.is_empty());
-    }
-
-    #[test]
-    fn legacy_settings_are_copied_once() {
-        let base = std::env::temp_dir().join(format!("horama-cfg-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let old = settings_path_in(&base, "Horama");
-        fs::create_dir_all(old.parent().unwrap()).unwrap();
-        fs::write(&old, b"{\"old\":1}").unwrap();
-
-        assert_eq!(migrate_legacy_settings(&base), Some(old.clone()));
-        let new = settings_path_in(&base, APP_NAME);
-        assert_eq!(fs::read(&new).unwrap(), b"{\"old\":1}");
-        assert!(old.is_file(), "the old settings are left in place");
-
-        // Settings under the new name are never overwritten.
-        fs::write(&new, b"{}").unwrap();
-        assert_eq!(migrate_legacy_settings(&base), None);
-        assert_eq!(fs::read(&new).unwrap(), b"{}");
-        let _ = fs::remove_dir_all(&base);
     }
 }

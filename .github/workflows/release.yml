@@ -82,10 +82,10 @@ jobs:
           cp README.md staging/
           tar -czvf ${{ matrix.artifact_name }} -C staging .
 
+      # The notes are written by hand: generated ones would be appended once per system.
       - name: Upload Release Asset
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: ${{ matrix.artifact_name }}
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

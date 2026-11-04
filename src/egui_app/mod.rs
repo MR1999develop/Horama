@@ -199,7 +199,6 @@ pub struct HoramaApp {
     lock_zoom: bool,
     locked_profile: Option<String>,
     /// The custom aspect ratio being typed in the filters ("16:10").
-    ratio_input: String,
     /// Color profiles chosen by the user, by [`crate::config::path_key`].
     profile_overrides: HashMap<String, String>,
     /// Quarter turns shown on screen only, by path key ([`view_rotation`]).
@@ -316,7 +315,6 @@ impl HoramaApp {
             show_about: false,
             lock_zoom: false,
             locked_profile: None,
-            ratio_input: String::new(),
             profile_overrides: HashMap::new(),
             edited: HashMap::new(),
             view_turns: HashMap::new(),

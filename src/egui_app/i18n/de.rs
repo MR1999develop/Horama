@@ -202,6 +202,10 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ("Redo", "Wiederholen"),
     ("Nothing to redo.", "Nichts zu wiederholen."),
     ("Crop", "Zuschneiden"),
+    (
+        "Delete this aspect ratio",
+        "Dieses Seitenverhältnis löschen",
+    ),
     ("Free", "Frei"),
     ("Rotate the frame 90° (X)", "Rahmen um 90° drehen (X)"),
     (
@@ -293,15 +297,6 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ),
     ("[This folder]", "[Dieser Ordner]"),
     ("Add", "Hinzufügen"),
-    (
-        "Save this aspect ratio among the filters",
-        "Dieses Seitenverhältnis bei den Filtern speichern",
-    ),
-    ("Remove", "Entfernen"),
-    (
-        "Remove this aspect ratio from the filters",
-        "Dieses Seitenverhältnis aus den Filtern entfernen",
-    ),
     ("Show in Folder", "Im Ordner anzeigen"),
     ("{} star(s)", "{} Stern(e)"),
     ("Zoom", "Zoom"),

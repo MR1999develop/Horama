@@ -477,6 +477,7 @@ impl HoramaApp {
         let mut turn = false;
         let mut aspect = None;
         let mut save_ratio = false;
+        let mut delete = None;
         let mut choices: Vec<(Option<String>, String)> = vec![(None, tr("Free").to_string())];
         choices.extend(
             self.aspect_ratio_choices()
@@ -500,14 +501,37 @@ impl HoramaApp {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(tr("Crop"));
+                        // Open while ratios are deleted; choosing one closes it.
                         egui::ComboBox::from_id_salt("crop-ratio")
                             .selected_text(shown_choice)
+                            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                            // Every ratio in view, without scrolling.
+                            .height(600.0)
                             .show_ui(ui, |ui| {
+                                // Room for the delete buttons next to the saved ratios.
+                                ui.set_min_width(160.0);
                                 for (value, label) in &choices {
-                                    let on = *value == self.crop_aspect;
-                                    if ui.selectable_label(on, label).clicked() {
-                                        aspect = Some(value.clone());
-                                    }
+                                    let saved = value
+                                        .as_ref()
+                                        .filter(|v| self.settings.saved_aspect_ratios.contains(v));
+                                    ui.horizontal(|ui| {
+                                        let on = *value == self.crop_aspect;
+                                        if ui.selectable_label(on, label).clicked() {
+                                            aspect = Some(value.clone());
+                                            ui.close();
+                                        }
+                                        // Only the ratios the user saved can be deleted.
+                                        if let Some(v) = saved
+                                            && super::widgets::icon_button(
+                                                ui,
+                                                super::symbol::close(),
+                                                tr("Delete this aspect ratio"),
+                                            )
+                                            .clicked()
+                                        {
+                                            delete = Some(v.clone());
+                                        }
+                                    });
                                 }
                             })
                             .response
@@ -548,6 +572,9 @@ impl HoramaApp {
                     });
                 });
             });
+        if let Some(value) = delete {
+            self.delete_aspect_ratio(&value);
+        }
         if save_ratio {
             let typed = std::mem::take(&mut self.crop_ratio_input);
             if let Some(value) = self.save_aspect_ratio(&typed) {

@@ -202,6 +202,7 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ("Redo", "Rétablir"),
     ("Nothing to redo.", "Rien à rétablir."),
     ("Crop", "Recadrer"),
+    ("Delete this aspect ratio", "Supprimer ce format"),
     ("Free", "Libre"),
     (
         "Rotate the frame 90° (X)",
@@ -296,15 +297,6 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ),
     ("[This folder]", "[Ce dossier]"),
     ("Add", "Ajouter"),
-    (
-        "Save this aspect ratio among the filters",
-        "Enregistrer ce format parmi les filtres",
-    ),
-    ("Remove", "Retirer"),
-    (
-        "Remove this aspect ratio from the filters",
-        "Retirer ce format des filtres",
-    ),
     ("Show in Folder", "Afficher dans le dossier"),
     ("{} star(s)", "{} étoile(s)"),
     ("Zoom", "Zoom"),

@@ -189,8 +189,8 @@ impl HoramaApp {
             .collect()
     }
 
-    /// Saves a typed aspect ratio ("16:10", "16x10") among the user's ones, for the filter and
-    /// the crop. Its value, or `None` if the text is not a ratio.
+    /// Saves a typed aspect ratio ("16:10", "16x10") among the user's ones, for the crop and
+    /// the filter. Its value, or `None` if the text is not a ratio.
     pub(super) fn save_aspect_ratio(&mut self, typed: &str) -> Option<String> {
         let value = typed.trim().replace([':', '/'], "x");
         browse::parse_aspect_ratio_str(&value)?;
@@ -203,55 +203,18 @@ impl HoramaApp {
         Some(value)
     }
 
-    /// Adds a custom aspect ratio ("16:10") to the saved ones, or removes the one chosen in
-    /// the filter. Saved ratios are kept in the settings. True if the filter
-    /// changed.
-    fn custom_ratio_row(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut changed = false;
-        let custom = self
-            .settings
-            .saved_aspect_ratios
-            .iter()
-            .position(|r| *r == self.filters.aspect);
-        let value = self.ratio_input.trim().replace([':', '/'], "x");
-        let valid = browse::parse_aspect_ratio_str(&value).is_some();
-        let (mut add, mut remove) = (false, false);
-        // Right to left: the buttons keep their size at the right edge and the field takes
-        // the rest, so the row never makes the panel wider.
-        let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
-        let layout = egui::Layout::right_to_left(egui::Align::Center);
-        ui.allocate_ui_with_layout(row, layout, |ui| {
-            if custom.is_some() {
-                remove = ui
-                    .button(tr("Remove"))
-                    .on_hover_text(tr("Remove this aspect ratio from the filters"))
-                    .clicked();
-            }
-            add = ui
-                .add_enabled(valid, egui::Button::new(tr("Add")))
-                .on_hover_text(tr("Save this aspect ratio among the filters"))
-                .clicked();
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut self.ratio_input)
-                    .hint_text(tr("e.g. 16:10"))
-                    .desired_width(ui.available_width()),
-            );
-            add |= valid && field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        });
-        if add && let Some(value) = self.save_aspect_ratio(&value) {
-            self.filters.aspect = value;
-            self.ratio_input.clear();
-            changed = true;
+    /// Deletes a saved aspect ratio. The crop and the filter that used it go back to free and
+    /// to all images.
+    pub(super) fn delete_aspect_ratio(&mut self, value: &str) {
+        self.settings.saved_aspect_ratios.retain(|r| r != value);
+        self.settings.save();
+        if self.crop_aspect.as_deref() == Some(value) {
+            self.set_crop_aspect(None);
         }
-        if let Some(i) = custom
-            && remove
-        {
-            self.settings.saved_aspect_ratios.remove(i);
-            self.settings.save();
+        if self.filters.aspect == value {
             self.filters.aspect = "ALL".to_string();
-            changed = true;
+            self.refilter();
         }
-        changed
     }
 
     pub(super) fn filters_panel(&mut self, ui: &mut egui::Ui) {
@@ -285,7 +248,6 @@ impl HoramaApp {
                 aspects.extend(self.aspect_ratio_choices());
                 aspects.push(("OTHER".to_string(), "Other".to_string()));
                 changed |= combo_owned(ui, tr("Aspect ratio"), &mut self.filters.aspect, &aspects);
-                changed |= self.custom_ratio_row(ui);
                 changed |= combo(
                     ui,
                     tr("Color profile"),

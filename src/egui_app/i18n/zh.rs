@@ -178,6 +178,7 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ("Redo", "重做"),
     ("Nothing to redo.", "没有可重做的操作。"),
     ("Crop", "裁剪"),
+    ("Delete this aspect ratio", "删除此宽高比"),
     ("Free", "自由"),
     ("Rotate the frame 90° (X)", "将裁剪框旋转 90° (X)"),
     (
@@ -266,15 +267,6 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ),
     ("[This folder]", "[此文件夹]"),
     ("Add", "添加"),
-    (
-        "Save this aspect ratio among the filters",
-        "将此宽高比保存到筛选中",
-    ),
-    ("Remove", "移除"),
-    (
-        "Remove this aspect ratio from the filters",
-        "从筛选中移除此宽高比",
-    ),
     ("Show in Folder", "在文件夹中显示"),
     ("{} star(s)", "{} 星"),
     ("Zoom", "缩放"),

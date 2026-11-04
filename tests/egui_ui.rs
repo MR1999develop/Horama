@@ -248,6 +248,28 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     });
     wait_for(&mut harness, "the notice", |h| shows(h, "overwritten"));
 
+    // A saved ratio is deleted with the X next to it in the crop bar's list; the crop goes
+    // back to free.
+    harness.key_press(egui::Key::C);
+    harness.run_steps(2);
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::ComboBox, "Aspect ratio")
+        .click();
+    harness.run_steps(2);
+    harness.get_by_label("Delete this aspect ratio").click();
+    harness.run_steps(2);
+    // The list stays open, without the deleted ratio.
+    assert!(harness.query_by_label("Delete this aspect ratio").is_none());
+    let ratio = harness
+        .get_by_role_and_label(egui::accesskit::Role::ComboBox, "Aspect ratio")
+        .value();
+    assert_eq!(ratio.as_deref(), Some("Free"));
+    harness.key_press(egui::Key::Escape);
+    harness.step();
+    assert!(horama::persist::flush(Duration::from_secs(10)));
+    let settings = std::fs::read_to_string(config.join("Horama").join("settings.json")).unwrap();
+    assert!(!settings.contains("2x1"), "{}", settings);
+
     // Shift+click in the filmstrip selects a range: the view compares the images side by
     // side; clicking one of them shows it alone.
     harness

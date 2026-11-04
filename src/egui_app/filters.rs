@@ -173,6 +173,36 @@ impl HoramaApp {
         }
     }
 
+    /// The aspect ratios offered by the filter and by the crop, as (value, label): the fixed
+    /// ones, then those the user saved. Values ("3x2") do not depend on the orientation.
+    pub(super) fn aspect_ratio_choices(&self) -> Vec<(String, String)> {
+        ASPECTS
+            .iter()
+            .filter(|(value, _)| browse::parse_aspect_ratio_str(value).is_some())
+            .map(|(value, label)| (value.to_string(), label.to_string()))
+            .chain(
+                self.settings
+                    .saved_aspect_ratios
+                    .iter()
+                    .map(|custom| (custom.clone(), custom.replace(['x', 'X'], ":"))),
+            )
+            .collect()
+    }
+
+    /// Saves a typed aspect ratio ("16:10", "16x10") among the user's ones, for the filter and
+    /// the crop. Its value, or `None` if the text is not a ratio.
+    pub(super) fn save_aspect_ratio(&mut self, typed: &str) -> Option<String> {
+        let value = typed.trim().replace([':', '/'], "x");
+        browse::parse_aspect_ratio_str(&value)?;
+        let known = ASPECTS.iter().any(|(fixed, _)| *fixed == value)
+            || self.settings.saved_aspect_ratios.contains(&value);
+        if !known {
+            self.settings.saved_aspect_ratios.push(value.clone());
+            self.settings.save();
+        }
+        Some(value)
+    }
+
     /// Adds a custom aspect ratio ("16:10") to the saved ones, or removes the one chosen in
     /// the filter. Saved ratios are kept in the settings. True if the filter
     /// changed.
@@ -208,11 +238,7 @@ impl HoramaApp {
             );
             add |= valid && field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         });
-        if add {
-            if !self.settings.saved_aspect_ratios.contains(&value) {
-                self.settings.saved_aspect_ratios.push(value.clone());
-                self.settings.save();
-            }
+        if add && let Some(value) = self.save_aspect_ratio(&value) {
             self.filters.aspect = value;
             self.ratio_input.clear();
             changed = true;
@@ -255,13 +281,9 @@ impl HoramaApp {
                     }
                 });
                 changed |= combo(ui, tr("Format"), &mut self.filters.format, &FORMATS);
-                let mut aspects: Vec<(String, String)> = ASPECTS
-                    .iter()
-                    .map(|(v, l)| (v.to_string(), l.to_string()))
-                    .collect();
-                for custom in &self.settings.saved_aspect_ratios {
-                    aspects.push((custom.clone(), custom.replace(['x', 'X'], ":")));
-                }
+                let mut aspects = vec![("ALL".to_string(), "All".to_string())];
+                aspects.extend(self.aspect_ratio_choices());
+                aspects.push(("OTHER".to_string(), "Other".to_string()));
                 changed |= combo_owned(ui, tr("Aspect ratio"), &mut self.filters.aspect, &aspects);
                 changed |= self.custom_ratio_row(ui);
                 changed |= combo(

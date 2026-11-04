@@ -74,7 +74,8 @@ pub struct AppSettings {
     /// Theme of the egui interface.
     #[serde(default)]
     pub theme: ThemeChoice,
-    /// Language of the egui interface: "" = the system language, otherwise "en" or "it".
+    /// Language of the egui interface: a language code ("en", "it", "de", "fr", "es", "zh"),
+    /// "system" for the language of the system, "" (no choice yet) for English.
     #[serde(default)]
     pub language: String,
 }

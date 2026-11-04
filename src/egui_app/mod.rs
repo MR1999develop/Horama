@@ -210,8 +210,12 @@ pub struct HoramaApp {
     redo: Vec<edit::Action>,
     /// The crop box while cropping (C).
     crop: Option<edit::CropBox>,
-    /// Aspect ratio of the crop, kept between crops.
-    crop_ratio: Option<f32>,
+    /// Aspect ratio of the crop, a value of the aspect-ratio filter ("3x2"), kept between
+    /// crops; `None` = free.
+    crop_aspect: Option<String>,
+    crop_orientation: edit::FrameOrientation,
+    /// A new aspect ratio being typed in the crop bar.
+    crop_ratio_input: String,
     close_prompt: Option<edit::ClosePrompt>,
     shortcut_editor: Option<shortcuts::ShortcutEditor>,
     /// Fonts and theme are set on the context that draws, at its first frame.
@@ -232,6 +236,8 @@ pub struct HoramaApp {
     pending_focus: Option<usize>,
     /// The search box, whose focus means the keys are text.
     search_id: Option<egui::Id>,
+    /// The field of the crop bar where a new aspect ratio is typed.
+    crop_ratio_field: Option<egui::Id>,
     /// The images of the comparison grid and their previews ([`compare`]).
     compare_paths: Vec<String>,
     compare_textures: HashMap<String, Option<TextureHandle>>,
@@ -317,7 +323,9 @@ impl HoramaApp {
             undo: Vec::new(),
             redo: Vec::new(),
             crop: None,
-            crop_ratio: None,
+            crop_aspect: None,
+            crop_orientation: edit::FrameOrientation::Landscape,
+            crop_ratio_input: String::new(),
             close_prompt: None,
             shortcut_editor: None,
             styled: false,
@@ -330,6 +338,7 @@ impl HoramaApp {
             focus_panel: 2,
             pending_focus: None,
             search_id: None,
+            crop_ratio_field: None,
             compare_paths: Vec::new(),
             compare_textures: HashMap::new(),
             compare_generation: 0,
@@ -840,7 +849,7 @@ impl HoramaApp {
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
+            ui.menu_button(tr("File"), |ui| {
                 if ui
                     .add(
                         egui::Button::new(tr("Open File…"))
@@ -1122,18 +1131,27 @@ impl HoramaApp {
         if self.no_window_open() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) {
             self.focus_next_panel();
         }
-        // Keys go to text fields when one has the focus (the search box), and to the windows.
-        // Only typing in the search box takes the keys: a focused thumbnail or image view
+        // Keys go to text fields when one has the focus, and to the windows. Only typing in a
+        // text field (search, new crop ratio) takes the keys: a focused thumbnail or image view
         // (F6, a click) does not.
-        let typing = self
-            .search_id
-            .is_some_and(|id| ui.ctx().memory(|m| m.has_focus(id)));
+        let typing = [self.search_id, self.crop_ratio_field]
+            .into_iter()
+            .flatten()
+            .any(|id| ui.ctx().memory(|m| m.has_focus(id)));
         if typing || !self.no_window_open() {
             return;
         }
         if self.crop.is_some() {
-            let (apply, cancel) =
-                ui.input_mut(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+            let (apply, cancel, turn) = ui.input_mut(|i| {
+                (
+                    i.key_pressed(Key::Enter),
+                    i.key_pressed(Key::Escape),
+                    i.consume_key(Modifiers::NONE, Key::X),
+                )
+            });
+            if turn {
+                self.rotate_crop_frame();
+            }
             if apply {
                 self.apply_crop();
             } else if cancel {

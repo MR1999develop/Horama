@@ -20,17 +20,29 @@ const MAX_HISTORY: usize = 60;
 /// Size of the crop handles, in points.
 const HANDLE: f32 = 10.0;
 
-/// Fixed aspect ratios of the crop (label, width / height); `None` = free.
-pub(super) const CROP_RATIOS: [(&str, Option<f32>); 8] = [
-    ("Free", None),
-    ("1:1", Some(1.0)),
-    ("3:2", Some(1.5)),
-    ("2:3", Some(2.0 / 3.0)),
-    ("4:3", Some(4.0 / 3.0)),
-    ("3:4", Some(0.75)),
-    ("16:9", Some(16.0 / 9.0)),
-    ("9:16", Some(9.0 / 16.0)),
-];
+/// Which way the long side of the crop frame lies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FrameOrientation {
+    Landscape,
+    Portrait,
+}
+
+impl FrameOrientation {
+    fn turned(self) -> Self {
+        match self {
+            FrameOrientation::Landscape => FrameOrientation::Portrait,
+            FrameOrientation::Portrait => FrameOrientation::Landscape,
+        }
+    }
+
+    /// Width / height of a frame with `long_to_short` sides in this orientation.
+    fn width_to_height(self, long_to_short: f32) -> f32 {
+        match self {
+            FrameOrientation::Landscape => long_to_short,
+            FrameOrientation::Portrait => 1.0 / long_to_short,
+        }
+    }
+}
 
 /// One step of the history.
 pub(super) enum Action {
@@ -221,8 +233,14 @@ impl HoramaApp {
     pub(super) fn toggle_crop(&mut self) {
         if self.crop.is_some() {
             self.crop = None;
-        } else if self.shown.is_some() && !self.comparing() {
-            let ratio = self.crop_ratio;
+        } else if let Some(shown) = self.shown.as_ref().filter(|_| !self.comparing()) {
+            // The frame starts the way the image lies.
+            self.crop_orientation = if shown.size.1 > shown.size.0 {
+                FrameOrientation::Portrait
+            } else {
+                FrameOrientation::Landscape
+            };
+            let ratio = self.crop_frame_ratio();
             let mut b = CropBox {
                 rect: Rect::from_min_max(Pos2::new(0.05, 0.05), Pos2::new(0.95, 0.95)),
                 ratio,
@@ -250,10 +268,30 @@ impl HoramaApp {
         b.rect = keep_inside(b.rect);
     }
 
-    pub(super) fn set_crop_ratio(&mut self, ratio: Option<f32>) {
-        self.crop_ratio = ratio;
+    /// Width / height the crop frame keeps: the chosen aspect ratio in the frame's
+    /// orientation; `None` = free.
+    fn crop_frame_ratio(&self) -> Option<f32> {
+        let long_to_short = crate::browse::parse_aspect_ratio_str(self.crop_aspect.as_deref()?)?;
+        Some(self.crop_orientation.width_to_height(long_to_short))
+    }
+
+    /// Chooses the aspect ratio of the crop (a value of the aspect-ratio filter, `None` = free).
+    pub(super) fn set_crop_aspect(&mut self, aspect: Option<String>) {
+        self.crop_aspect = aspect;
         if let Some(mut b) = self.crop.take() {
-            b.ratio = ratio;
+            b.ratio = self.crop_frame_ratio();
+            self.fit_ratio(&mut b);
+            self.crop = Some(b);
+        }
+    }
+
+    /// X: turns the crop frame by 90°, around its centre.
+    pub(super) fn rotate_crop_frame(&mut self) {
+        self.crop_orientation = self.crop_orientation.turned();
+        let size = self.shown.as_ref().map(|s| s.size);
+        if let (Some(mut b), Some(size)) = (self.crop.take(), size) {
+            b.rect = turned_frame(b.rect, size);
+            b.ratio = self.crop_frame_ratio();
             self.fit_ratio(&mut b);
             self.crop = Some(b);
         }
@@ -428,14 +466,32 @@ impl HoramaApp {
         }
     }
 
-    /// The crop bar at the top of the image view: ratio, Apply, Cancel.
+    /// The crop bar at the top of the image view: aspect ratio (those of the filter), turn by
+    /// 90°, a new ratio to save, Apply, Cancel.
     pub(super) fn crop_bar(&mut self, ui: &mut egui::Ui, view: Rect) {
         if self.crop.is_none() {
             return;
         }
         let mut apply = false;
         let mut cancel = false;
-        let mut ratio = None;
+        let mut turn = false;
+        let mut aspect = None;
+        let mut save_ratio = false;
+        let mut choices: Vec<(Option<String>, String)> = vec![(None, tr("Free").to_string())];
+        choices.extend(
+            self.aspect_ratio_choices()
+                .into_iter()
+                .map(|(value, label)| (Some(value), label)),
+        );
+        let shown_choice = choices
+            .iter()
+            .find(|(value, _)| *value == self.crop_aspect)
+            .map(|(_, label)| label.clone())
+            .unwrap_or_else(|| tr("Free").to_string());
+        let typed_valid = crate::browse::parse_aspect_ratio_str(
+            &self.crop_ratio_input.trim().replace([':', '/'], "x"),
+        )
+        .is_some();
         egui::Area::new(ui.scope_id().with("crop-bar"))
             .order(egui::Order::Foreground)
             .pivot(egui::Align2::CENTER_TOP)
@@ -444,12 +500,40 @@ impl HoramaApp {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(tr("Crop"));
-                        for (label, r) in CROP_RATIOS {
-                            let on = self.crop_ratio == r;
-                            if ui.selectable_label(on, tr(label)).clicked() {
-                                ratio = Some(r);
-                            }
-                        }
+                        egui::ComboBox::from_id_salt("crop-ratio")
+                            .selected_text(shown_choice)
+                            .show_ui(ui, |ui| {
+                                for (value, label) in &choices {
+                                    let on = *value == self.crop_aspect;
+                                    if ui.selectable_label(on, label).clicked() {
+                                        aspect = Some(value.clone());
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(tr("Aspect ratio"));
+                        turn = super::widgets::painted_icon_button(
+                            ui,
+                            tr("Rotate the frame 90° (X)"),
+                            |p, r, c| super::widgets::paint_rotate(p, r, c, true),
+                        )
+                        .clicked();
+                        ui.separator();
+                        let field = ui.add(
+                            egui::TextEdit::singleline(&mut self.crop_ratio_input)
+                                .hint_text(tr("e.g. 16:10"))
+                                .desired_width(100.0),
+                        );
+                        self.crop_ratio_field = Some(field.id);
+                        save_ratio = typed_valid
+                            && field.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        save_ratio |= ui
+                            .add_enabled(typed_valid, egui::Button::new(tr("Add")))
+                            .on_hover_text(tr(
+                                "Save this aspect ratio for the crop and the filters",
+                            ))
+                            .clicked();
                         ui.separator();
                         if ui
                             .add(super::widgets::primary_button(ui, tr("Apply")))
@@ -464,8 +548,17 @@ impl HoramaApp {
                     });
                 });
             });
-        if let Some(r) = ratio {
-            self.set_crop_ratio(r);
+        if save_ratio {
+            let typed = std::mem::take(&mut self.crop_ratio_input);
+            if let Some(value) = self.save_aspect_ratio(&typed) {
+                aspect = Some(Some(value));
+            }
+        }
+        if let Some(a) = aspect {
+            self.set_crop_aspect(a);
+        }
+        if turn {
+            self.rotate_crop_frame();
         }
         if apply {
             self.apply_crop();
@@ -621,6 +714,18 @@ impl HoramaApp {
 }
 
 /// Moves `r` (fractions) back inside the image, shrinking it only if it is larger.
+/// `frame` (image fractions) turned by 90° around its centre on an image of `size` pixels:
+/// its width and height in pixels swap, then it shrinks, if needed, to fit in the image.
+fn turned_frame(frame: Rect, size: (u32, u32)) -> Rect {
+    let (w, h) = (size.0.max(1) as f32, size.1.max(1) as f32);
+    let mut turned = Vec2::new(frame.height() * h / w, frame.width() * w / h);
+    let largest = turned.x.max(turned.y);
+    if largest > 1.0 {
+        turned /= largest;
+    }
+    keep_inside(Rect::from_center_size(frame.center(), turned))
+}
+
 fn keep_inside(r: Rect) -> Rect {
     let size = Vec2::new(r.width().min(1.0), r.height().min(1.0));
     let min = Pos2::new(
@@ -633,6 +738,36 @@ fn keep_inside(r: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turned_frame_swaps_its_pixel_sides_and_stays_inside() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        // Square image: the fractions simply swap.
+        let r = turned_frame(
+            Rect::from_center_size(Pos2::new(0.5, 0.5), Vec2::new(0.6, 0.3)),
+            (100, 100),
+        );
+        assert!(close(r.width(), 0.3) && close(r.height(), 0.6), "{:?}", r);
+        // 2:1 image, frame 180×45 px: turned it is 45×180 px, too tall, so it shrinks to fit.
+        let r = turned_frame(
+            Rect::from_center_size(Pos2::new(0.5, 0.5), Vec2::new(0.9, 0.45)),
+            (200, 100),
+        );
+        assert!(
+            close(r.height(), 1.0) && close(r.width() * 200.0 * 4.0, r.height() * 100.0),
+            "{:?}",
+            r
+        );
+        assert!(r.min.x >= 0.0 && r.min.y >= 0.0 && r.max.x <= 1.0 && r.max.y <= 1.0);
+        // Twice turned: back to the same shape when nothing had to shrink.
+        let f = Rect::from_center_size(Pos2::new(0.4, 0.5), Vec2::new(0.2, 0.3));
+        let back = turned_frame(turned_frame(f, (300, 200)), (300, 200));
+        assert!(
+            close(back.width(), f.width()) && close(back.height(), f.height()),
+            "{:?}",
+            back
+        );
+    }
 
     #[test]
     fn a_box_moved_or_too_large_stays_inside_the_image() {

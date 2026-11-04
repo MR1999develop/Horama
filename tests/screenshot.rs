@@ -36,11 +36,11 @@ fn window_in_both_themes() {
         .save(photos.join(name))
         .unwrap();
     }
-    for theme in ["Dark", "Light"] {
+    for (theme, language) in [("Dark", "it"), ("Light", "it"), ("Dark", "zh")] {
         std::fs::write(
             config.join("Horama").join("settings.json"),
             format!(
-                r#"{{"last_folder":"","recent_folders":[],"custom_profiles":[],"language":"it","theme":"{theme}"}}"#
+                r#"{{"last_folder":"","recent_folders":[],"custom_profiles":[],"language":"{language}","theme":"{theme}"}}"#
             ),
         )
         .unwrap();
@@ -58,6 +58,15 @@ fn window_in_both_themes() {
             std::thread::sleep(Duration::from_millis(10));
         }
         let image = harness.render().expect("rendered");
+        if language == "zh" {
+            // Chinese, with the crop bar open.
+            image.save(out.join("horama-zh.png")).unwrap();
+            harness.key_press(egui::Key::C);
+            harness.run_steps(5);
+            let image = harness.render().expect("rendered");
+            image.save(out.join("horama-zh-crop.png")).unwrap();
+            continue;
+        }
         image
             .save(out.join(format!("horama-{}.png", theme.to_lowercase())))
             .unwrap();

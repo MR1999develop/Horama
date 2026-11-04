@@ -189,11 +189,50 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     });
     wait_for(&mut harness, "the original again", |h| shows(h, "64×48 px"));
 
+    // X turns the crop frame by 90°: the free 58×43 frame becomes upright and shrinks to fit
+    // the image height.
+    harness.key_press(egui::Key::C);
+    harness.step();
+    harness.key_press(egui::Key::X);
+    harness.step();
+    harness.key_press(egui::Key::Enter);
+    wait_for(&mut harness, "the upright crop", |h| shows(h, "36×48 px"));
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    wait_for(&mut harness, "the undone upright crop", |h| {
+        shows(h, "64×48 px")
+    });
+
+    // A new ratio typed in the crop bar is saved, used by the crop and offered by the filter.
+    harness.key_press(egui::Key::C);
+    harness.step();
+    // The crop bar's field is the last text field (the search box is the first).
+    let field = egui::accesskit::Role::TextInput;
+    harness.query_all_by_role(field).last().unwrap().click();
+    harness.step();
+    harness
+        .query_all_by_role(field)
+        .last()
+        .unwrap()
+        .type_text("2:1");
+    harness.step();
+    harness.get_by_label("Add").click();
+    harness.run_steps(2);
+    harness.key_press(egui::Key::Enter);
+    wait_for(&mut harness, "the 2:1 crop", |h| shows(h, "58×29 px"));
+    assert!(horama::persist::flush(Duration::from_secs(10)));
+    let settings = std::fs::read_to_string(config.join("Horama").join("settings.json")).unwrap();
+    assert!(settings.contains("2x1"), "{}", settings);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    wait_for(&mut harness, "the undone 2:1 crop", |h| {
+        shows(h, "64×48 px")
+    });
+
     // File > Overwrite Original writes a new crop over the file itself, after asking.
     harness.key_press(egui::Key::C);
     harness.step();
     harness.key_press(egui::Key::Enter);
-    wait_for(&mut harness, "the second crop", |h| shows(h, "58×43 px"));
+    // The 2:1 ratio chosen above is kept between crops.
+    wait_for(&mut harness, "the second crop", |h| shows(h, "58×29 px"));
     harness.get_by_label("File").click();
     harness.run_steps(2);
     harness.get_by_label("Overwrite Original…").click();
@@ -205,7 +244,7 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     );
     harness.get_by_label("Overwrite").click();
     wait_for(&mut harness, "the overwritten original", |_| {
-        image::image_dimensions(photos.join("renamed.jpg")).ok() == Some((58, 43))
+        image::image_dimensions(photos.join("renamed.jpg")).ok() == Some((58, 29))
     });
     wait_for(&mut harness, "the notice", |h| shows(h, "overwritten"));
 

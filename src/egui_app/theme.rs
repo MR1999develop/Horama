@@ -272,6 +272,17 @@ fn apply_fonts(ctx: &Context) {
     } else {
         defs.families.insert(semibold(), fallbacks);
     }
+    // Chinese (the interface in Chinese, and file names in any script egui's fonts lack):
+    // a font of the system, tried last in every family.
+    if let Some(bytes) = cjk_font() {
+        defs.font_data.insert(
+            "cjk".into(),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+        );
+        for family in defs.families.values_mut() {
+            family.push("cjk".into());
+        }
+    }
     ctx.set_fonts(defs);
     super::symbol::set_icon_font(icons);
 }
@@ -302,6 +313,40 @@ fn system_fonts() -> Option<SystemFonts> {
 #[cfg(not(windows))]
 fn system_fonts() -> Option<SystemFonts> {
     None
+}
+
+/// A system font with the Chinese characters: Microsoft YaHei on Windows, PingFang on macOS,
+/// Noto Sans CJK or WenQuanYi on Linux. In a collection (.ttc) the first face is used.
+fn cjk_font() -> Option<Vec<u8>> {
+    #[cfg(windows)]
+    let candidates: Vec<std::path::PathBuf> = {
+        let dir = std::env::var_os("WINDIR")
+            .map_or_else(|| r"C:\Windows".into(), std::path::PathBuf::from)
+            .join("Fonts");
+        ["msyh.ttc", "msyh.ttf", "simsun.ttc"]
+            .iter()
+            .map(|name| dir.join(name))
+            .collect()
+    };
+    #[cfg(target_os = "macos")]
+    let candidates: Vec<std::path::PathBuf> = [
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+    ]
+    .iter()
+    .map(std::path::PathBuf::from)
+    .collect();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let candidates: Vec<std::path::PathBuf> = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    ]
+    .iter()
+    .map(std::path::PathBuf::from)
+    .collect();
+    candidates.iter().find_map(|path| std::fs::read(path).ok())
 }
 
 /// Behind the image.

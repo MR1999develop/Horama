@@ -33,8 +33,15 @@ impl HoramaApp {
                 ui.add_space(theme::SPACE_M);
                 widgets::section_title(ui, tr("Language"));
                 for (value, name) in i18n::CHOICES {
-                    let label = if value.is_empty() { tr(name) } else { name };
-                    if ui.radio(self.settings.language == value, label).clicked() {
+                    let label = if value == i18n::SYSTEM_LANGUAGE {
+                        tr(name)
+                    } else {
+                        name
+                    };
+                    // No choice saved yet means English.
+                    let chosen = self.settings.language.as_str();
+                    let on = chosen == value || (chosen.is_empty() && value == "en");
+                    if ui.radio(on, label).clicked() {
                         language = Some(value);
                     }
                 }

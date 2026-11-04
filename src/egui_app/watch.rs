@@ -105,7 +105,7 @@ impl HoramaApp {
                         list_changed = true;
                     }
                 }
-                FileSyncAction::Created(p) | FileSyncAction::Restored(p) => {
+                FileSyncAction::Restored(p) => {
                     if self.add_file(&p) {
                         self.set_disk_badge(&p, DiskBadge::New);
                         list_changed = true;
@@ -125,7 +125,9 @@ impl HoramaApp {
                         list_changed = true;
                     }
                 }
-                FileSyncAction::Modified(p) => {
+                // A file written again can come as created (macOS reports the flags a path ever
+                // had): a known file is then changed, an unknown one new.
+                FileSyncAction::Created(p) | FileSyncAction::Modified(p) => {
                     let p = normalize_path(&p);
                     if !self.knows(&p) {
                         // An atomic write of a new file (e.g. saved by another program).

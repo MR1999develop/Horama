@@ -1,8 +1,10 @@
 name: Continuous Integration
 
 on:
+  # Every branch, work branches included, so a branch is checked before it
+  # is merged into main.
   push:
-    branches: [ "main", "master" ]
+    branches: [ "**" ]
   pull_request:
     branches: [ "main", "master" ]
   # New advisories appear for code that does not change: check every day.

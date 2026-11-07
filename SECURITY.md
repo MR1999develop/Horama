@@ -1,26 +1,26 @@
-# Sicurezza
+# Security
 
-## Versioni supportate
+## Supported versions
 
-Le correzioni di sicurezza escono solo per l'ultima versione pubblicata e per il ramo `main`.
+Security fixes are released only for the latest published version and for the `main` branch.
 
-## Segnalare una vulnerabilità
+## Reporting a vulnerability
 
-Non aprire una issue pubblica. Usa la segnalazione privata di GitHub: scheda **Security** del
-repository, poi **Report a vulnerability**.
+Do not open a public issue. Use GitHub's private reporting: the repository's **Security** tab,
+then **Report a vulnerability**.
 
-Indica, se puoi:
+If you can, include:
 
-- la versione di Horama e il sistema operativo;
-- il file o la sequenza di passi che riproduce il problema (un file d'esempio aiuta molto);
-- che cosa può ottenere chi sfrutta il problema.
+- the Horama version and the operating system;
+- the file or the sequence of steps that reproduces the problem (a sample file helps a lot);
+- what someone exploiting the problem can achieve.
 
-## Cosa succede dopo
+## What happens next
 
-- Presa in carico entro 7 giorni.
-- Correzione e divulgazione coordinata entro 90 giorni, con un avviso di sicurezza su GitHub
-  e una nota nel rilascio che corregge il problema.
-- Chi segnala viene citato nell'avviso, se lo desidera.
+- Acknowledgement within 7 days.
+- Fix and coordinated disclosure within 90 days, with a GitHub security advisory and a note in
+  the release that fixes the problem.
+- Reporters are credited in the advisory, if they wish.
 
-Le minacce considerate e i rischi accettati sono descritti in
+The threats considered and the accepted risks are described in
 [docs/threat-model.md](docs/threat-model.md).

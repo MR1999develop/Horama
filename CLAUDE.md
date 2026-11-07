@@ -24,5 +24,6 @@
   `scripts\check.bat` su `main`. Il ruleset di `main` vuole commit firmati
   (firma SSH già nella configurazione git del repository).
 - Documenti: `docs/adr/` (decisioni difficili da cambiare),
-  `docs/threat-model.md`, `TIDY.md` (cose rimandate).
+  `docs/threat-model.md`; `TIDY.md` (cose rimandate e stato del progetto)
+  resta solo sul PC, escluso da git.
 - Licenza `GPL-3.0-only`, copyright e autori **MR**.

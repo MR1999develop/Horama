@@ -4,7 +4,7 @@
 
 use crate::exif_orient;
 use crate::image_loader::{apply_orientation, read_image_file};
-use image::{DynamicImage, ImageReader};
+use image::DynamicImage;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Cursor, Write};
@@ -246,11 +246,7 @@ pub fn persist_rotation(path: &Path, quarter_turns_cw: u8) -> Result<RotationOut
 }
 
 fn decode(bytes: &[u8]) -> Result<DynamicImage, String> {
-    ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|e| e.to_string())?
-        .decode()
-        .map_err(|e| format!("Decode error: {}", e))
+    crate::image_loader::decode_image(bytes).map_err(|e| format!("Decode error: {}", e))
 }
 
 /// EXIF with orientation reset to 1 (pixels already carry the orientation).

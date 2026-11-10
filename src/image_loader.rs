@@ -3,7 +3,7 @@
 use crate::color_manager::{extract_icc_description, icc_color_space};
 use crate::config::{THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, is_raw_file};
 use crate::cr3_parser::{extract_embedded_jpegs, extract_preview_at_least};
-use image::{DynamicImage, ImageReader};
+use image::{DynamicImage, ImageDecoder, ImageReader};
 use img_parts::ImageICC;
 use std::fs::{self, File};
 use std::io::{BufReader, Cursor, Read};
@@ -326,15 +326,9 @@ const RAW_DEVELOP_BYTES_PER_PIXEL: u64 = 2 + 2 * 4 * 4 + 3;
 /// Only one RAW is developed at a time, so parallel preloads cannot add up their peaks.
 static RAW_DEVELOP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Reads only the RAW headers and refuses sensors that are implausibly large or would not fit
-/// in the free memory. A failed allocation aborts the whole program (it is not a panic that
-/// `catch_unwind` could stop), so the check must happen before decoding.
-fn check_raw_develop_size(path: &Path) -> Result<(), String> {
-    let file = File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-    let header = rawloader::decode_dummy(&mut BufReader::new(file))
-        .map_err(|e| format!("Failed to decode RAW file '{}': {}", path.display(), e))?;
-    // Free memory unknown: only the size limit applies.
-    let free = match sysinfo::System::new() {
+/// Free memory in bytes; `u64::MAX` when it cannot be read, so that only the pixel limits apply.
+fn free_memory_bytes() -> u64 {
+    match sysinfo::System::new() {
         Ok(mut sys) => {
             sys.refresh_memory();
             sys.available_memory()
@@ -343,8 +337,84 @@ fn check_raw_develop_size(path: &Path) -> Result<(), String> {
             log::warn!("Free memory not read: {}", e);
             u64::MAX
         }
-    };
-    raw_develop_size_ok(header.width as u64, header.height as u64, free)
+    }
+}
+
+/// Reads only the RAW headers and refuses sensors that are implausibly large or would not fit
+/// in the free memory. A failed allocation aborts the whole program (it is not a panic that
+/// `catch_unwind` could stop), so the check must happen before decoding.
+fn check_raw_develop_size(path: &Path) -> Result<(), String> {
+    let file = File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+    let header = rawloader::decode_dummy(&mut BufReader::new(file))
+        .map_err(|e| format!("Failed to decode RAW file '{}': {}", path.display(), e))?;
+    raw_develop_size_ok(
+        header.width as u64,
+        header.height as u64,
+        free_memory_bytes(),
+    )
+}
+
+/// Largest image decoded in full (pixels), as for RAW sensors: far above today's largest
+/// photos and scans, so anything bigger is a damaged or hostile header.
+const MAX_IMAGE_PIXELS: u64 = 200_000_000;
+/// Allocation allowed to any image, whatever its size: the default of the `image` crate.
+const MIN_DECODE_ALLOC: u64 = 512 * 1024 * 1024;
+
+/// Decoding limits for an image of `width`×`height` whose decoded pixels take `decoded_bytes`.
+/// The fixed 512 MiB of the `image` crate refuse large 16-bit images (a 77 MP RGB TIFF needs
+/// 440 MiB of pixels plus the decoder's own buffers), so the limit follows the image instead:
+/// at most two copies of its decoded pixels (decoder buffers, rotation) plus the 8-bit output,
+/// and only if they fit in the free memory (`free_bytes`; `u64::MAX` = unknown).
+fn image_decode_limits(
+    width: u32,
+    height: u32,
+    decoded_bytes: u64,
+    free_bytes: u64,
+) -> Result<image::Limits, String> {
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels == 0 {
+        return Err("the image declares no pixels".to_string());
+    }
+    if pixels > MAX_IMAGE_PIXELS {
+        return Err(format!(
+            "an image of {}×{} pixels ({} MP) exceeds the supported {} MP; the file is probably damaged",
+            width,
+            height,
+            pixels / 1_000_000,
+            MAX_IMAGE_PIXELS / 1_000_000
+        ));
+    }
+    let max_alloc = decoded_bytes.saturating_mul(2).max(MIN_DECODE_ALLOC);
+    let needed = decoded_bytes
+        .saturating_mul(2)
+        .saturating_add(pixels.saturating_mul(3));
+    if needed > free_bytes {
+        return Err(format!(
+            "not enough free memory to open this image: about {:.1} GB needed, {:.1} GB free. \
+             Close other programs and try again",
+            needed as f64 / GB,
+            free_bytes as f64 / GB
+        ));
+    }
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(max_alloc);
+    Ok(limits)
+}
+
+/// Decodes a whole image file of a standard format (`bytes` is its content), with limits sized
+/// on the image and checked against the free memory before the pixels are allocated.
+pub(crate) fn decode_image(bytes: &[u8]) -> Result<DynamicImage, String> {
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("format not recognised: {}", e))?;
+    // Only the header is read here; the real limits are set below, once the size is known.
+    reader.no_limits();
+    let mut decoder = reader.into_decoder().map_err(|e| e.to_string())?;
+    let (width, height) = decoder.dimensions();
+    let limits = image_decode_limits(width, height, decoder.total_bytes(), free_memory_bytes())?;
+    decoder.set_limits(limits).map_err(|e| e.to_string())?;
+    DynamicImage::from_decoder(decoder).map_err(|e| e.to_string())
 }
 
 /// `free_bytes == 0` means "unknown" (no memory check, only the pixel limit).
@@ -547,17 +617,12 @@ fn load_image_inner(path: &Path) -> Result<DecodedImage, String> {
         classify_icc(extract_icc_from_bytes(&bytes, &ext));
     let orientation = read_exif_orientation_from_bytes(&bytes);
 
-    let reader = ImageReader::new(Cursor::new(&bytes))
-        .with_guessed_format()
-        .map_err(|e| format!("Format guess error: {}", e))?;
-    let fmt_str = reader
-        .format()
+    let fmt_str = image::guess_format(&bytes)
         .map(|f| format!("{:?}", f).to_uppercase())
-        .unwrap_or_else(|| ext.to_uppercase());
+        .unwrap_or_else(|_| ext.to_uppercase());
 
-    let dyn_img = reader
-        .decode()
-        .map_err(|e| format!("Decode error on {}: {}", path.display(), e))?;
+    let dyn_img =
+        decode_image(&bytes).map_err(|e| format!("Decode error on {}: {}", path.display(), e))?;
 
     let bit_depth = match &dyn_img {
         DynamicImage::ImageLuma16(_)
@@ -948,6 +1013,42 @@ mod tests {
         assert!(e.contains("exceeds the supported"), "{}", e);
         assert!(raw_develop_size_ok(0, 4000, 16 * GB).is_err());
         assert!(raw_develop_size_ok(u64::MAX, u64::MAX, 16 * GB).is_err());
+    }
+
+    #[test]
+    fn large_images_get_limits_sized_on_them() {
+        const GB: u64 = 1024 * 1024 * 1024;
+        // A 77 MP RGB TIFF at 16 bits: 440 MiB of pixels, refused by the crate's fixed 512 MiB.
+        let (w, h) = (10_724, 7_182);
+        let bytes = u64::from(w) * u64::from(h) * 6;
+        let limits = image_decode_limits(w, h, bytes, 16 * GB).unwrap();
+        assert!(limits.max_alloc.unwrap() >= 2 * bytes);
+        // Unknown free memory: only the pixel limit applies.
+        assert!(image_decode_limits(w, h, bytes, u64::MAX).is_ok());
+        // Same image with 1 GB free: refused with a clear reason, before any allocation.
+        let e = image_decode_limits(w, h, bytes, GB).unwrap_err();
+        assert!(e.contains("not enough free memory"), "{}", e);
+        // A small image keeps at least the crate's default allowance.
+        let small = image_decode_limits(100, 100, 30_000, 16 * GB).unwrap();
+        assert_eq!(small.max_alloc, Some(MIN_DECODE_ALLOC));
+        // Damaged headers.
+        let e = image_decode_limits(40_000, 40_000, 40_000 * 40_000 * 3, u64::MAX).unwrap_err();
+        assert!(e.contains("exceeds the supported"), "{}", e);
+        assert!(image_decode_limits(0, 4000, 0, u64::MAX).is_err());
+        assert!(image_decode_limits(u32::MAX, u32::MAX, u64::MAX, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn a_16_bit_tiff_is_decoded_through_the_sized_limits() {
+        let img = DynamicImage::ImageRgb16(image::ImageBuffer::from_fn(64, 48, |x, y| {
+            image::Rgb([(x * 1000) as u16, (y * 1000) as u16, 65_535])
+        }));
+        let mut tif = Vec::new();
+        img.write_to(&mut Cursor::new(&mut tif), image::ImageFormat::Tiff)
+            .unwrap();
+        let back = decode_image(&tif).unwrap();
+        assert_eq!(back, img);
+        assert!(decode_image(b"not an image at all").is_err());
     }
 
     fn sample(width: u32, height: u32, rgb_pixels: Vec<u8>) -> DecodedImage {

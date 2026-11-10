@@ -252,8 +252,8 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ),
     ("Change", "Ändern"),
     (
-        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.",
-        "Feste Tasten: 0–5 Bewertung, F anpassen, I Infobereich, Strg+Umschalt+S Kopie speichern, F6 nächster Bereich.",
+        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, Ctrl+P print, F6 next panel.",
+        "Feste Tasten: 0–5 Bewertung, F anpassen, I Infobereich, Strg+Umschalt+S Kopie speichern, Strg+P drucken, F6 nächster Bereich.",
     ),
     ("Reset to Defaults", "Auf Standard zurücksetzen"),
     (
@@ -406,4 +406,28 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
         "Converted: same look on screen; pixel values and histogram change.",
         "Konvertiert: gleiches Aussehen auf dem Bildschirm; Pixelwerte und Histogramm ändern sich.",
     ),
+    ("Print…", "Drucken…"),
+    (
+        "Prints the image as shown, crop included",
+        "Druckt das Bild wie angezeigt, einschließlich Zuschnitt",
+    ),
+    (
+        "Preparing {} for printing…",
+        "{} wird für den Druck vorbereitet…",
+    ),
+    (
+        "{} was sent to the printer.",
+        "{} wurde an den Drucker gesendet.",
+    ),
+    ("Cannot print {}: {}", "{} kann nicht gedruckt werden: {}"),
+    ("Print", "Drucken"),
+    ("Looking for printers…", "Drucker werden gesucht…"),
+    ("Printers not available: {}", "Drucker nicht verfügbar: {}"),
+    (
+        "No printer found. Add one in the settings of the system.",
+        "Kein Drucker gefunden. Fügen Sie einen in den Systemeinstellungen hinzu.",
+    ),
+    ("Printer", "Drucker"),
+    ("Copies", "Kopien"),
+    ("Fit to page", "An Seite anpassen"),
 ];

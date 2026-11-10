@@ -36,6 +36,7 @@ pub(super) enum Command {
     Save,
     // Fixed keys.
     SaveAs,
+    Print,
     Fit,
     ToggleInfo,
     NextPanel,
@@ -72,10 +73,14 @@ pub(super) const CUSTOM: [(Command, &str, &str); 21] = [
 ];
 
 /// Keys that are not customizable.
-const FIXED: [(Command, KeyboardShortcut); 5] = [
+const FIXED: [(Command, KeyboardShortcut); 6] = [
     (
         Command::SaveAs,
         KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::S),
+    ),
+    (
+        Command::Print,
+        KeyboardShortcut::new(Modifiers::COMMAND, Key::P),
     ),
     (Command::Fit, KeyboardShortcut::new(Modifiers::NONE, Key::F)),
     (
@@ -296,7 +301,7 @@ impl HoramaApp {
                 ui.separator();
                 ui.label(
                     egui::RichText::new(tr(
-                        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.",
+                        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, Ctrl+P print, F6 next panel.",
                     ))
                     .small()
                     .weak(),
@@ -320,6 +325,7 @@ impl HoramaApp {
                 .map(|(c, _, n)| (*c, *n))
                 .chain([
                     (Command::SaveAs, "Save a Copy As…"),
+                    (Command::Print, "Print…"),
                     (Command::Fit, "Fit to Window"),
                     (Command::ToggleInfo, "Image Info"),
                     (Command::NextPanel, "Next Panel"),

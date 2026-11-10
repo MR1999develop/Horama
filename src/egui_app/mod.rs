@@ -22,6 +22,7 @@ mod loader;
 mod mcp;
 mod overwrite;
 mod prefs;
+mod print;
 mod profiles;
 mod shortcuts;
 mod symbol;
@@ -103,6 +104,8 @@ enum Msg {
     },
     /// The profile of the monitor the window is on ([`display`]).
     Display(crate::color_manager::DisplayProfile),
+    /// Printers found or a print handed to the system ([`print`]).
+    Print(print::PrintMsg),
     /// Changes on disk in the open folder ([`watch`]).
     Disk {
         generation: u64,
@@ -248,6 +251,8 @@ pub struct HoramaApp {
     notice: Option<files::Notice>,
     rename: Option<files::RenameDialog>,
     quality: Option<files::QualityDialog>,
+    /// File > Print on Linux and macOS: the print window.
+    print_dialog: Option<print::PrintDialog>,
     /// File > Overwrite Original, waiting for the answer.
     overwrite: Option<overwrite::OverwritePrompt>,
     status: String,
@@ -345,6 +350,7 @@ impl HoramaApp {
             notice: None,
             rename: None,
             quality: None,
+            print_dialog: None,
             overwrite: None,
             status: tr("Open a folder to view images").to_string(),
         }
@@ -742,6 +748,7 @@ impl HoramaApp {
                 }
                 Msg::File(result) => self.file_result(result),
                 Msg::Display(profile) => self.display_detected(profile),
+                Msg::Print(msg) => self.print_result(msg),
                 Msg::Compared {
                     generation,
                     path,
@@ -842,6 +849,7 @@ impl HoramaApp {
         self.shortcuts_window(&ctx);
         self.rename_window(&ctx);
         self.quality_window(&ctx);
+        self.print_window(&ctx);
         self.overwrite_window(&ctx);
     }
 
@@ -903,6 +911,17 @@ impl HoramaApp {
                     .clicked()
                 {
                     self.save_as();
+                }
+                if ui
+                    .add_enabled(
+                        has_image,
+                        egui::Button::new(tr("Print…"))
+                            .shortcut_text(self.shortcut_text(shortcuts::Command::Print)),
+                    )
+                    .on_hover_text(tr("Prints the image as shown, crop included"))
+                    .clicked()
+                {
+                    self.start_print();
                 }
                 let blocker = self
                     .current_path()
@@ -1224,6 +1243,7 @@ impl HoramaApp {
                 self.save_edits(targets);
             }
             C::SaveAs if has_image => self.save_as(),
+            C::Print if has_image => self.start_print(),
             C::Delete if has_image => self.trash_selected(),
             C::Rename if has_image => self.start_rename(),
             C::RotateCw if has_image => self.rotate(true),

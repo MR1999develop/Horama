@@ -75,6 +75,9 @@ pub struct AppSettings {
     /// "system" for the language of the system, "" (no choice yet) for English.
     #[serde(default)]
     pub language: String,
+    /// Printer chosen at the last print (Linux and macOS, CUPS); "" = none yet.
+    #[serde(default)]
+    pub last_printer: String,
 }
 
 /// Theme of the interface; Dark by default, as suits an image viewer.
@@ -150,6 +153,7 @@ impl Default for AppSettings {
             jpeg_quality: 0,
             theme: ThemeChoice::default(),
             language: String::new(),
+            last_printer: String::new(),
         }
     }
 }

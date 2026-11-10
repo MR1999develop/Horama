@@ -196,6 +196,7 @@ mod tests {
             include_str!("display.rs"),
             include_str!("view_rotation.rs"),
             include_str!("overwrite.rs"),
+            include_str!("print.rs"),
         ];
         let texts: Vec<String> = sources.iter().flat_map(|s| texts_in(s)).collect();
         for lang in Lang::ALL {

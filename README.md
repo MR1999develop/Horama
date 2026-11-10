@@ -102,6 +102,7 @@ All shortcuts can be customised in the application from the **`Help -> Keyboard 
 | **Open file(s)...** | `Ctrl+O` |
 | **Open folder...** | `Ctrl+Shift+O` |
 | **Save / Export...** | `Ctrl+S` |
+| **Print...** (fixed) | `Ctrl+P` |
 | **Rating** | Number keys `0` - `5` |
 
 ---
@@ -124,7 +125,7 @@ What it does:
 - choice and conversion of the colour profile (Image menu, P for the next one) and custom ICC/ICM profiles;
 - crop (C) with a free aspect ratio or with those of the "Aspect ratio" filter (also custom ones, which are added from the crop bar, stay saved and are deleted with the X next to them in the aspect ratio menu), frame rotatable by 90° (X or the button in the bar), Undo/Redo (Ctrl+Z / Ctrl+Y) for crops, ratings, profiles and rotations, saving crops as new files next to the originals (Ctrl+S) or over the original with File > Overwrite the original (not for RAW files, always after a confirmation; JPEGs are compressed like the original) and a prompt on closing if unsaved crops remain;
 - comparison of up to nine selected images, side by side;
-- lossless rotation (R / L; RAW files and formats that cannot be rewritten without loss rotate on screen only), Recycle Bin without confirmation with Undo for 8 seconds (Del), renaming one or more files (F2), "Save a copy as" with the choice of JPEG quality (Ctrl+Shift+S), "Open with" from the right-click menu on the filmstrip;
+- lossless rotation (R / L; RAW files and formats that cannot be rewritten without loss rotate on screen only), Recycle Bin without confirmation with Undo for 8 seconds (Del), renaming one or more files (F2), "Save a copy as" with the choice of JPEG quality (Ctrl+Shift+S), printing of the image as shown, crop included, in sRGB (File > Print, Ctrl+P: the Print Pictures window of Windows; on Linux and macOS a window with printer, copies and fit to page, through CUPS), "Open with" from the right-click menu on the filmstrip;
 - customisable shortcuts (View > Keyboard shortcuts), F6 to move from one panel to another;
 - toolbar with zoom and colour profile lock;
 - look in line with Windows 11: colours, Segoe UI and system icons; System / Light / Dark theme and language (English by default, Italian, German, French, Spanish, Chinese or the system's) in File > Preferences (Ctrl+,); Chinese uses a system font (Microsoft YaHei, PingFang, Noto Sans CJK); Help menu with shortcuts and information; names and states of the controls for screen readers;

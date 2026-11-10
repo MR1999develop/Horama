@@ -818,6 +818,30 @@ impl ColorManager {
             && selected_profile_name != PROFILE_EMBEDDED
     }
 
+    /// The pixels in sRGB, for programs that are not color managed (printing): the values as
+    /// they would be saved with `selected_profile_name`, converted from that profile to sRGB.
+    pub fn pixels_in_srgb(
+        &self,
+        raw_rgb: &[u8],
+        selected_profile_name: &str,
+        embedded_icc: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let embedded_icc = embedded_icc.filter(|e| icc_color_space(e) == Some(*b"RGB "));
+        let mut pixels = self.prepare_pixels_for_save(raw_rgb, selected_profile_name, embedded_icc);
+        let src_key = self.profile_key(selected_profile_name, embedded_icc);
+        if let Some(t) = self.transform(
+            &src_key,
+            selected_profile_name,
+            embedded_icc,
+            "builtin:srgb",
+            PROFILE_SRGB,
+            None,
+        ) {
+            Self::apply_transform(&t, &mut pixels);
+        }
+        pixels
+    }
+
     pub fn prepare_pixels_for_save(
         &self,
         raw_rgb: &[u8],
@@ -879,4 +903,25 @@ pub fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (i32, i32, i32) {
         (s * 100.0).round() as i32,
         (l * 100.0).round() as i32,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn print_pixels_are_converted_to_srgb() {
+        let cm = ColorManager::new();
+        let px = vec![100u8, 150, 200, 30, 60, 90];
+        // Untagged image shown as sRGB: nothing to convert.
+        assert_eq!(cm.pixels_in_srgb(&px, PROFILE_EMBEDDED, None), px);
+        assert_eq!(cm.pixels_in_srgb(&px, PROFILE_SRGB, None), px);
+        // Adobe RGB assigned: the same numbers mean other colors, so they change in sRGB.
+        let assigned = cm.pixels_in_srgb(&px, PROFILE_ADOBE_RGB, None);
+        assert_ne!(assigned, px);
+        // Adobe RGB embedded and kept: converted the same way.
+        let adobe = cm.get_profile_bytes(PROFILE_ADOBE_RGB, None);
+        let embedded = cm.pixels_in_srgb(&px, PROFILE_EMBEDDED, Some(&adobe));
+        assert_eq!(embedded, assigned);
+    }
 }

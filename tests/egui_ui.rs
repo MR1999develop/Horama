@@ -235,6 +235,9 @@ fn rating_recycle_bin_undo_rotation_and_rename() {
     wait_for(&mut harness, "the second crop", |h| shows(h, "58×29 px"));
     harness.get_by_label("File").click();
     harness.run_steps(2);
+    // File > Print is offered for the image shown (not clicked: it would open the print
+    // window of the system).
+    harness.get_by_label("Print…");
     harness.get_by_label("Overwrite Original…").click();
     harness.run_steps(2);
     assert_eq!(

@@ -225,8 +225,8 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ),
     ("Change", "更改"),
     (
-        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.",
-        "固定按键：0–5 评级，F 适合窗口，I 信息面板，Ctrl+Shift+S 另存副本，F6 下一个面板。",
+        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, Ctrl+P print, F6 next panel.",
+        "固定按键：0–5 评级，F 适合窗口，I 信息面板，Ctrl+Shift+S 另存副本，Ctrl+P 打印，F6 下一个面板。",
     ),
     ("Reset to Defaults", "恢复默认设置"),
     ("{} is already used by \"{}\".", "{} 已被“{}”使用。"),
@@ -367,4 +367,22 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
         "Converted: same look on screen; pixel values and histogram change.",
         "已转换：屏幕上外观相同；像素值和直方图会改变。",
     ),
+    ("Print…", "打印…"),
+    (
+        "Prints the image as shown, crop included",
+        "按显示效果打印图像，包括裁剪",
+    ),
+    ("Preparing {} for printing…", "正在准备打印 {}…"),
+    ("{} was sent to the printer.", "{} 已发送到打印机。"),
+    ("Cannot print {}: {}", "无法打印 {}：{}"),
+    ("Print", "打印"),
+    ("Looking for printers…", "正在查找打印机…"),
+    ("Printers not available: {}", "打印机不可用：{}"),
+    (
+        "No printer found. Add one in the settings of the system.",
+        "未找到打印机。请在系统设置中添加打印机。",
+    ),
+    ("Printer", "打印机"),
+    ("Copies", "份数"),
+    ("Fit to page", "适合页面"),
 ];

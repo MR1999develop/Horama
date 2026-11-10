@@ -249,8 +249,8 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ),
     ("Change", "Cambiar"),
     (
-        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.",
-        "Teclas fijas: 0–5 valoración, F ajustar, I panel de información, Ctrl+Mayús+S guardar una copia, F6 panel siguiente.",
+        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, Ctrl+P print, F6 next panel.",
+        "Teclas fijas: 0–5 valoración, F ajustar, I panel de información, Ctrl+Mayús+S guardar una copia, Ctrl+P imprimir, F6 panel siguiente.",
     ),
     ("Reset to Defaults", "Restablecer valores predeterminados"),
     ("{} is already used by \"{}\".", "{} ya lo usa «{}»."),
@@ -397,4 +397,28 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
         "Converted: same look on screen; pixel values and histogram change.",
         "Convertido: mismo aspecto en pantalla; cambian los valores de los píxeles y el histograma.",
     ),
+    ("Print…", "Imprimir…"),
+    (
+        "Prints the image as shown, crop included",
+        "Imprime la imagen tal como se ve, recorte incluido",
+    ),
+    ("Preparing {} for printing…", "Preparando {} para imprimir…"),
+    (
+        "{} was sent to the printer.",
+        "{} se ha enviado a la impresora.",
+    ),
+    ("Cannot print {}: {}", "No se puede imprimir {}: {}"),
+    ("Print", "Imprimir"),
+    ("Looking for printers…", "Buscando impresoras…"),
+    (
+        "Printers not available: {}",
+        "Impresoras no disponibles: {}",
+    ),
+    (
+        "No printer found. Add one in the settings of the system.",
+        "No se encontró ninguna impresora. Añada una en la configuración del sistema.",
+    ),
+    ("Printer", "Impresora"),
+    ("Copies", "Copias"),
+    ("Fit to page", "Ajustar a la página"),
 ];

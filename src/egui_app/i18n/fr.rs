@@ -252,8 +252,8 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
     ),
     ("Change", "Modifier"),
     (
-        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, F6 next panel.",
-        "Touches fixes : 0–5 note, F ajuster, I panneau d'informations, Ctrl+Maj+S enregistrer une copie, F6 panneau suivant.",
+        "Fixed keys: 0–5 rating, F fit, I info panel, Ctrl+Shift+S save a copy, Ctrl+P print, F6 next panel.",
+        "Touches fixes : 0–5 note, F ajuster, I panneau d'informations, Ctrl+Maj+S enregistrer une copie, Ctrl+P imprimer, F6 panneau suivant.",
     ),
     ("Reset to Defaults", "Rétablir les valeurs par défaut"),
     (
@@ -406,4 +406,31 @@ pub(super) const CATALOG: &[(&str, &str)] = &[
         "Converted: same look on screen; pixel values and histogram change.",
         "Converti : même aspect à l'écran ; les valeurs des pixels et l'histogramme changent.",
     ),
+    ("Print…", "Imprimer…"),
+    (
+        "Prints the image as shown, crop included",
+        "Imprime l'image telle qu'affichée, recadrage compris",
+    ),
+    (
+        "Preparing {} for printing…",
+        "Préparation de {} pour l'impression…",
+    ),
+    (
+        "{} was sent to the printer.",
+        "{} a été envoyé à l'imprimante.",
+    ),
+    ("Cannot print {}: {}", "Impossible d'imprimer {} : {}"),
+    ("Print", "Imprimer"),
+    ("Looking for printers…", "Recherche des imprimantes…"),
+    (
+        "Printers not available: {}",
+        "Imprimantes non disponibles : {}",
+    ),
+    (
+        "No printer found. Add one in the settings of the system.",
+        "Aucune imprimante trouvée. Ajoutez-en une dans les réglages du système.",
+    ),
+    ("Printer", "Imprimante"),
+    ("Copies", "Copies"),
+    ("Fit to page", "Ajuster à la page"),
 ];
